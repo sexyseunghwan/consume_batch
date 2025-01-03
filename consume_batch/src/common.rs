@@ -1,65 +1,50 @@
 pub use std::{
-    io::Write,
-    env, fs, cmp, thread,
-    time::Duration,
-    sync::{ Arc, Mutex, MutexGuard },
-    collections::{HashMap, VecDeque},
-    path::Path,
+    cmp,
     cmp::Ordering,
+    collections::{HashMap, VecDeque},
+    env, fs,
     future::Future,
-    str::FromStr
+    io::Write,
+    path::Path,
+    str::FromStr,
+    sync::{Arc, Mutex, MutexGuard},
+    thread,
+    time::Duration,
 };
 
-pub use rand:: {
-    prelude::SliceRandom,
-    rngs::StdRng,
-    SeedableRng
+pub use rand::{prelude::SliceRandom, rngs::StdRng, SeedableRng};
+
+pub use tokio::{sync::OnceCell, task};
+
+pub use log::{error, info};
+
+pub use flexi_logger::{Age, Cleanup, Criterion, FileSpec, Logger, Naming, Record};
+
+pub use chrono::{
+    DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc, Weekday,
 };
-
-pub use tokio::{
-    sync::OnceCell,
-    task
-};
-
-pub use log::{info, error};
-
-pub use flexi_logger::{
-    Logger, FileSpec, Criterion, Age, Naming, Cleanup, Record
-};
-
-pub use chrono::{DateTime, Utc, NaiveDateTime, NaiveDate, Datelike, TimeZone, Weekday, NaiveTime, Timelike};
 pub use chrono_tz::Asia::Seoul;
 
-pub use serde::{
-    Serialize, Deserialize
-};
+pub use serde::{Deserialize, Serialize};
 
-pub use serde_json::{
-    json, Value, from_value
-};
+pub use serde_json::{from_value, json, Value};
 
 pub use serde::de::DeserializeOwned;
 
 pub use dotenv::dotenv;
 
 pub use elasticsearch::{
-    Elasticsearch, 
-    DeleteByQueryParts,
-    http::transport::{ SingleNodeConnectionPool, TransportBuilder, MultiNodeConnectionPool},
-    http::Url,
     http::response::Response,
-    SearchParts, 
-    IndexParts, 
-    DeleteParts,
-    http::transport::{ Transport, ConnectionPool }
+    http::transport::{ConnectionPool, Transport},
+    http::transport::{MultiNodeConnectionPool, SingleNodeConnectionPool, TransportBuilder},
+    http::Url,
+    DeleteByQueryParts, DeleteParts, Elasticsearch, IndexParts, SearchParts,
 };
 
-pub use anyhow::{
-    Result, anyhow, Context
-};
+pub use anyhow::{anyhow, Context, Result};
 
-pub use getset::Getters;
 pub use derive_new::new;
+pub use getset::Getters;
 
 pub use num_format::{Locale, ToFormattedString};
 
@@ -77,31 +62,17 @@ pub use num_format::{Locale, ToFormattedString};
 pub use kafka::producer::{Producer, Record as KafkaRecord, RequiredAcks};
 
 pub use diesel::{
-    Table,
-    Column,
-    Queryable,
-    QueryDsl,
-    Insertable,
-    ExpressionMethods,
-    RunQueryDsl,
-    r2d2::{ConnectionManager, Pool, PooledConnection},
-    mysql::{MysqlConnection, Mysql},
-    JoinOnDsl,
-    helper_types::SqlTypeOf,
-    SelectableExpression,
-    Expression,
-    query_builder::{
-        AsQuery, 
-        QueryFragment, 
-        QueryId
-    },
-    sql_types::{SqlType, SingleValue},
-    AppearsOnTable,
-    query_dsl::methods::{OrderDsl, LimitDsl, BoxedDsl},
+    associations::HasTable,
     expression::NonAggregate,
-    associations::HasTable
+    helper_types::SqlTypeOf,
+    mysql::{Mysql, MysqlConnection},
+    query_builder::{AsQuery, QueryFragment, QueryId},
+    query_dsl::methods::{BoxedDsl, LimitDsl, OrderDsl},
+    r2d2::{ConnectionManager, Pool, PooledConnection},
+    sql_types::{SingleValue, SqlType},
+    AppearsOnTable, Column, Expression, ExpressionMethods, Insertable, JoinOnDsl, QueryDsl,
+    Queryable, RunQueryDsl, SelectableExpression, Table,
 };
-
 
 pub use async_trait::async_trait;
 
@@ -113,7 +84,6 @@ pub use async_trait::async_trait;
 pub use regex::Regex;
 
 pub use once_cell::sync::Lazy as once_lazy;
-
 
 /* Elasticsearch index name to use globally */
 pub static CONSUME_DETAIL: &str = "consuming_index_prod_new";

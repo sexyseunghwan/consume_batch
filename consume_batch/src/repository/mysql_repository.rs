@@ -8,12 +8,16 @@ static POOL: once_lazy<Arc<MysqlPool>> = once_lazy::new(|| {
     //dotenv().ok();
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let manager = ConnectionManager::<MysqlConnection>::new(&database_url);
-    Arc::new(Pool::builder().build(manager).expect("Failed to create pool."))
+    Arc::new(
+        Pool::builder()
+            .build(manager)
+            .expect("Failed to create pool."),
+    )
 });
 
 #[doc = ""]
-pub fn get_mysql_pool() -> Result<PooledConnection<ConnectionManager<MysqlConnection>>, anyhow::Error> {
-    
+pub fn get_mysql_pool(
+) -> Result<PooledConnection<ConnectionManager<MysqlConnection>>, anyhow::Error> {
     let pool = Arc::clone(&POOL);
     let conn: PooledConnection<ConnectionManager<MysqlConnection>> = pool.get()?;
 
