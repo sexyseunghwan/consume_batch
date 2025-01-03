@@ -68,7 +68,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
     //     Ok(())
     // }
     #[doc = ""]
-    pub fn dynamic_indexing(&self) -> Result<(), anyhow::Error> {
+    pub async fn insert_es_to_mysql(&self) -> Result<(), anyhow::Error> {
         // RDB 에서 가장 뒤의 데이터를 가져와준다.
         let recent_prodt = self
             .query_service
@@ -80,7 +80,20 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
             ));
         }
 
-        //println!("{:?}", test);
+        let cur_timestamp: NaiveDateTime = recent_prodt.get(0)
+            .ok_or_else(|| anyhow!("[Error][dynamic_indexing()] The 0th data in array 'recent_prodt' does not exist."))?
+            .cur_timestamp;
+
+        // Elasticsearch 에서 cur_timestamp 이후의 데이터를 가져와준다.
+        let es_recent_prodt_infos = self
+            .es_query_service
+            .get_consume_detail_list_gte_cur_timstamp_from_es(cur_timestamp)
+            .await?;
+
+        if es_recent_prodt_infos.len() == 0 {
+            info!("[dynamic_indexing()] There are no additional incremental indexes.");
+            return Ok(());
+        }
 
         Ok(())
     }

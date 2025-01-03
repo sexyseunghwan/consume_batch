@@ -26,5 +26,5 @@ async fn main() {
     let es_query_service = EsQueryServicePub::new();
     let main_controller = MainController::new(query_service, es_query_service);
 
-    main_controller.dynamic_indexing().unwrap();
+    main_controller.insert_es_to_mysql().await.unwrap();
 }

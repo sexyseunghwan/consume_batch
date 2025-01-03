@@ -31,8 +31,6 @@ impl QueryService for QueryServicePub {
         &self,
     ) -> Result<Vec<ConsumeProdtKeyword>, anyhow::Error> {
         let mut conn = get_mysql_pool()?;
-        // let pool = get_mysql_pool();
-        // let mut conn =  pool.get()?;
 
         let result = CONSUME_PRODT_KEYWORD::table
             .inner_join(
@@ -59,13 +57,13 @@ impl QueryService for QueryServicePub {
 
         if ascending {
             result = LimitDsl::limit(
-                OrderDsl::order(CONSUME_PRODT_DETAIL, timestamp.asc()),
+                OrderDsl::order(CONSUME_PRODT_DETAIL, cur_timestamp.asc()),
                 top_n,
             )
             .load::<ConsumeProdtDetail>(&mut conn)?;
         } else {
             result = LimitDsl::limit(
-                OrderDsl::order(CONSUME_PRODT_DETAIL, timestamp.desc()),
+                OrderDsl::order(CONSUME_PRODT_DETAIL, cur_timestamp.desc()),
                 top_n,
             )
             .load::<ConsumeProdtDetail>(&mut conn)?;
