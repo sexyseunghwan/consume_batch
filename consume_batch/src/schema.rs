@@ -1,6 +1,16 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
+    CONSUME_PRODT_DETAIL (timestamp, prodt_name) {
+        timestamp -> Datetime,
+        cur_timestamp -> Datetime,
+        #[max_length = 200]
+        prodt_name -> Varchar,
+        prodt_money -> Integer,
+    }
+}
+
+diesel::table! {
     CONSUME_PRODT_KEYWORD (consume_keyword_type, consume_keyword) {
         #[max_length = 100]
         consume_keyword_type -> Varchar,
@@ -31,6 +41,7 @@ diesel::table! {
 }
 
 diesel::allow_tables_to_appear_in_same_query!(
+    CONSUME_PRODT_DETAIL,
     CONSUME_PRODT_KEYWORD,
     CONSUMUE_KEYWORD_TYPE,
     users,

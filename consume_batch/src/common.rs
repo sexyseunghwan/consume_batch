@@ -61,10 +61,7 @@ pub use anyhow::{
 pub use getset::Getters;
 pub use derive_new::new;
 
-
-pub use reqwest::Client;
-
-
+pub use num_format::{Locale, ToFormattedString};
 
 // pub use rdkafka:: {
 //     config::ClientConfig,
@@ -79,15 +76,16 @@ pub use reqwest::Client;
 
 pub use kafka::producer::{Producer, Record as KafkaRecord, RequiredAcks};
 
-// pub use diesel::{
-//     Queryable,
-//     QueryDsl,
-//     Insertable,
-//     ExpressionMethods,
-//     RunQueryDsl,
-//     r2d2::{ConnectionManager, Pool},
-//     mysql::MysqlConnection
-// };
+pub use diesel::{
+    Queryable,
+    QueryDsl,
+    Insertable,
+    ExpressionMethods,
+    RunQueryDsl,
+    r2d2::{ConnectionManager, Pool},
+    mysql::MysqlConnection,
+    JoinOnDsl
+};
 
 
 pub use async_trait::async_trait;
@@ -97,6 +95,7 @@ pub use async_trait::async_trait;
 //pub static ELASTICSEARCH_CLIENT: OnceCell<Arc<EsRepositoryPub>> = OnceCell::new();
 //pub static KAFKA_PRODUCER: OnceCell<Arc<KafkaRepositoryPub>> = OnceCell::const_new();
 
+pub use regex::Regex;
 
 pub use once_cell::sync::Lazy as once_lazy;
 
