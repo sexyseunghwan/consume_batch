@@ -77,14 +77,29 @@ pub use num_format::{Locale, ToFormattedString};
 pub use kafka::producer::{Producer, Record as KafkaRecord, RequiredAcks};
 
 pub use diesel::{
+    Table,
+    Column,
     Queryable,
     QueryDsl,
     Insertable,
     ExpressionMethods,
     RunQueryDsl,
-    r2d2::{ConnectionManager, Pool},
-    mysql::MysqlConnection,
-    JoinOnDsl
+    r2d2::{ConnectionManager, Pool, PooledConnection},
+    mysql::{MysqlConnection, Mysql},
+    JoinOnDsl,
+    helper_types::SqlTypeOf,
+    SelectableExpression,
+    Expression,
+    query_builder::{
+        AsQuery, 
+        QueryFragment, 
+        QueryId
+    },
+    sql_types::{SqlType, SingleValue},
+    AppearsOnTable,
+    query_dsl::methods::{OrderDsl, LimitDsl, BoxedDsl},
+    expression::NonAggregate,
+    associations::HasTable
 };
 
 
@@ -101,7 +116,7 @@ pub use once_cell::sync::Lazy as once_lazy;
 
 
 /* Elasticsearch index name to use globally */
-pub static CONSUME_DETAIL: &str = "consuming_index_prod_new_v2";
+pub static CONSUME_DETAIL: &str = "consuming_index_prod_new";
 pub static CONSUME_DETAIL_REMOVE: &str = "consuming_index_prod_new_remove";
 pub static CONSUME_TYPE: &str = "consuming_index_prod_type_v2";
 pub static MEAL_CHECK: &str = "meal_check_index";

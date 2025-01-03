@@ -16,6 +16,7 @@ use controller::main_controller::*;
 
 mod service;
 use service::query_service::*;
+use service::es_query_service::*;
 
 #[tokio::main]
 async fn main() {
@@ -24,8 +25,9 @@ async fn main() {
     dotenv().ok();
 
     let query_service = QueryServicePub::new();
-    let main_controller = MainController::new(query_service);    
+    let es_query_service = EsQueryServicePub::new();
+    let main_controller = MainController::new(query_service, es_query_service);    
 
-    main_controller.migration_elastic_to_rdb().await.unwrap();
+    main_controller.dynamic_indexing().unwrap();
     
 }

@@ -1,3 +1,5 @@
+use serde::de::Error;
+
 use crate::common::*;
 
 type MysqlPool = Pool<ConnectionManager<MysqlConnection>>;
@@ -10,6 +12,13 @@ static POOL: once_lazy<Arc<MysqlPool>> = once_lazy::new(|| {
 });
 
 #[doc = ""]
-pub fn get_mysql_pool() -> Arc<MysqlPool> {
-    POOL.clone()
+pub fn get_mysql_pool() -> Result<PooledConnection<ConnectionManager<MysqlConnection>>, anyhow::Error> {
+    
+    let pool = Arc::clone(&POOL);
+    let conn: PooledConnection<ConnectionManager<MysqlConnection>> = pool.get()?;
+
+    let pool_state = pool.state();
+    info!("idle_connections: {}", pool_state.idle_connections);
+
+    Ok(conn)
 }

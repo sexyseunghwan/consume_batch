@@ -1,10 +1,9 @@
 use crate::common::*;
 
+use crate::models::consume_prodt_detail::*;
 use crate::models::consume_prodt_keyword::*;
-use crate::models::consume_prodt_detail_es::*;
 
 use crate::repository::mysql_repository::*;
-use crate::repository::es_repository::*;
 
 use crate::schema::{
     CONSUME_PRODT_KEYWORD, 
@@ -12,26 +11,27 @@ use crate::schema::{
     CONSUME_PRODT_DETAIL
     };
 
+use crate::schema::CONSUME_PRODT_DETAIL::dsl::*;
 
-
-#[async_trait]
 pub trait QueryService {
     fn consume_keyword_type_join_consume_prodt_keyword(&self) -> Result<Vec<ConsumeProdtKeyword>, anyhow::Error>;
-    async fn get_all_consume_detail_list_from_es(&self) -> Result<Vec<ConsumeProdtDetailES>, anyhow::Error>;
-}
+    fn get_top_consume_prodt_detail_order_by_timestamp(&self, top_n: i64, ascending: bool) -> Result<Vec<ConsumeProdtDetail>, anyhow::Error>;
+}   
 
-
-#[derive(Debug, new)]
+#[derive(Debug, new)]   
 pub struct QueryServicePub;
 
-#[async_trait]
+
+//impl<Expr: diesel::Expression> QueryService for QueryServicePub {
+
 impl QueryService for QueryServicePub {
 
     #[doc = ""]
     fn consume_keyword_type_join_consume_prodt_keyword(&self) -> Result<Vec<ConsumeProdtKeyword>, anyhow::Error> {
 
-        let pool = get_mysql_pool();
-        let mut conn =  pool.get()?;
+        let mut conn = get_mysql_pool()?;
+        // let pool = get_mysql_pool();
+        // let mut conn =  pool.get()?;
 
         let result = CONSUME_PRODT_KEYWORD::table  
             .inner_join(CONSUMUE_KEYWORD_TYPE::table.on(CONSUME_PRODT_KEYWORD::consume_keyword_type.eq(CONSUMUE_KEYWORD_TYPE::consume_keyword_type)))
@@ -41,31 +41,27 @@ impl QueryService for QueryServicePub {
         Ok(result)
     }
     
-
     #[doc = ""]
-    async fn get_all_consume_detail_list_from_es(&self) -> Result<Vec<ConsumeProdtDetailES>, anyhow::Error> {
-        
-        let es_client = get_elastic_conn()?;
-        
-        let query = json!({
-            "size": 10000
-        });
-        
-        let response_body = es_client.get_search_query(&query, CONSUME_DETAIL).await?;
-        let hits = &response_body["hits"]["hits"];
-        
-        let results: Vec<ConsumeProdtDetailES> = hits.as_array()
-            .ok_or_else(|| anyhow!("[Error][get_all_consume_detail_list_from_es()] error"))?
-            .iter()
-            .map(|hit| {
-                hit.get("_source") 
-                    .ok_or_else(|| anyhow!("[Error][get_all_consume_detail_list_from_es()] Missing '_source' field"))
-                    .and_then(|source| serde_json::from_value(source.clone()).map_err(Into::into))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        
-        Ok(results)
+    fn get_top_consume_prodt_detail_order_by_timestamp(&self, top_n: i64, ascending: bool) -> Result<Vec<ConsumeProdtDetail>, anyhow::Error> {
 
+        let mut conn = get_mysql_pool()?;
+        let result;
+
+        if ascending {
+            result = LimitDsl::limit(OrderDsl::order(CONSUME_PRODT_DETAIL, timestamp.asc()), top_n).load::<ConsumeProdtDetail>(&mut conn)?; 
+        } else {
+            result = LimitDsl::limit(OrderDsl::order(CONSUME_PRODT_DETAIL, timestamp.desc()), top_n).load::<ConsumeProdtDetail>(&mut conn)?; 
+        }
+        
+        Ok(result)
     }
-
 }
+
+
+// p: disambiguate the method for candidate #1
+//    |
+// 47 |         let test = diesel::QueryDsl::limit(OrderDsl::order(CONSUME_PRODT_DETAIL, timestamp.asc()), top_n).load::<ConsumeProdtDetail>(conn)
+//    |                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+// help: disambiguate the method for candidate #2
+//    |
+// 47 |         let test = diesel::query_dsl::methods::LimitDsl::limit(OrderDsl::order(CONSUME_PRODT_DETAIL, timestamp.asc()), top_n).load::<ConsumeProdtDetail>(conn)
