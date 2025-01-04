@@ -18,6 +18,7 @@ pub trait QueryService {
         top_n: i64,
         ascending: bool,
     ) -> Result<Vec<ConsumeProdtDetail>, anyhow::Error>;
+    fn get_total_count_consume_prodt_detail(&self) -> Result<i64, anyhow::Error>;
 }
 
 #[derive(Debug, new)]
@@ -71,6 +72,19 @@ impl QueryService for QueryServicePub {
 
         Ok(result)
     }
+
+    #[doc = ""]
+    fn get_total_count_consume_prodt_detail(&self) -> Result<i64, anyhow::Error> {
+
+        let mut conn = get_mysql_pool()?;
+
+        let count = CONSUME_PRODT_DETAIL
+            .select(count_star())  
+            .first::<i64>(&mut conn)?;
+        
+        Ok(count)
+    }
+
 }
 
 // p: disambiguate the method for candidate #1

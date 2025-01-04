@@ -72,6 +72,7 @@ pub use diesel::{
     sql_types::{SingleValue, SqlType},
     AppearsOnTable, Column, Expression, ExpressionMethods, Insertable, JoinOnDsl, QueryDsl,
     Queryable, RunQueryDsl, SelectableExpression, Table,
+    dsl::{count, count_star}
 };
 
 pub use async_trait::async_trait;

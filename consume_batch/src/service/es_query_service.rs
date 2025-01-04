@@ -72,7 +72,7 @@ impl EsQueryService for EsQueryServicePub {
                 }
               }
         });
-        
+
         let response_body = es_client.get_search_query(&query, CONSUME_DETAIL).await?;
         let hits = &response_body["hits"]["hits"];
 

@@ -67,19 +67,29 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
 
     //     Ok(())
     // }
+
     #[doc = ""]
-    pub async fn insert_es_to_mysql(&self) -> Result<(), anyhow::Error> {
-        // RDB 에서 가장 뒤의 데이터를 가져와준다.
-        let recent_prodt = self
-            .query_service
-            .get_top_consume_prodt_detail_order_by_timestamp(1, false)?;
+    pub async fn insert_es_to_mysql_empty_data(&self) -> Result<(), anyhow::Error> {
 
-        if recent_prodt.len() == 0 {
-            return Err(anyhow!(
-                "[Error][dynamic_indexing()] Size 'recent_prodt' is 0."
-            ));
-        }
+        // elasticsearch 의 모든 데이터를 가져와서 MySQL 에 bulk insert 해준다.
+        
 
+        Ok(())
+    }
+    
+    #[doc = ""]
+    pub async fn insert_es_to_mysql_non_empty_data(&self, recent_prodt: Vec<ConsumeProdtDetail>) -> Result<(), anyhow::Error> {
+        
+        // let recent_prodt: Vec<ConsumeProdtDetail> = self
+        //     .query_service
+        //     .get_top_consume_prodt_detail_order_by_timestamp(1, false)?;
+
+        // if recent_prodt.len() == 0 {
+        //     return Err(anyhow!(
+        //         "[Error][dynamic_indexing()] Size 'recent_prodt' is 0."
+        //     ));
+        // }
+        
         let cur_timestamp: NaiveDateTime = recent_prodt.get(0)
             .ok_or_else(|| anyhow!("[Error][dynamic_indexing()] The 0th data in array 'recent_prodt' does not exist."))?
             .cur_timestamp;
@@ -95,6 +105,44 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
             return Ok(());
         }
 
+        // 여기서 변경된 es 데이터를 모두 MySQL 에 넣어준다.
+        let mut consume_prodt_details: Vec<ConsumeProdtDetail> = Vec::new();
+
+        for elem in es_recent_prodt_infos {
+            let consume_prodt_detail = elem.transfer_to_consume_prodt_detail()?;
+            consume_prodt_details.push(consume_prodt_detail);
+        }
+
+        let insert_size = insert_multiple_consume_prodt_detail(consume_prodt_details)?;
+        info!("insert_es_to_mysql() -> insert_size: {}", insert_size);
+
+        Ok(())
+    }
+
+    
+    #[doc = ""]
+    pub async fn insert_es_to_mysql(&self) -> Result<(), anyhow::Error> {
+        
+        // let total_count_consume_detail = self.query_service.get_total_count_consume_prodt_detail()?;   
+        
+        // if total_count_consume_detail == 0 {
+        //     self.insert_es_to_mysql_empty_data().await?;
+        // } else {
+        //     self.insert_es_to_mysql_non_empty_data().await?;
+        // }
+
+        // RDB 에서 가장 뒤의 데이터를 가져와준다. -> 하나도 없다면, 데이터가 그냥 없다고 볼 수 있다.
+        let recent_prodt: Vec<ConsumeProdtDetail> = self
+            .query_service
+            .get_top_consume_prodt_detail_order_by_timestamp(1, false)?;
+        
+        if recent_prodt.len() == 0 {
+
+        } else {
+
+        }
+
+        
         Ok(())
     }
 
