@@ -63,6 +63,7 @@ pub use kafka::producer::{Producer, Record as KafkaRecord, RequiredAcks};
 
 pub use diesel::{
     associations::HasTable,
+    dsl::{count, count_star},
     expression::NonAggregate,
     helper_types::SqlTypeOf,
     mysql::{Mysql, MysqlConnection},
@@ -72,7 +73,6 @@ pub use diesel::{
     sql_types::{SingleValue, SqlType},
     AppearsOnTable, Column, Expression, ExpressionMethods, Insertable, JoinOnDsl, QueryDsl,
     Queryable, RunQueryDsl, SelectableExpression, Table,
-    dsl::{count, count_star}
 };
 
 pub use async_trait::async_trait;

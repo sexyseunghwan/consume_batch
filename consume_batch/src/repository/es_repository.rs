@@ -55,7 +55,6 @@ pub fn initialize_elastic_clients() -> VecDeque<EsRepositoryPub> {
     es_pool_vec
 }
 
-// Option<Arc<Mutex<EsRepositoryPub>>>
 #[doc = "Function to get elasticsearch connection"]
 pub fn get_elastic_conn() -> Result<EsRepositoryPub, anyhow::Error> {
     let mut pool = match ELASTICSEARCH_CONN_POOL.lock() {
@@ -69,8 +68,8 @@ pub fn get_elastic_conn() -> Result<EsRepositoryPub, anyhow::Error> {
         anyhow!("[Error][get_elastic_conn()] Cannot Find Elasticsearch Connection")
     })?;
 
-    info!("pool.len = {:?}", pool.len());
-
+    //info!("pool.len = {:?}", pool.len());
+    
     Ok(es_repo)
 }
 
@@ -89,6 +88,9 @@ pub trait EsRepository {
         param_struct: &T,
         index_name: &str,
     ) -> Result<(), anyhow::Error>;
+
+    async fn get_scroll_initial_search_query(&self, index_name: &str, scroll_duration: &str, es_query: &Value) -> Result<Value, anyhow::Error>;
+    async fn get_scroll_search_query(&self, scroll_duration: &str, scroll_id: &str) -> Result<Value, anyhow::Error>;
 }
 
 #[derive(Debug, Getters, Clone)]
@@ -168,6 +170,70 @@ impl Drop for EsRepositoryPub {
 
 #[async_trait]
 impl EsRepository for EsRepositoryPub {
+    
+
+    #[doc = ""]
+    async fn get_scroll_search_query(&self, scroll_duration: &str, scroll_id: &str) -> Result<Value, anyhow::Error> {
+        
+        let response = self
+            .execute_on_any_node(|es_client| async move {
+
+                let scroll_response = es_client
+                    .es_conn
+                    .scroll(elasticsearch::ScrollParts::ScrollId(scroll_id))
+                    .scroll(scroll_duration)
+                    .send()
+                    .await?;
+
+                Ok(scroll_response)
+
+            })
+            .await?;
+        
+        if response.status_code().is_success() {
+            let response_body = response.json::<Value>().await?;
+            Ok(response_body)
+        } else {
+            let error_body = response.text().await?;
+            Err(anyhow!(
+                "[Elasticsearch Error][node_search_query()] response status is failed: {:?}",
+                error_body
+            ))
+        }
+    }
+
+    #[doc = ""]
+    async fn get_scroll_initial_search_query(&self, index_name: &str, scroll_duration: &str, es_query: &Value) -> Result<Value, anyhow::Error> {
+        
+        let response = self
+            .execute_on_any_node(|es_client| async move {
+
+                let response = es_client
+                    .es_conn
+                    .search(SearchParts::Index(&[index_name]))
+                    .scroll(scroll_duration)
+                    .body(es_query)
+                    .send()
+                    .await?;
+
+                Ok(response)
+
+            })
+            .await?;
+        
+        if response.status_code().is_success() {
+            let response_body = response.json::<Value>().await?;
+            Ok(response_body)
+        } else {
+            let error_body = response.text().await?;
+            Err(anyhow!(
+                "[Elasticsearch Error][node_search_query()] response status is failed: {:?}",
+                error_body
+            ))
+        }
+    }
+    
+    
     #[doc = "Function that EXECUTES elasticsearch queries - search"]
     async fn get_search_query(
         &self,

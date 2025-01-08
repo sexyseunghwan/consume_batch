@@ -75,16 +75,14 @@ impl QueryService for QueryServicePub {
 
     #[doc = ""]
     fn get_total_count_consume_prodt_detail(&self) -> Result<i64, anyhow::Error> {
-
         let mut conn = get_mysql_pool()?;
 
         let count = CONSUME_PRODT_DETAIL
-            .select(count_star())  
+            .select(count_star())
             .first::<i64>(&mut conn)?;
-        
+
         Ok(count)
     }
-
 }
 
 // p: disambiguate the method for candidate #1

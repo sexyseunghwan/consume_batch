@@ -16,6 +16,8 @@ pub trait EsQueryService {
         &self,
         timestamp: NaiveDateTime,
     ) -> Result<Vec<ConsumeProdtDetailES>, anyhow::Error>;
+
+    async fn get_all_consume_detail_list_from_es_partial(&self, scroll_id: &str) -> Result<(), anyhow::Error>;
 }
 
 #[derive(Debug, new)]
@@ -23,7 +25,16 @@ pub struct EsQueryServicePub;
 
 #[async_trait]
 impl EsQueryService for EsQueryServicePub {
+    
     #[doc = ""]
+    async fn get_all_consume_detail_list_from_es_partial(&self, scroll_id: &str) -> Result<(), anyhow::Error> {
+
+        
+
+        Ok(())
+    }
+    
+    #[doc = "deprecated"]
     async fn get_all_consume_detail_list_from_es(
         &self,
     ) -> Result<Vec<ConsumeProdtDetailES>, anyhow::Error> {
