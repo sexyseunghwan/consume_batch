@@ -12,6 +12,7 @@ pub struct ConsumeProdtDetailES {
     pub cur_timestamp: Option<String>,
     pub prodt_name: String,
     pub prodt_money: i32,
+    pub prodt_type: Option<String>,
 }
 
 //ConsumeProdtDetail

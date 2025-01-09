@@ -69,7 +69,7 @@ pub fn get_elastic_conn() -> Result<EsRepositoryPub, anyhow::Error> {
     })?;
 
     //info!("pool.len = {:?}", pool.len());
-    
+
     Ok(es_repo)
 }
 
@@ -89,8 +89,20 @@ pub trait EsRepository {
         index_name: &str,
     ) -> Result<(), anyhow::Error>;
 
-    async fn get_scroll_initial_search_query(&self, index_name: &str, scroll_duration: &str, es_query: &Value) -> Result<Value, anyhow::Error>;
-    async fn get_scroll_search_query(&self, scroll_duration: &str, scroll_id: &str) -> Result<Value, anyhow::Error>;
+    async fn get_scroll_initial_search_query(
+        &self,
+        index_name: &str,
+        scroll_duration: &str,
+        es_query: &Value,
+    ) -> Result<Value, anyhow::Error>;
+
+    async fn get_scroll_search_query(
+        &self,
+        scroll_duration: &str,
+        scroll_id: &str,
+    ) -> Result<Value, anyhow::Error>;
+
+    async fn clear_scroll_info(&self, scroll_id: &str) -> Result<Value, anyhow::Error>;
 }
 
 #[derive(Debug, Getters, Clone)]
@@ -170,26 +182,20 @@ impl Drop for EsRepositoryPub {
 
 #[async_trait]
 impl EsRepository for EsRepositoryPub {
-    
-
     #[doc = ""]
-    async fn get_scroll_search_query(&self, scroll_duration: &str, scroll_id: &str) -> Result<Value, anyhow::Error> {
-        
+    async fn clear_scroll_info(&self, scroll_id: &str) -> Result<Value, anyhow::Error> {
         let response = self
             .execute_on_any_node(|es_client| async move {
-
-                let scroll_response = es_client
+                let response = es_client
                     .es_conn
-                    .scroll(elasticsearch::ScrollParts::ScrollId(scroll_id))
-                    .scroll(scroll_duration)
+                    .clear_scroll(elasticsearch::ClearScrollParts::ScrollId(&[scroll_id]))
                     .send()
                     .await?;
 
-                Ok(scroll_response)
-
+                Ok(response)
             })
             .await?;
-        
+
         if response.status_code().is_success() {
             let response_body = response.json::<Value>().await?;
             Ok(response_body)
@@ -203,11 +209,45 @@ impl EsRepository for EsRepositoryPub {
     }
 
     #[doc = ""]
-    async fn get_scroll_initial_search_query(&self, index_name: &str, scroll_duration: &str, es_query: &Value) -> Result<Value, anyhow::Error> {
-        
+    async fn get_scroll_search_query(
+        &self,
+        scroll_duration: &str,
+        scroll_id: &str,
+    ) -> Result<Value, anyhow::Error> {
         let response = self
             .execute_on_any_node(|es_client| async move {
+                let scroll_response = es_client
+                    .es_conn
+                    .scroll(elasticsearch::ScrollParts::ScrollId(scroll_id))
+                    .scroll(scroll_duration)
+                    .send()
+                    .await?;
 
+                Ok(scroll_response)
+            })
+            .await?;
+
+        if response.status_code().is_success() {
+            let response_body = response.json::<Value>().await?;
+            Ok(response_body)
+        } else {
+            let error_body = response.text().await?;
+            Err(anyhow!(
+                "[Elasticsearch Error][node_search_query()] response status is failed: {:?}",
+                error_body
+            ))
+        }
+    }
+
+    #[doc = ""]
+    async fn get_scroll_initial_search_query(
+        &self,
+        index_name: &str,
+        scroll_duration: &str,
+        es_query: &Value,
+    ) -> Result<Value, anyhow::Error> {
+        let response = self
+            .execute_on_any_node(|es_client| async move {
                 let response = es_client
                     .es_conn
                     .search(SearchParts::Index(&[index_name]))
@@ -217,10 +257,9 @@ impl EsRepository for EsRepositoryPub {
                     .await?;
 
                 Ok(response)
-
             })
             .await?;
-        
+
         if response.status_code().is_success() {
             let response_body = response.json::<Value>().await?;
             Ok(response_body)
@@ -232,8 +271,7 @@ impl EsRepository for EsRepositoryPub {
             ))
         }
     }
-    
-    
+
     #[doc = "Function that EXECUTES elasticsearch queries - search"]
     async fn get_search_query(
         &self,
