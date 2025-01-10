@@ -24,7 +24,7 @@ pub trait EsQueryService {
     //     query: &Value,
     //     scroll_id: &str,
     // ) -> Result<(String, Vec<ConsumeProdtDetailES>), anyhow::Error>;
-
+    
     async fn get_search_data_by_bulk<T: for<'de> Deserialize<'de> + Send>(
         &self,
         index_name: &str,

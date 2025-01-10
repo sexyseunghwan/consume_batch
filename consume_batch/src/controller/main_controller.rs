@@ -18,58 +18,6 @@ pub struct MainController<Q: QueryService, E: EsQueryService> {
 
 impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
     #[doc = ""]
-    // pub async fn migration_elastic_to_rdb_test(&self) -> Result<(), anyhow::Error> {
-
-    //     let consume_details: Vec<ConsumeProdtDetailES> = self.query_service.get_all_consume_detail_list_from_es().await?;
-    //     let mut parsing_rdb_consume_details: Vec<NewConsumeProdtDetail> = Vec::new();
-
-    //     let formats = [
-    //         "%Y-%m-%dT%H:%M:%S%.fZ",
-    //         "%Y-%m-%dT%H:%M:%S%Z",
-    //         "%Y-%m-%dT%H:%M:%S%.f",
-    //         "%Y-%m-%dT%H:%M:%S",
-    //         "%Y-%m-%dT%H:%M"
-    //     ];
-
-    //     for elem in consume_details {
-
-    //         let mut timestamp = NaiveDateTime::parse_from_str("1970-01-01T00:00:00", "%Y-%m-%dT%H:%M:%S")?;
-
-    //         for format in formats {
-    //             if let Ok(parsed) = NaiveDateTime::parse_from_str(elem.timestamp(), format) {
-    //                 timestamp = parsed;
-    //                 break;
-    //             }
-    //         }
-
-    //         //let timestamp = get_naive_datetime_from_str(elem.timestamp().split('.').next().unwrap_or(""), "%Y-%m-%dT%H:%M:%SZ")?;
-    //         let cur_timestamp: NaiveDateTime;
-    //         let prodt_name = elem.prodt_name().clone();
-    //         let prodt_money = elem.prodt_money().clone();
-
-    //         if let Some(value) = elem.cur_timestamp() {
-    //             cur_timestamp = get_naive_datetime_from_str(value, "%Y-%m-%dT%H:%M:%SZ")?;
-    //         } else {
-    //             cur_timestamp = timestamp.clone();
-    //         }
-
-    //         let consume_prodt_detail = NewConsumeProdtDetail {
-    //             timestamp: timestamp,
-    //             cur_timestamp: cur_timestamp,
-    //             prodt_name: prodt_name,
-    //             prodt_money: prodt_money
-    //         };
-
-    //         parsing_rdb_consume_details.push(consume_prodt_detail);
-    //     }
-
-    //     let query_size = insert_multiple_consume_prodt_detail(parsing_rdb_consume_details)?;
-
-    //     println!("query_size: {}", query_size);
-
-    //     Ok(())
-    // }
-    #[doc = ""]
     pub async fn insert_es_to_mysql_empty_data(&self) -> Result<(), anyhow::Error> {
         /* elasticsearch 의 모든 데이터를 가져와서 MySQL 에 bulk insert 해준다. */
         let all_es_data: Vec<ConsumeProdtDetailES> = self
@@ -156,34 +104,18 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
             self.insert_es_to_mysql_non_empty_data(recent_prodt).await?;
         }
 
-        //es_conn.clear_scroll_info(&scroll_id).await?;
-
-        //.ok_or("No scroll_id found")?.to_string();
-
-        // ==================================== TEST ====================================
-
-        // let total_count_consume_detail = self.query_service.get_total_count_consume_prodt_detail()?;
-
-        // if total_count_consume_detail == 0 {
-        //     self.insert_es_to_mysql_empty_data().await?;
-        // } else {
-        //     self.insert_es_to_mysql_non_empty_data().await?;
-        // }
-
-        // RDB 에서 가장 뒤의 데이터를 가져와준다. -> 하나도 없다면, 데이터가 그냥 없다고 볼 수 있다.
-        // let recent_prodt: Vec<ConsumeProdtDetail> = self
-        //     .query_service
-        //     .get_top_consume_prodt_detail_order_by_timestamp(1, false)?;
-
-        // if recent_prodt.len() == 0 {
-        // } else {
-        // }
-
         Ok(())
     }
 
     #[doc = ""]
-    pub fn first_task(&self) -> Result<(), anyhow::Error> {
+    pub fn main_task(&self) -> Result<(), anyhow::Error> {
+        
+        // ES -> MySQL ETL
+        
+        
+        // MySQL -> ES Indexing 
+        
+
         //let test = self.query_service.consume_keyword_type_join_consume_prodt_keyword()?;
 
         // for elem in test {
