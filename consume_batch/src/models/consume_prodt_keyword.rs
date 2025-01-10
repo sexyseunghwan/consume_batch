@@ -23,3 +23,15 @@ pub fn get_consume_prodt_keyword_fileter_by_keyword_type(
 
     Ok(result)
 }
+
+pub fn insert_multiple_consume_prodt_keyword(
+    consume_prodt_keyword: &Vec<ConsumeProdtKeyword>,
+) -> Result<usize, anyhow::Error> {
+    let mut conn = get_mysql_pool()?;
+
+    let size = diesel::insert_into(CONSUME_PRODT_KEYWORD::table)
+        .values(consume_prodt_keyword)
+        .execute(&mut conn)?;
+
+    Ok(size)
+}

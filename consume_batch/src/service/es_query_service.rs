@@ -4,6 +4,7 @@ use crate::common::*;
 
 use crate::repository::es_repository::*;
 
+use crate::models::consume_prodt_detail::*;
 use crate::models::consume_prodt_detail_es::*;
 
 use crate::utils_module::time_utils::*;
@@ -24,7 +25,7 @@ pub trait EsQueryService {
     //     query: &Value,
     //     scroll_id: &str,
     // ) -> Result<(String, Vec<ConsumeProdtDetailES>), anyhow::Error>;
-    
+
     async fn get_search_data_by_bulk<T: for<'de> Deserialize<'de> + Send>(
         &self,
         index_name: &str,
@@ -42,6 +43,10 @@ pub trait EsQueryService {
         start_dt: NaiveDateTime,
     ) -> Result<Vec<T>, anyhow::Error>;
 
+    // async fn get_transfer_indexingtype_consume_detail_list(
+    //     &self,
+    //     consume_detail_list: &Vec<ConsumeProdtDetail>,
+    // ) -> Result<ConsumeProdtDetailES, anyhow::Error>;
     // async fn get_consume_specific_datetime_detail_list_from_es_partial(
     //     &self,
     //     scroll_id: &str,
@@ -53,6 +58,13 @@ pub struct EsQueryServicePub;
 
 #[async_trait]
 impl EsQueryService for EsQueryServicePub {
+    // #[doc = ""]
+    // async fn get_transfer_indexingtype_consume_detail_list(
+    //     &self,
+    //     consume_detail_list: &Vec<ConsumeProdtDetail>,
+    // ) -> Result<ConsumeProdtDetailES, anyhow::Error> {
+    // }
+
     #[doc = ""]
     async fn get_timetamp_gt_filter_list_from_es_partial<T: for<'de> Deserialize<'de> + Send>(
         &self,

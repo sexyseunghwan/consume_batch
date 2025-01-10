@@ -26,5 +26,5 @@ async fn main() {
     let es_query_service = EsQueryServicePub::new();
     let main_controller = MainController::new(query_service, es_query_service);
 
-    main_controller.insert_batch_es_to_mysql().await.unwrap();
+    main_controller.insert_consume_type_to_mysql().await.unwrap();
 }

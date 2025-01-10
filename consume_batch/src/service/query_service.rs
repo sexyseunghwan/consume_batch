@@ -19,14 +19,33 @@ pub trait QueryService {
         ascending: bool,
     ) -> Result<Vec<ConsumeProdtDetail>, anyhow::Error>;
     fn get_total_count_consume_prodt_detail(&self) -> Result<i64, anyhow::Error>;
+    fn get_all_consume_prodt_detail(&self) -> Result<Vec<ConsumeProdtDetail>, anyhow::Error>;
 }
 
 #[derive(Debug, new)]
 pub struct QueryServicePub;
 
-//impl<Expr: diesel::Expression> QueryService for QueryServicePub {
-
 impl QueryService for QueryServicePub {
+    #[doc = ""]
+    fn get_all_consume_prodt_detail(&self) -> Result<Vec<ConsumeProdtDetail>, anyhow::Error> {
+        let mut conn = get_mysql_pool()?;
+
+        let query = CONSUME_PRODT_DETAIL::table.select((
+            CONSUME_PRODT_DETAIL::timestamp,
+            CONSUME_PRODT_DETAIL::cur_timestamp,
+            CONSUME_PRODT_DETAIL::prodt_name,
+            CONSUME_PRODT_DETAIL::prodt_money,
+            CONSUME_PRODT_DETAIL::reg_dt.nullable(),
+            CONSUME_PRODT_DETAIL::chg_dt.nullable(),
+            CONSUME_PRODT_DETAIL::reg_id.nullable(),
+            CONSUME_PRODT_DETAIL::chg_id.nullable(),
+        ));
+
+        let result = query.load::<ConsumeProdtDetail>(&mut conn)?;
+
+        Ok(result)
+    }
+
     #[doc = ""]
     fn consume_keyword_type_join_consume_prodt_keyword(
         &self,
@@ -96,11 +115,3 @@ impl QueryService for QueryServicePub {
         Ok(count)
     }
 }
-
-// p: disambiguate the method for candidate #1
-//    |
-// 47 |         let test = diesel::QueryDsl::limit(OrderDsl::order(CONSUME_PRODT_DETAIL, timestamp.asc()), top_n).load::<ConsumeProdtDetail>(conn)
-//    |                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-// help: disambiguate the method for candidate #2
-//    |
-// 47 |         let test = diesel::query_dsl::methods::LimitDsl::limit(OrderDsl::order(CONSUME_PRODT_DETAIL, timestamp.asc()), top_n).load::<ConsumeProdtDetail>(conn)

@@ -9,6 +9,8 @@ use crate::utils_module::time_utils::*;
 
 use crate::models::consume_prodt_detail::*;
 use crate::models::consume_prodt_detail_es::*;
+use crate::models::consume_prodt_keyword::*;
+use crate::models::consume_prodt_keyword_es::*;
 
 #[derive(Debug, new)]
 pub struct MainController<Q: QueryService, E: EsQueryService> {
@@ -108,13 +110,67 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
     }
 
     #[doc = ""]
+    pub async fn insert_batch_mysql_to_es(&self) -> Result<(), anyhow::Error> {
+        // RDB 에 저장된 소비 데이터 모두를 가져와준다.
+        let consume_detail_list: Vec<ConsumeProdtDetail> =
+            self.query_service.get_all_consume_prodt_detail()?;
+
+        // ES 관련 데이터로 변환 && 어떤 종류의 상품인지 분류 해주는 작업
+
+        Ok(())
+    }
+
+    // ==================== [FOR TEST] ====================
+    pub async fn insert_consume_type_to_mysql(&self) -> Result<(), anyhow::Error> {
+        let es_conn = get_elastic_conn()?;
+
+        let es_query = json!({
+            "query": {
+                "match_all": {}
+            },
+            "size": 1000
+        });
+
+        let search_resp = es_conn
+            .get_search_query(&es_query, "consuming_index_prod_type_v2")
+            .await?;
+
+        let hits = &search_resp["hits"]["hits"];
+
+        let hits_vector: Vec<ConsumeProdtKeywordES> = hits
+            .as_array()
+            .ok_or_else(|| anyhow!("[Error][get_data_from_es_bulk()] error"))?
+            .iter()
+            .map(|hit| {
+                hit.get("_source")
+                    .ok_or_else(|| {
+                        anyhow!("[Error][get_data_from_es_bulk()] Missing '_source' field")
+                    })
+                    .and_then(|source| serde_json::from_value(source.clone()).map_err(Into::into))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        
+        let mut cpk_vec: Vec<ConsumeProdtKeyword> = Vec::new();
+
+        for consume_keyword in hits_vector {
+            let consume_keyword_trs = ConsumeProdtKeyword {
+                consume_keyword_type: consume_keyword.keyword_type,
+                consume_keyword: consume_keyword.keyword,
+            };
+
+            cpk_vec.push(consume_keyword_trs);
+        }
+
+        let size = insert_multiple_consume_prodt_keyword(&cpk_vec)?;
+
+        Ok(())
+    }
+
+    #[doc = ""]
     pub fn main_task(&self) -> Result<(), anyhow::Error> {
-        
         // ES -> MySQL ETL
-        
-        
-        // MySQL -> ES Indexing 
-        
+
+        // MySQL -> ES Indexing
 
         //let test = self.query_service.consume_keyword_type_join_consume_prodt_keyword()?;
 
