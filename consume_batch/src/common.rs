@@ -66,13 +66,16 @@ pub use diesel::{
     dsl::{count, count_star},
     expression::NonAggregate,
     helper_types::SqlTypeOf,
+    mysql::sql_types::Datetime,
     mysql::{Mysql, MysqlConnection},
     query_builder::{AsQuery, QueryFragment, QueryId},
     query_dsl::methods::{BoxedDsl, LimitDsl, OrderDsl},
     r2d2::{ConnectionManager, Pool, PooledConnection},
+    sql_types::{Integer, Text},
     sql_types::{SingleValue, SqlType},
-    AppearsOnTable, Column, Expression, ExpressionMethods, Insertable, JoinOnDsl, QueryDsl,
-    Queryable, RunQueryDsl, SelectableExpression, Table,
+    AppearsOnTable, AsChangeset, Column, Expression, ExpressionMethods, Insertable, JoinOnDsl,
+    NullableExpressionMethods, QueryDsl, Queryable, QueryableByName, RunQueryDsl,
+    SelectableExpression, Table,
 };
 
 pub use async_trait::async_trait;

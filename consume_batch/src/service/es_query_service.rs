@@ -59,6 +59,8 @@ impl EsQueryService for EsQueryServicePub {
         index_name: &str,
         start_dt: NaiveDateTime,
     ) -> Result<Vec<T>, anyhow::Error> {
+        info!("start_dt: {:?}", start_dt);
+
         let query = json!({
             "query": {
                 "range": {
@@ -69,6 +71,8 @@ impl EsQueryService for EsQueryServicePub {
             },
             "size": 1000
         });
+
+        info!("query: {:?}", query);
 
         let res = self
             .get_search_data_by_bulk::<T>(index_name, &query)

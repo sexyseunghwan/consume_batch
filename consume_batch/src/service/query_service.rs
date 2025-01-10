@@ -54,20 +54,32 @@ impl QueryService for QueryServicePub {
         ascending: bool,
     ) -> Result<Vec<ConsumeProdtDetail>, anyhow::Error> {
         let mut conn = get_mysql_pool()?;
-        let result;
+
+        let query = CONSUME_PRODT_DETAIL::table.select((
+            CONSUME_PRODT_DETAIL::timestamp,
+            CONSUME_PRODT_DETAIL::cur_timestamp,
+            CONSUME_PRODT_DETAIL::prodt_name,
+            CONSUME_PRODT_DETAIL::prodt_money,
+            CONSUME_PRODT_DETAIL::reg_dt.nullable(),
+            CONSUME_PRODT_DETAIL::chg_dt.nullable(),
+            CONSUME_PRODT_DETAIL::reg_id.nullable(),
+            CONSUME_PRODT_DETAIL::chg_id.nullable(),
+        ));
+
+        let result: Vec<ConsumeProdtDetail>;
 
         if ascending {
-            result = LimitDsl::limit(
-                OrderDsl::order(CONSUME_PRODT_DETAIL, cur_timestamp.asc()),
+            result = QueryDsl::limit(
+                QueryDsl::order(query, CONSUME_PRODT_DETAIL::cur_timestamp.asc()),
                 top_n,
             )
-            .load::<ConsumeProdtDetail>(&mut conn)?;
+            .load::<ConsumeProdtDetail>(&mut conn)?
         } else {
-            result = LimitDsl::limit(
-                OrderDsl::order(CONSUME_PRODT_DETAIL, cur_timestamp.desc()),
+            result = QueryDsl::limit(
+                QueryDsl::order(query, CONSUME_PRODT_DETAIL::cur_timestamp.desc()),
                 top_n,
             )
-            .load::<ConsumeProdtDetail>(&mut conn)?;
+            .load::<ConsumeProdtDetail>(&mut conn)?
         }
 
         Ok(result)

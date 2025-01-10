@@ -7,6 +7,12 @@ diesel::table! {
         #[max_length = 200]
         prodt_name -> Varchar,
         prodt_money -> Integer,
+        reg_dt -> Datetime,
+        chg_dt -> Nullable<Datetime>,
+        #[max_length = 50]
+        reg_id -> Varchar,
+        #[max_length = 50]
+        chg_id -> Nullable<Varchar>,
     }
 }
 
