@@ -27,7 +27,7 @@ pub fn format_number(value: i64) -> String {
 
 #[doc = "Functions that read the json file and return it in json value format"]
 /// # Arguments
-/// * file_path - Path the json file
+/// * `file_path` - Path the json file
 ///
 /// # Returns
 /// * Result<Value, anyhow::Error>

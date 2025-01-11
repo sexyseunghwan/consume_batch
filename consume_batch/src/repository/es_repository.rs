@@ -75,6 +75,16 @@ pub fn get_elastic_conn() -> Result<EsRepositoryPub, anyhow::Error> {
 
 #[async_trait]
 pub trait EsRepository {
+    async fn process_response_empty(
+        &self,
+        function_name: &str,
+        response: Response,
+    ) -> Result<(), anyhow::Error>;
+    async fn process_response(
+        &self,
+        function_name: &str,
+        response: Response,
+    ) -> Result<Value, anyhow::Error>;
     async fn get_search_query(
         &self,
         es_query: &Value,
@@ -92,18 +102,18 @@ pub trait EsRepository {
         index_alias: &str,
         new_index_name: &str,
         old_index_name: &str,
-    ) -> Result<Value, anyhow::Error>;
+    ) -> Result<(), anyhow::Error>;
     async fn bulk_query<T: Serialize + Send + Sync>(
         &self,
         index_name: &str,
         data: &Vec<T>,
-    ) -> Result<Value, anyhow::Error>;
+    ) -> Result<(), anyhow::Error>;
     async fn create_index(
         &self,
         index_name: &str,
         index_setting_json: &Value,
-    ) -> Result<Value, anyhow::Error>;
-    
+    ) -> Result<(), anyhow::Error>;
+
     async fn post_query_struct<T: Serialize + Sync>(
         &self,
         param_struct: &T,
@@ -123,7 +133,7 @@ pub trait EsRepository {
         scroll_id: &str,
     ) -> Result<Value, anyhow::Error>;
 
-    async fn clear_scroll_info(&self, scroll_id: &str) -> Result<Value, anyhow::Error>;
+    async fn clear_scroll_info(&self, scroll_id: &str) -> Result<(), anyhow::Error>;
 }
 
 #[derive(Debug, Getters, Clone)]
@@ -208,12 +218,49 @@ impl Drop for EsRepositoryPub {
 #[async_trait]
 impl EsRepository for EsRepositoryPub {
     #[doc = ""]
+    async fn process_response_empty(
+        &self,
+        function_name: &str,
+        response: Response,
+    ) -> Result<(), anyhow::Error> {
+        if response.status_code().is_success() {
+            Ok(())
+        } else {
+            let error_body = response.text().await?;
+            Err(anyhow!(
+                "[Elasticsearch Error][{}] response status is failed: {:?}",
+                function_name,
+                error_body
+            ))
+        }
+    }
+
+    #[doc = ""]
+    async fn process_response(
+        &self,
+        function_name: &str,
+        response: Response,
+    ) -> Result<Value, anyhow::Error> {
+        if response.status_code().is_success() {
+            let response_body = response.json::<Value>().await?;
+            Ok(response_body)
+        } else {
+            let error_body = response.text().await?;
+            Err(anyhow!(
+                "[Elasticsearch Error][{}] response status is failed: {:?}",
+                function_name,
+                error_body
+            ))
+        }
+    }
+
+    #[doc = ""]
     async fn update_index_alias(
         &self,
         index_alias: &str,
         new_index_name: &str,
         old_index_name: &str,
-    ) -> Result<Value, anyhow::Error> {
+    ) -> Result<(), anyhow::Error> {
         let response: Response = self
             .execute_on_any_node(|es_client| async move {
                 let actions = json!({
@@ -235,16 +282,8 @@ impl EsRepository for EsRepositoryPub {
             })
             .await?;
 
-        if response.status_code().is_success() {
-            let response_body = response.json::<Value>().await?;
-            Ok(response_body)
-        } else {
-            let error_body = response.text().await?;
-            Err(anyhow!(
-                "[Elasticsearch Error][node_search_query()] response status is failed: {:?}",
-                error_body
-            ))
-        }
+        self.process_response_empty("update_index_alias()", response)
+            .await
     }
 
     #[doc = ""]
@@ -265,16 +304,8 @@ impl EsRepository for EsRepositoryPub {
             })
             .await?;
 
-        if response.status_code().is_success() {
-            let response_body = response.json::<Value>().await?;
-            Ok(response_body)
-        } else {
-            let error_body = response.text().await?;
-            Err(anyhow!(
-                "[Elasticsearch Error][node_search_query()] response status is failed: {:?}",
-                error_body
-            ))
-        }
+        self.process_response("get_indexes_mapping_by_alias()", response)
+            .await
     }
 
     #[doc = ""]
@@ -282,7 +313,7 @@ impl EsRepository for EsRepositoryPub {
         &self,
         index_name: &str,
         index_setting_json: &Value,
-    ) -> Result<Value, anyhow::Error> {
+    ) -> Result<(), anyhow::Error> {
         let response: Response = self
             .execute_on_any_node(|es_client| async move {
                 let response = es_client
@@ -297,16 +328,8 @@ impl EsRepository for EsRepositoryPub {
             })
             .await?;
 
-        if response.status_code().is_success() {
-            let response_body = response.json::<Value>().await?;
-            Ok(response_body)
-        } else {
-            let error_body = response.text().await?;
-            Err(anyhow!(
-                "[Elasticsearch Error][node_search_query()] response status is failed: {:?}",
-                error_body
-            ))
-        }
+        self.process_response_empty("create_index()", response)
+            .await
     }
 
     #[doc = ""]
@@ -314,7 +337,7 @@ impl EsRepository for EsRepositoryPub {
         &self,
         index_name: &str,
         data: &Vec<T>,
-    ) -> Result<Value, anyhow::Error> {
+    ) -> Result<(), anyhow::Error> {
         let response: Response = self
             .execute_on_any_node(|es_client| async move {
                 let mut ops: Vec<BulkOperation<Value>> = Vec::with_capacity(data.len());
@@ -338,20 +361,11 @@ impl EsRepository for EsRepositoryPub {
             })
             .await?;
 
-        if response.status_code().is_success() {
-            let response_body = response.json::<Value>().await?;
-            Ok(response_body)
-        } else {
-            let error_body = response.text().await?;
-            Err(anyhow!(
-                "[Elasticsearch Error][node_search_query()] response status is failed: {:?}",
-                error_body
-            ))
-        }
+        self.process_response_empty("bulk_query()", response).await
     }
 
     #[doc = ""]
-    async fn clear_scroll_info(&self, scroll_id: &str) -> Result<Value, anyhow::Error> {
+    async fn clear_scroll_info(&self, scroll_id: &str) -> Result<(), anyhow::Error> {
         let response = self
             .execute_on_any_node(|es_client| async move {
                 let response = es_client
@@ -364,16 +378,8 @@ impl EsRepository for EsRepositoryPub {
             })
             .await?;
 
-        if response.status_code().is_success() {
-            let response_body = response.json::<Value>().await?;
-            Ok(response_body)
-        } else {
-            let error_body = response.text().await?;
-            Err(anyhow!(
-                "[Elasticsearch Error][node_search_query()] response status is failed: {:?}",
-                error_body
-            ))
-        }
+        self.process_response_empty("clear_scroll_info()", response)
+            .await
     }
 
     #[doc = ""]
@@ -395,16 +401,8 @@ impl EsRepository for EsRepositoryPub {
             })
             .await?;
 
-        if response.status_code().is_success() {
-            let response_body = response.json::<Value>().await?;
-            Ok(response_body)
-        } else {
-            let error_body = response.text().await?;
-            Err(anyhow!(
-                "[Elasticsearch Error][node_search_query()] response status is failed: {:?}",
-                error_body
-            ))
-        }
+        self.process_response("get_scroll_search_query()", response)
+            .await
     }
 
     #[doc = ""]
@@ -428,16 +426,8 @@ impl EsRepository for EsRepositoryPub {
             })
             .await?;
 
-        if response.status_code().is_success() {
-            let response_body = response.json::<Value>().await?;
-            Ok(response_body)
-        } else {
-            let error_body = response.text().await?;
-            Err(anyhow!(
-                "[Elasticsearch Error][node_search_query()] response status is failed: {:?}",
-                error_body
-            ))
-        }
+        self.process_response("get_scroll_initial_search_query()", response)
+            .await
     }
 
     #[doc = "Function that EXECUTES elasticsearch queries - search"]
@@ -459,16 +449,7 @@ impl EsRepository for EsRepositoryPub {
             })
             .await?;
 
-        if response.status_code().is_success() {
-            let response_body = response.json::<Value>().await?;
-            Ok(response_body)
-        } else {
-            let error_body = response.text().await?;
-            Err(anyhow!(
-                "[Elasticsearch Error][node_search_query()] response status is failed: {:?}",
-                error_body
-            ))
-        }
+        self.process_response("get_search_query()", response).await
     }
 
     #[doc = "Function that EXECUTES elasticsearch queries - indexing struct"]
@@ -498,55 +479,34 @@ impl EsRepository for EsRepositoryPub {
             })
             .await?;
 
-        if response.status_code().is_success() {
-            Ok(())
-        } else {
-            let error_message = format!("[Elasticsearch Error][node_post_query()] Failed to index document: Status Code: {}", response.status_code());
-            Err(anyhow!(error_message))
-        }
+        self.process_response_empty("post_query()", response).await
     }
 
     #[doc = ""]
     async fn delete_query(&self, index_name: &str) -> Result<(), anyhow::Error> {
-
         let response = self
             .execute_on_any_node(|es_client| async move {
+                let response = es_client
+                    .es_conn
+                    .indices()
+                    .delete(IndicesDeleteParts::Index(&[index_name]))
+                    .send()
+                    .await?;
 
-            let response = es_client
-                .es_conn
-                .indices()
-                .delete(IndicesDeleteParts::Index(&[index_name]))
-                .send()
-                .await?;
+                Ok(response)
+            })
+            .await?;
 
-            Ok(response)
-        })
-        .await?;
-
-        if response.status_code().is_success() {
-            Ok(())
-        } else {
-            let error_message = format!("[Elasticsearch Error][node_delete_query()] Failed to delete document: Status Code: {}", response.status_code());
-            Err(anyhow!(error_message))
-        }
+        self.process_response_empty("delete_query()", response)
+            .await
     }
 
     #[doc = "Function that EXECUTES elasticsearch queries - delete"]
     async fn delete_query_doc(&self, doc_id: &str, index_name: &str) -> Result<(), anyhow::Error> {
         let response = self
             .execute_on_any_node(|es_client| async move {
-                // let body = serde_json::json!({
-                //     "query": {
-                //         "ids": {
-                //             "values": [doc_id]
-                //         }
-                //     }
-                // });
-
                 let response = es_client
                     .es_conn
-                    //.delete_by_query(DeleteByQueryParts::Index(&[index_name]))
-                    //.body(body)
                     .delete(DeleteParts::IndexId(index_name, doc_id))
                     .send()
                     .await?;
@@ -557,11 +517,7 @@ impl EsRepository for EsRepositoryPub {
             })
             .await?;
 
-        if response.status_code().is_success() {
-            Ok(())
-        } else {
-            let error_message = format!("[Elasticsearch Error][node_delete_query()] Failed to delete document: Status Code: {}, Document ID: {}", response.status_code(), doc_id);
-            Err(anyhow!(error_message))
-        }
+        self.process_response_empty("delete_query_doc()", response)
+            .await
     }
 }
