@@ -1,5 +1,3 @@
-use serde::ser::Error;
-
 use crate::common::*;
 
 use crate::repository::es_repository::*;
@@ -7,25 +5,11 @@ use crate::repository::es_repository::*;
 use crate::models::consume_prodt_detail::*;
 use crate::models::consume_prodt_detail_es::*;
 
+use crate::utils_module::io_utils::*;
 use crate::utils_module::time_utils::*;
 
 #[async_trait]
 pub trait EsQueryService {
-    // async fn get_all_consume_detail_list_from_es(
-    //     &self,
-    // ) -> Result<Vec<ConsumeProdtDetailES>, anyhow::Error>;
-
-    // async fn get_consume_detail_list_gte_cur_timstamp_from_es(
-    //     &self,
-    //     timestamp: NaiveDateTime,
-    // ) -> Result<Vec<ConsumeProdtDetailES>, anyhow::Error>;
-
-    // async fn get_consume_detail_list_from_es_partial(
-    //     &self,
-    //     query: &Value,
-    //     scroll_id: &str,
-    // ) -> Result<(String, Vec<ConsumeProdtDetailES>), anyhow::Error>;
-
     async fn get_search_data_by_bulk<T: for<'de> Deserialize<'de> + Send>(
         &self,
         index_name: &str,
@@ -43,14 +27,12 @@ pub trait EsQueryService {
         start_dt: NaiveDateTime,
     ) -> Result<Vec<T>, anyhow::Error>;
 
-    // async fn get_transfer_indexingtype_consume_detail_list(
-    //     &self,
-    //     consume_detail_list: &Vec<ConsumeProdtDetail>,
-    // ) -> Result<ConsumeProdtDetailES, anyhow::Error>;
-    // async fn get_consume_specific_datetime_detail_list_from_es_partial(
-    //     &self,
-    //     scroll_id: &str,
-    // ) -> Result<(String, Vec<ConsumeProdtDetailES>), anyhow::Error>;
+    async fn post_indexing_data_by_bulk<T: Serialize + Send + Sync>(
+        &self,
+        index_name: &str,
+        index_settings_path: &str,
+        data: &Vec<T>,
+    ) -> Result<(), anyhow::Error>;
 }
 
 #[derive(Debug, new)]
@@ -58,12 +40,40 @@ pub struct EsQueryServicePub;
 
 #[async_trait]
 impl EsQueryService for EsQueryServicePub {
-    // #[doc = ""]
-    // async fn get_transfer_indexingtype_consume_detail_list(
-    //     &self,
-    //     consume_detail_list: &Vec<ConsumeProdtDetail>,
-    // ) -> Result<ConsumeProdtDetailES, anyhow::Error> {
-    // }
+    #[doc = ""]
+    async fn post_indexing_data_by_bulk<T: Serialize + Send + Sync>(
+        &self,
+        index_name: &str,
+        index_settings_path: &str,
+        data: &Vec<T>,
+    ) -> Result<(), anyhow::Error> {
+        let es_conn = get_elastic_conn()?;
+
+        // 만들어줄 인덱스에 오늘 날짜 시간을 붙여준다.
+        let curr_time = get_current_kor_naive_datetime()
+            .format("%Y%m%d%H%M%S")
+            .to_string();
+        let new_index_name: String = format!("{}-{}", index_name, curr_time);
+
+        let json_body: Value = read_json_from_file(index_settings_path)?;
+        es_conn.create_index(&new_index_name, &json_body).await?;
+
+        // 위의 인덱스에 데이터를 한번에 bulk post 시켜준다.
+        es_conn.bulk_query(&new_index_name, data).await?;
+
+        // alias 를 바꿔준다.
+        let alias_resp = es_conn.get_indexes_mapping_by_alias(index_name).await?;
+        let old_index_name: String;
+        if let Some(first_key) = alias_resp.as_object().and_then(|map| map.keys().next()) {
+            old_index_name = first_key.to_string();
+        } else {
+            return Err(anyhow!("[Error][post_indexing_data_by_bulk()] Failed to extract index name within 'index-alias'"));
+        }
+
+        //info!("{:?}", res[0]);
+
+        Ok(())
+    }
 
     #[doc = ""]
     async fn get_timetamp_gt_filter_list_from_es_partial<T: for<'de> Deserialize<'de> + Send>(

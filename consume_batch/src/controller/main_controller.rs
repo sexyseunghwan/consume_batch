@@ -149,7 +149,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
                     .and_then(|source| serde_json::from_value(source.clone()).map_err(Into::into))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        
+
         let mut cpk_vec: Vec<ConsumeProdtKeyword> = Vec::new();
 
         for consume_keyword in hits_vector {
@@ -165,12 +165,31 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
 
         Ok(())
     }
+    // ==================== [FOR TEST] ====================
 
     #[doc = ""]
-    pub fn main_task(&self) -> Result<(), anyhow::Error> {
-        // ES -> MySQL ETL
+    pub async fn main_task(&self) -> Result<(), anyhow::Error> {
+        /* 1. ES -> MySQL ETL */
 
-        // MySQL -> ES Indexing
+        /* 2. MySQL -> ES Indexing */
+        /* 2-1. consuming_index_prod_type */
+        let consume_prodt_type: Vec<ConsumeProdtKeyword> =
+            self.query_service.get_all_consume_prodt_type()?;
+
+        self.es_query_service
+            .post_indexing_data_by_bulk::<ConsumeProdtKeyword>(
+                CONSUME_TYPE,
+                CONSUME_TYPE_SETTINGS,
+                &consume_prodt_type,
+            )
+            .await?;
+
+        // let consume_prodt_type_es: Vec<ConsumeProdtKeywordES> = consume_prodt_type
+        //     .iter()
+        //     .map(|elem| elem.transfer_to_consume_prodt_keyword_es())
+        //     .collect();
+
+        /* 2-2. consuming_index_prod_new */
 
         //let test = self.query_service.consume_keyword_type_join_consume_prodt_keyword()?;
 

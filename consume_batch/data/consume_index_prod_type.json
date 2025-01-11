@@ -1,0 +1,59 @@
+{
+    "settings": {
+      "index": {
+        "analysis": {
+          "analyzer": {
+            "korean": {
+              "filter" : [
+                  "stop_filtering",
+                  "synonym_filtering"
+                ],
+              "type": "custom",
+              "tokenizer": "nori_tokenizer_with_user_dictionary"
+            },
+            "standard_analyzer": {
+              "type": "custom",
+              "tokenizer": "seperate_tokenizer"
+            }
+          },
+          "filter": {
+            "synonym_filtering": {
+              "type": "synonym",
+              "lenient": true,
+              "synonyms_path": "config/synonym.txt"
+            },
+            "stop_filtering": {
+              "type": "stop",
+              "stopwords_path": "config/stop_words.txt"
+            }
+          },
+          "tokenizer": {
+            "nori_tokenizer_with_user_dictionary": {
+              "type": "nori_tokenizer",
+              "decompound_mode": "mixed",
+              "user_dictionary": "config/user_dic.txt"  
+            },
+            "standard_tokenizer": {
+              "type": "standard"
+            },
+            "seperate_tokenizer": {
+              "type": "pattern",
+              "pattern": "[,]|[|]"
+            }
+          }
+        }
+      }
+    },
+    "mappings": {
+      "properties": {
+        "consume_keyword_type": {
+          "type": "keyword"
+        },
+        "consume_keyword": {
+          "type": "text",
+          "analyzer": "korean"
+        }
+      }
+    }
+  }
+  

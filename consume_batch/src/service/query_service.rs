@@ -20,12 +20,27 @@ pub trait QueryService {
     ) -> Result<Vec<ConsumeProdtDetail>, anyhow::Error>;
     fn get_total_count_consume_prodt_detail(&self) -> Result<i64, anyhow::Error>;
     fn get_all_consume_prodt_detail(&self) -> Result<Vec<ConsumeProdtDetail>, anyhow::Error>;
+    fn get_all_consume_prodt_type(&self) -> Result<Vec<ConsumeProdtKeyword>, anyhow::Error>;
 }
 
 #[derive(Debug, new)]
 pub struct QueryServicePub;
 
 impl QueryService for QueryServicePub {
+    #[doc = ""]
+    fn get_all_consume_prodt_type(&self) -> Result<Vec<ConsumeProdtKeyword>, anyhow::Error> {
+        let mut conn = get_mysql_pool()?;
+
+        let query = CONSUME_PRODT_KEYWORD::table.select((
+            CONSUME_PRODT_KEYWORD::consume_keyword_type,
+            CONSUME_PRODT_KEYWORD::consume_keyword,
+        ));
+
+        let result = query.load::<ConsumeProdtKeyword>(&mut conn)?;
+
+        Ok(result)
+    }
+
     #[doc = ""]
     fn get_all_consume_prodt_detail(&self) -> Result<Vec<ConsumeProdtDetail>, anyhow::Error> {
         let mut conn = get_mysql_pool()?;

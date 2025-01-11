@@ -19,12 +19,14 @@ use service::query_service::*;
 
 #[tokio::main]
 async fn main() {
-    let set_global_logger = set_global_logger();
+    set_global_logger();
     dotenv().ok();
+
+    info!("Batch Program Start");
 
     let query_service = QueryServicePub::new();
     let es_query_service = EsQueryServicePub::new();
     let main_controller = MainController::new(query_service, es_query_service);
 
-    main_controller.insert_consume_type_to_mysql().await.unwrap();
+    main_controller.main_task().await.unwrap();
 }

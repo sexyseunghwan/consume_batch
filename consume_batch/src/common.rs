@@ -2,9 +2,10 @@ pub use std::{
     cmp,
     cmp::Ordering,
     collections::{HashMap, VecDeque},
-    env, fs,
+    env,
+    fs::File,
     future::Future,
-    io::Write,
+    io::{BufReader, Write},
     path::Path,
     str::FromStr,
     sync::{Arc, Mutex, MutexGuard},
@@ -27,18 +28,23 @@ pub use chrono_tz::Asia::Seoul;
 
 pub use serde::{Deserialize, Serialize};
 
-pub use serde_json::{from_value, json, Value};
+pub use serde_json::{from_reader, from_value, json, Value};
 
 pub use serde::de::DeserializeOwned;
+
+pub use http::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
 
 pub use dotenv::dotenv;
 
 pub use elasticsearch::{
+    http::request::Body,
     http::response::Response,
     http::transport::{ConnectionPool, Transport},
     http::transport::{MultiNodeConnectionPool, SingleNodeConnectionPool, TransportBuilder},
     http::Url,
-    DeleteByQueryParts, DeleteParts, Elasticsearch, IndexParts, SearchParts,
+    indices::{IndicesCreateParts, IndicesGetAliasParts, IndicesDeleteParts},
+    BulkOperation, BulkParts, DeleteByQueryParts, DeleteParts, Elasticsearch, IndexParts,
+    SearchParts,
 };
 
 pub use anyhow::{anyhow, Context, Result};
@@ -92,5 +98,8 @@ pub use once_cell::sync::Lazy as once_lazy;
 /* Elasticsearch index name to use globally */
 pub static CONSUME_DETAIL: &str = "consuming_index_prod_new_v3";
 pub static CONSUME_DETAIL_REMOVE: &str = "consuming_index_prod_new_remove";
-pub static CONSUME_TYPE: &str = "consuming_index_prod_type_v2";
+pub static CONSUME_TYPE: &str = "consuming_index_prod_type_v10";
 pub static MEAL_CHECK: &str = "meal_check_index";
+
+pub static CONSUME_TYPE_SETTINGS: &str = "./data/consume_index_prod_type.json";
+pub static CONSUME_DETAIL_SETTINGS: &str = "./data/consuming_index_prod_new.json";

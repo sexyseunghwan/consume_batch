@@ -381,6 +381,7 @@ dependencies = [
  "flexi_logger",
  "futures",
  "getset",
+ "http 1.2.0",
  "kafka",
  "lazy_static",
  "log",
