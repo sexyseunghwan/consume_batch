@@ -10,9 +10,9 @@ use crate::schema::{CONSUME_PRODT_DETAIL, CONSUME_PRODT_KEYWORD, CONSUMUE_KEYWOR
 use crate::schema::CONSUME_PRODT_DETAIL::dsl::*;
 
 pub trait QueryService {
-    fn consume_keyword_type_join_consume_prodt_keyword(
-        &self,
-    ) -> Result<Vec<ConsumeProdtKeyword>, anyhow::Error>;
+    // fn consume_keyword_type_join_consume_prodt_keyword(
+    //     &self,
+    // ) -> Result<Vec<ConsumeProdtKeyword>, anyhow::Error>;
     fn get_top_consume_prodt_detail_order_by_timestamp(
         &self,
         top_n: i64,
@@ -27,7 +27,7 @@ pub trait QueryService {
 pub struct QueryServicePub;
 
 impl QueryService for QueryServicePub {
-    #[doc = ""]
+    #[doc = "Functions that select all objects in the 'ConsumeProdtKeyword' table"]
     fn get_all_consume_prodt_type(&self) -> Result<Vec<ConsumeProdtKeyword>, anyhow::Error> {
         let mut conn = get_mysql_pool()?;
 
@@ -41,7 +41,7 @@ impl QueryService for QueryServicePub {
         Ok(result)
     }
 
-    #[doc = ""]
+    #[doc = "Functions that select all objects in the 'ConsumeProdtDetail' table"]
     fn get_all_consume_prodt_detail(&self) -> Result<Vec<ConsumeProdtDetail>, anyhow::Error> {
         let mut conn = get_mysql_pool()?;
 
@@ -61,27 +61,33 @@ impl QueryService for QueryServicePub {
         Ok(result)
     }
 
-    #[doc = ""]
-    fn consume_keyword_type_join_consume_prodt_keyword(
-        &self,
-    ) -> Result<Vec<ConsumeProdtKeyword>, anyhow::Error> {
-        let mut conn = get_mysql_pool()?;
+    // #[doc = ""]
+    // fn consume_keyword_type_join_consume_prodt_keyword(
+    //     &self,
+    // ) -> Result<Vec<ConsumeProdtKeyword>, anyhow::Error> {
+    //     let mut conn = get_mysql_pool()?;
 
-        let result = CONSUME_PRODT_KEYWORD::table
-            .inner_join(
-                CONSUMUE_KEYWORD_TYPE::table.on(CONSUME_PRODT_KEYWORD::consume_keyword_type
-                    .eq(CONSUMUE_KEYWORD_TYPE::consume_keyword_type)),
-            )
-            .select((
-                CONSUME_PRODT_KEYWORD::consume_keyword_type,
-                CONSUME_PRODT_KEYWORD::consume_keyword,
-            ))
-            .load::<ConsumeProdtKeyword>(&mut conn)?;
+    //     let result = CONSUME_PRODT_KEYWORD::table
+    //         .inner_join(
+    //             CONSUMUE_KEYWORD_TYPE::table.on(CONSUME_PRODT_KEYWORD::consume_keyword_type
+    //                 .eq(CONSUMUE_KEYWORD_TYPE::consume_keyword_type)),
+    //         )
+    //         .select((
+    //             CONSUME_PRODT_KEYWORD::consume_keyword_type,
+    //             CONSUME_PRODT_KEYWORD::consume_keyword,
+    //         ))
+    //         .load::<ConsumeProdtKeyword>(&mut conn)?;
 
-        Ok(result)
-    }
+    //     Ok(result)
+    // }
 
-    #[doc = ""]
+    #[doc = "Function that returns the top N pieces of data after sorting the data in the 'ConsumeProdtDetail' table by the 'cur_timestamp' column"]
+    /// # Arguments
+    /// * `top_n` - Number to specify as top
+    /// * `ascending` - Is it in ascending order
+    ///
+    /// # Returns
+    /// * Result<Vec<ConsumeProdtDetail>, anyhow::Error>
     fn get_top_consume_prodt_detail_order_by_timestamp(
         &self,
         top_n: i64,
@@ -119,7 +125,7 @@ impl QueryService for QueryServicePub {
         Ok(result)
     }
 
-    #[doc = ""]
+    #[doc = "Functions that return the number of data present in the table 'CONSUME_PRODT_DETAIL'"]
     fn get_total_count_consume_prodt_detail(&self) -> Result<i64, anyhow::Error> {
         let mut conn = get_mysql_pool()?;
 

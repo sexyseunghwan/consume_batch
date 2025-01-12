@@ -167,7 +167,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
     }
     // ==================== [FOR TEST] ====================
 
-    #[doc = ""]
+    #[doc = "Main Batch Function"]
     pub async fn main_task(&self) -> Result<(), anyhow::Error> {
         /* 1. ES -> MySQL ETL */
 
@@ -184,6 +184,24 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
             )
             .await?;
 
+        /* 2-2. consume_prodt_details */
+        let consume_prodt_details: Vec<ConsumeProdtDetail> =
+            self.query_service.get_all_consume_prodt_detail()?;
+
+        let consume_prodt_details: Vec<ConsumeProdtDetailES> = self
+            .es_query_service
+            .get_consume_prodt_details_specify_type(&consume_prodt_details)
+            .await?;
+        
+        self.es_query_service
+            .post_indexing_data_by_bulk::<ConsumeProdtDetailES>(
+                CONSUME_DETAIL,
+                CONSUME_DETAIL_SETTINGS,
+                &consume_prodt_details,
+            )
+            .await?;
+        
+        
         // let consume_prodt_type_es: Vec<ConsumeProdtKeywordES> = consume_prodt_type
         //     .iter()
         //     .map(|elem| elem.transfer_to_consume_prodt_keyword_es())

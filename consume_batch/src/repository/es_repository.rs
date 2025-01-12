@@ -103,7 +103,7 @@ pub trait EsRepository {
         new_index_name: &str,
         old_index_name: &str,
     ) -> Result<(), anyhow::Error>;
-    async fn bulk_query<T: Serialize + Send + Sync>(
+    async fn bulk_indexing_query<T: Serialize + Send + Sync>(
         &self,
         index_name: &str,
         data: &Vec<T>,
@@ -217,7 +217,14 @@ impl Drop for EsRepositoryPub {
 
 #[async_trait]
 impl EsRepository for EsRepositoryPub {
-    #[doc = ""]
+    #[doc = "Function that processes responses after making a specific request to Elasticsearch.
+    It processes functions that do not have a return value."]
+    /// # Arguments
+    /// * `function_name` - Name of the function that makes a specific request to Elasticsearch.
+    /// * `response` - Query response json value.
+    ///
+    /// # Returns
+    /// * Result<(), anyhow::Error>
     async fn process_response_empty(
         &self,
         function_name: &str,
@@ -235,7 +242,14 @@ impl EsRepository for EsRepositoryPub {
         }
     }
 
-    #[doc = ""]
+    #[doc = "Function that processes responses after making a specific request to Elasticsearch.
+    It processes functions that have a return value."]
+    /// # Arguments
+    /// * `function_name` - Name of the function that makes a specific request to Elasticsearch.
+    /// * `response` - Query response json value.
+    ///
+    /// # Returns
+    /// * Result<Value, anyhow::Error>
     async fn process_response(
         &self,
         function_name: &str,
@@ -254,7 +268,14 @@ impl EsRepository for EsRepositoryPub {
         }
     }
 
-    #[doc = ""]
+    #[doc = "Functions that change the index specified for a particular alias"]
+    /// # Arguments
+    /// * `index_alias` - index alias name
+    /// * `new_index_name` - Index name to be newly mapped to alias
+    /// * `old_index_name` - Index name mapped to alias
+    ///
+    /// # Returns
+    /// * Result<(), anyhow::Error>
     async fn update_index_alias(
         &self,
         index_alias: &str,
@@ -286,7 +307,12 @@ impl EsRepository for EsRepositoryPub {
             .await
     }
 
-    #[doc = ""]
+    #[doc = "Functions that return the index name mapped to Elasticsearch alias"]
+    /// # Arguments
+    /// * `index_alias_name` - index alias name
+    ///
+    /// # Returns
+    /// * Result<Value, anyhow::Error>
     async fn get_indexes_mapping_by_alias(
         &self,
         index_alias_name: &str,
@@ -308,7 +334,13 @@ impl EsRepository for EsRepositoryPub {
             .await
     }
 
-    #[doc = ""]
+    #[doc = "Function that first declares setting information and mapping information and then generates an index"]
+    /// # Arguments
+    /// * `index_name` - index name
+    /// * `index_setting_json` - setting/mapping information of Index
+    ///
+    /// # Returns
+    /// * Result<(), anyhow::Error>
     async fn create_index(
         &self,
         index_name: &str,
@@ -332,8 +364,14 @@ impl EsRepository for EsRepositoryPub {
             .await
     }
 
-    #[doc = ""]
-    async fn bulk_query<T: Serialize + Send + Sync>(
+    #[doc = "Function to index data to Elasticsearch at once"]
+    /// # Arguments
+    /// * `index_name` - index name
+    /// * `data` - Data vectors to be indexed
+    ///
+    /// # Returns
+    /// * Result<(), anyhow::Error>
+    async fn bulk_indexing_query<T: Serialize + Send + Sync>(
         &self,
         index_name: &str,
         data: &Vec<T>,
@@ -343,10 +381,10 @@ impl EsRepository for EsRepositoryPub {
                 let mut ops: Vec<BulkOperation<Value>> = Vec::with_capacity(data.len());
 
                 for item in data {
-                    // 데이터를 JSON으로 변환
+                    /* Converting Data to JSON */
                     let json_value = serde_json::to_value(&item)?;
 
-                    // BulkOperation 생성 (ID 없이)
+                    /* BulkOperation Generation (without ID) */
                     ops.push(BulkOperation::index(json_value).into());
                 }
 
@@ -364,7 +402,12 @@ impl EsRepository for EsRepositoryPub {
         self.process_response_empty("bulk_query()", response).await
     }
 
-    #[doc = ""]
+    #[doc = "function that deletes the id in the final step of scroll-api"]
+    /// # Arguments
+    /// * `scroll_id` - scroll api ID
+    ///
+    /// # Returns
+    /// * Result<(), anyhow::Error>
     async fn clear_scroll_info(&self, scroll_id: &str) -> Result<(), anyhow::Error> {
         let response = self
             .execute_on_any_node(|es_client| async move {
@@ -382,7 +425,13 @@ impl EsRepository for EsRepositoryPub {
             .await
     }
 
-    #[doc = ""]
+    #[doc = "Functions using elasticsearch scroll api - Nth query ( N > 1)"]
+    /// # Arguments
+    /// * `scroll_duration` - Time to maintain search context
+    /// * `scroll_id` - scroll api ID
+    ///
+    /// # Returns
+    /// * Result<Value, anyhow::Error>
     async fn get_scroll_search_query(
         &self,
         scroll_duration: &str,
@@ -405,7 +454,14 @@ impl EsRepository for EsRepositoryPub {
             .await
     }
 
-    #[doc = ""]
+    #[doc = "Functions using elasticsearch scroll api - first query"]
+    /// # Arguments
+    /// * `index_name` - The index name that the query targets
+    /// * `scroll_duration` - Time to maintain search context
+    /// * `es_query` - Query format
+    ///
+    /// # Returns
+    /// * Result<Value, anyhow::Error>
     async fn get_scroll_initial_search_query(
         &self,
         index_name: &str,
@@ -431,6 +487,12 @@ impl EsRepository for EsRepositoryPub {
     }
 
     #[doc = "Function that EXECUTES elasticsearch queries - search"]
+    /// # Arguments
+    /// * `es_query` - Elasticsearch Query form
+    /// * `index_name` - Name of Elasticsearch index
+    ///
+    /// # Returns
+    /// * Result<Value, anyhow::Error>
     async fn get_search_query(
         &self,
         es_query: &Value,
@@ -453,6 +515,12 @@ impl EsRepository for EsRepositoryPub {
     }
 
     #[doc = "Function that EXECUTES elasticsearch queries - indexing struct"]
+    /// # Arguments
+    /// * `param_struct` - Structural Forms to Index
+    /// * `index_name` - Name of Elasticsearch index
+    ///
+    /// # Returns
+    /// * Result<(), anyhow::Error>
     async fn post_query_struct<T: Serialize + Sync>(
         &self,
         param_struct: &T,
@@ -465,6 +533,12 @@ impl EsRepository for EsRepositoryPub {
     }
 
     #[doc = "Function that EXECUTES elasticsearch queries - indexing"]
+    /// # Arguments
+    /// * `document` - Json data to index
+    /// * `index_name` - Name of Elasticsearch index
+    ///
+    /// # Returns
+    /// * Result<(), anyhow::Error>
     async fn post_query(&self, document: &Value, index_name: &str) -> Result<(), anyhow::Error> {
         let response = self
             .execute_on_any_node(|es_client| async move {
@@ -482,7 +556,12 @@ impl EsRepository for EsRepositoryPub {
         self.process_response_empty("post_query()", response).await
     }
 
-    #[doc = ""]
+    #[doc = "Functions that delete a particular index as a whole"]
+    /// # Arguments
+    /// * `index_name` - Index name to be deleted
+    ///
+    /// # Returns
+    /// * Result<(), anyhow::Error>
     async fn delete_query(&self, index_name: &str) -> Result<(), anyhow::Error> {
         let response = self
             .execute_on_any_node(|es_client| async move {
@@ -502,6 +581,12 @@ impl EsRepository for EsRepositoryPub {
     }
 
     #[doc = "Function that EXECUTES elasticsearch queries - delete"]
+    /// # Arguments
+    /// * `doc_id` - 'doc unique number' of the target to be deleted
+    /// * `index_name` - Index name to be deleted
+    ///
+    /// # Returns
+    /// * Result<(), anyhow::Error>
     async fn delete_query_doc(&self, doc_id: &str, index_name: &str) -> Result<(), anyhow::Error> {
         let response = self
             .execute_on_any_node(|es_client| async move {

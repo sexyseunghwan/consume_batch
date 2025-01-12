@@ -95,6 +95,8 @@ pub use regex::Regex;
 
 pub use once_cell::sync::Lazy as once_lazy;
 
+pub use strsim::levenshtein;
+
 /* Elasticsearch index name to use globally */
 pub static CONSUME_DETAIL: &str = "consuming_index_prod_new_v3";
 pub static CONSUME_DETAIL_REMOVE: &str = "consuming_index_prod_new_remove";

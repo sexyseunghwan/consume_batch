@@ -25,7 +25,7 @@ pub fn initialize_kafka_clients() -> Arc<Mutex<KafkaRepositoryPub>> {
     Arc::new(Mutex::new(kafka_producer))
 }
 
-#[doc = ""]
+#[doc = "Function that returns Kafka producer singleton"]
 pub fn get_kafka_producer() -> Arc<Mutex<KafkaRepositoryPub>> {
     Arc::clone(&KAFKA_PRODUCER)
 }
@@ -43,9 +43,13 @@ pub struct KafkaRepositoryPub {
 #[async_trait]
 impl KafkaRepository for KafkaRepositoryPub {
     #[doc = "Function that send message to Kafka"]
+    /// # Arguments
+    /// * `topic` - kafka topic to produce
+    /// * `message` - a message to produce
+    ///
+    /// # Returns
+    /// * Result<(), anyhow::Error>
     fn produce_message(&mut self, topic: &str, message: &str) -> Result<(), anyhow::Error> {
-        // let produce_broker = &mut self
-
         let produce_broker = &mut self.produce_broker;
 
         let _result = produce_broker.send(&KafkaRecord::from_value(topic, message))?;

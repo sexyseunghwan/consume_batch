@@ -15,7 +15,24 @@ pub struct ConsumeProdtDetailES {
     pub prodt_type: Option<String>,
 }
 
-//ConsumeProdtDetail
+// #[doc = "이거가 필요없을 수도?"]
+// pub fn transfer_to_consume_prodt_detail_vector(consume_prodt_details: &Vec<ConsumeProdtDetail>) -> Result<Vec<ConsumeProdtDetailES>, anyhow::Error> {
+
+//     let mut consume_prodt_details_es: Vec<ConsumeProdtDetailES> = Vec::new();
+
+//     for prodt_detail in consume_prodt_details {
+//         let prodt_details_es = ConsumeProdtDetailES::new(
+//             prodt_detail.timestamp.to_string(),
+//             Some(prodt_detail.cur_timestamp.to_string()),
+//             prodt_detail.prodt_name.to_string(),
+//             prodt_detail.prodt_money,
+//             Some(String::from("test"))); // 여기 추후에 바꿔야하는데...
+
+//         consume_prodt_details_es.push(prodt_details_es);
+//     }
+
+//     Ok(consume_prodt_details_es)
+// }
 
 impl ConsumeProdtDetailES {
     #[doc = "Functions that convert elasticsearch schema to schema data formats in MySQL format"]

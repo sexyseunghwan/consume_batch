@@ -5,8 +5,9 @@ use crate::repository::mysql_repository::*;
 use crate::schema::CONSUME_PRODT_KEYWORD;
 use crate::schema::CONSUME_PRODT_KEYWORD::dsl::*;
 
-#[derive(Queryable, Serialize, Deserialize, Debug, Insertable)]
+#[derive(Queryable, Serialize, Deserialize, Debug, Insertable, Getters)]
 #[table_name = "CONSUME_PRODT_KEYWORD"]
+#[getset(get = "pub")]
 pub struct ConsumeProdtKeyword {
     pub consume_keyword_type: String,
     pub consume_keyword: String,

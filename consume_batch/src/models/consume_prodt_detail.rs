@@ -5,8 +5,9 @@ use crate::repository::mysql_repository::*;
 use crate::schema::CONSUME_PRODT_DETAIL;
 use crate::schema::CONSUME_PRODT_DETAIL::dsl::*;
 
-#[derive(Queryable, Debug, Insertable, AsChangeset)]
+#[derive(Queryable, Debug, Insertable, AsChangeset, Getters)]
 #[table_name = "CONSUME_PRODT_DETAIL"]
+
 pub struct ConsumeProdtDetail {
     pub timestamp: NaiveDateTime,
     pub cur_timestamp: NaiveDateTime,
@@ -18,7 +19,12 @@ pub struct ConsumeProdtDetail {
     pub chg_id: Option<String>,
 }
 
-#[doc = ""]
+#[doc = "Function that inserts 'ConsumeProdtDetail' object into MySQL - bulk insert"]
+/// # Arguments
+/// * `consume_prodt_detais` - Object of `ConsumeProdtDetail`
+///
+/// # Returns
+/// * Result<usize, anyhow::Error>
 pub fn insert_multiple_consume_prodt_detail(
     consume_prodt_detais: &Vec<ConsumeProdtDetail>,
 ) -> Result<usize, anyhow::Error> {

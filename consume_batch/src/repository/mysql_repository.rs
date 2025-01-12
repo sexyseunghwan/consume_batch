@@ -1,11 +1,8 @@
-use serde::de::Error;
-
 use crate::common::*;
 
 type MysqlPool = Pool<ConnectionManager<MysqlConnection>>;
 
 static POOL: once_lazy<Arc<MysqlPool>> = once_lazy::new(|| {
-    //dotenv().ok();
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let manager = ConnectionManager::<MysqlConnection>::new(&database_url);
     Arc::new(
@@ -15,7 +12,7 @@ static POOL: once_lazy<Arc<MysqlPool>> = once_lazy::new(|| {
     )
 });
 
-#[doc = ""]
+#[doc = "Functions that return MySQL connection information"]
 pub fn get_mysql_pool(
 ) -> Result<PooledConnection<ConnectionManager<MysqlConnection>>, anyhow::Error> {
     let pool = Arc::clone(&POOL);
