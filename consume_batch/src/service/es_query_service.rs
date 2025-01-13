@@ -240,6 +240,7 @@ impl EsQueryService for EsQueryServicePub {
 
         for prodt_detail in consume_prodt_details {
             let prodt_name = prodt_detail.prodt_name.to_string();
+            info!("prodt_name: {}", prodt_name);
             let prodt_type: String;
             let es_query = json!({
                 "query": {
@@ -261,7 +262,7 @@ impl EsQueryService for EsQueryServicePub {
                         .and_then(|source| serde_json::from_value(source.clone()).map_err(Into::into))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-
+            
             if results.is_empty() {
                 prodt_type = String::from("etc");
             } else {
@@ -314,6 +315,8 @@ impl EsQueryService for EsQueryServicePub {
 
                 // prodt_type = top_score_consume_type;
             }
+
+            info!("prodt_type: {}", prodt_type);
 
             let prodt_detail_timestamp = get_str_from_naive_datetime(*prodt_detail.timestamp());
             let prodt_detail_cur_timestamp = get_str_from_naive_datetime(*prodt_detail.timestamp());
