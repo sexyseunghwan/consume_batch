@@ -192,7 +192,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
             .es_query_service
             .get_consume_prodt_details_specify_type(&consume_prodt_details)
             .await?;
-        
+
         self.es_query_service
             .post_indexing_data_by_bulk::<ConsumeProdtDetailES>(
                 CONSUME_DETAIL,
@@ -200,8 +200,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
                 &consume_prodt_details,
             )
             .await?;
-        
-        
+
         // let consume_prodt_type_es: Vec<ConsumeProdtKeywordES> = consume_prodt_type
         //     .iter()
         //     .map(|elem| elem.transfer_to_consume_prodt_keyword_es())

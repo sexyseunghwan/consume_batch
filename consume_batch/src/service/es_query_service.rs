@@ -5,6 +5,7 @@ use crate::repository::es_repository::*;
 use crate::models::consume_prodt_detail::*;
 use crate::models::consume_prodt_detail_es::*;
 use crate::models::consume_prodt_keyword::*;
+use crate::models::score_manager::*;
 
 use crate::utils_module::io_utils::*;
 use crate::utils_module::time_utils::*;
@@ -264,30 +265,54 @@ impl EsQueryService for EsQueryServicePub {
             if results.is_empty() {
                 prodt_type = String::from("etc");
             } else {
-                let mut score_pair: HashMap<String, usize> = HashMap::new();
+                let mut manager: ScoreManager<ConsumeProdtKeyword> =
+                    ScoreManager::<ConsumeProdtKeyword>::new();
 
-                for consume_type in &results {
-                    let keyword_type = consume_type.consume_keyword_type();
+                for consume_type in results {
+                    //let keyword_type = consume_type.consume_keyword_type();
+                    let keyword = consume_type.consume_keyword();
 
                     /* Use the 'levenshtein' algorithm to determine word match */
-                    let word_dist = levenshtein(keyword_type, &prodt_name);
-
-                    let entry = score_pair
-                        .entry(keyword_type.to_string())
-                        .or_insert(word_dist);
-                    *entry += word_dist;
+                    let word_dist = levenshtein(keyword, &prodt_name);
+                    let word_dist_i32: i32 = word_dist.try_into()?;
+                    manager.insert(word_dist_i32, consume_type);
                 }
 
-                let top_score_consume_type = match score_pair.iter()
-                    .min_by_key(|entry| entry.1)
-                    .map(|(key, _)| key.to_string()) {
-                        Some(top_score_consume_type) => top_score_consume_type,
-                        None => {
-                            return Err(anyhow!("[Error][get_consume_type_judgement()] Data 'top_score_consume_type' cannot have a None value."))
-                        }   
-                    };
+                let test = match manager.pop_lowest() {
+                    Some(test) => test,
+                    None => {
+                        error!("error!!!!!!!@@@@@");
+                        continue;
+                    }
+                };
 
-                prodt_type = top_score_consume_type;
+                let tests = test.data().consume_keyword_type();
+                prodt_type = tests.to_string();
+                // let mut score_pair: HashMap<String, usize> = HashMap::new();
+
+                // for consume_type in &results {
+                //     let keyword_type = consume_type.consume_keyword_type();
+                //     let keyword = consume_type.consume_keyword();
+
+                //     /* Use the 'levenshtein' algorithm to determine word match */
+                //     let word_dist = levenshtein(keyword, &prodt_name);
+
+                //     let entry = score_pair
+                //         .entry(keyword_type.to_string())
+                //         .or_insert(word_dist);
+                //     *entry += word_dist;
+                // }
+
+                // let top_score_consume_type = match score_pair.iter()
+                //     .min_by_key(|entry| entry.1)
+                //     .map(|(key, _)| key.to_string()) {
+                //         Some(top_score_consume_type) => top_score_consume_type,
+                //         None => {
+                //             return Err(anyhow!("[Error][get_consume_type_judgement()] Data 'top_score_consume_type' cannot have a None value."))
+                //         }
+                //     };
+
+                // prodt_type = top_score_consume_type;
             }
 
             let prodt_detail_timestamp = get_str_from_naive_datetime(*prodt_detail.timestamp());
