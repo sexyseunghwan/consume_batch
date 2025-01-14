@@ -17,7 +17,6 @@ mod service;
 use service::es_query_service::*;
 use service::query_service::*;
 
-
 #[tokio::main]
 async fn main() {
     set_global_logger();

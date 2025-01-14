@@ -42,7 +42,7 @@ pub use elasticsearch::{
     http::transport::{ConnectionPool, Transport},
     http::transport::{MultiNodeConnectionPool, SingleNodeConnectionPool, TransportBuilder},
     http::Url,
-    indices::{IndicesCreateParts, IndicesDeleteParts, IndicesGetAliasParts},
+    indices::{IndicesCreateParts, IndicesDeleteParts, IndicesGetAliasParts, IndicesRefreshParts},
     BulkOperation, BulkParts, DeleteByQueryParts, DeleteParts, Elasticsearch, IndexParts,
     SearchParts,
 };

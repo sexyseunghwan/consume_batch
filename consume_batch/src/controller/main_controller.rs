@@ -183,7 +183,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
                 &consume_prodt_type,
             )
             .await?;
-        
+
         /* 2-2. consume_prodt_details */
         let consume_prodt_details: Vec<ConsumeProdtDetail> =
             self.query_service.get_all_consume_prodt_detail()?;

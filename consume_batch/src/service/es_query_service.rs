@@ -91,6 +91,9 @@ impl EsQueryService for EsQueryServicePub {
             .await?;
         es_conn.delete_query(&old_index_name).await?;
 
+        /* Functions to enable search immediately after index */ 
+        es_conn.refresh_index(index_alias_name).await?;
+        
         Ok(())
     }
 
@@ -262,7 +265,7 @@ impl EsQueryService for EsQueryServicePub {
                         .and_then(|source| serde_json::from_value(source.clone()).map_err(Into::into))
                 })
                 .collect::<Result<Vec<_>, _>>()?;
-            
+
             if results.is_empty() {
                 prodt_type = String::from("etc");
             } else {

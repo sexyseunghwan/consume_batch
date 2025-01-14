@@ -134,6 +134,7 @@ pub trait EsRepository {
     ) -> Result<Value, anyhow::Error>;
 
     async fn clear_scroll_info(&self, scroll_id: &str) -> Result<(), anyhow::Error>;
+    async fn refresh_index(&self, index_name: &str) -> Result<(), anyhow::Error>;
 }
 
 #[derive(Debug, Getters, Clone)]
@@ -593,6 +594,32 @@ impl EsRepository for EsRepositoryPub {
                 let response = es_client
                     .es_conn
                     .delete(DeleteParts::IndexId(index_name, doc_id))
+                    .send()
+                    .await?;
+
+                println!("{:?}", response);
+
+                Ok(response)
+            })
+            .await?;
+
+        self.process_response_empty("delete_query_doc()", response)
+            .await
+    }
+
+    #[doc = "Functions that refresh a particular index to enable immediate search"]
+    /// # Arguments
+    /// * `index_name` - Index name to be refresh
+    ///
+    /// # Returns
+    /// * Result<(), anyhow::Error>
+    async fn refresh_index(&self, index_name: &str) -> Result<(), anyhow::Error> {
+        let response = self
+            .execute_on_any_node(|es_client| async move {
+                let response = es_client
+                    .es_conn
+                    .indices()
+                    .refresh(IndicesRefreshParts::Index(&[index_name]))
                     .send()
                     .await?;
 
