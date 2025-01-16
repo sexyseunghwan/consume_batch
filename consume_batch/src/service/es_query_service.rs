@@ -238,7 +238,7 @@ impl EsQueryService for EsQueryServicePub {
         &self,
         consume_prodt_details: &Vec<ConsumeProdtDetail>,
     ) -> Result<Vec<ConsumeProdtDetailES>, anyhow::Error> {
-        let es_conn = get_elastic_conn()?;
+        let es_conn: EsRepositoryPub = get_elastic_conn()?;
         let mut consume_prodt_details_es: Vec<ConsumeProdtDetailES> = Vec::new();
 
         for prodt_detail in consume_prodt_details {

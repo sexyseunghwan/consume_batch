@@ -132,10 +132,10 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
         });
 
         let search_resp = es_conn
-            .get_search_query(&es_query, "consuming_index_prod_type_v2")
+            .get_search_query(&es_query, CONSUME_TYPE)
             .await?;
-
-        let hits = &search_resp["hits"]["hits"];
+        
+        let hits: &Value = &search_resp["hits"]["hits"];
 
         let hits_vector: Vec<ConsumeProdtKeywordES> = hits
             .as_array()
