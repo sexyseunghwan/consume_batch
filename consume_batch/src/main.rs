@@ -32,9 +32,9 @@ async fn main() {
 
     info!("Batch Program Start");
 
-    let query_service = QueryServicePub::new();
-    let es_query_service = EsQueryServicePub::new();
-    let main_controller = MainController::new(query_service, es_query_service);
+    let query_service: QueryServicePub = QueryServicePub::new();
+    let es_query_service: EsQueryServicePub = EsQueryServicePub::new();
+    let main_controller: MainController<QueryServicePub, EsQueryServicePub> = MainController::new(query_service, es_query_service);
 
     main_controller.main_task().await.unwrap();
 }
