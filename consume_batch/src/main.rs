@@ -1,10 +1,10 @@
 /*
-Author      : Seunghwan Shin 
-Create date : 2025-00-00 
-Description : 
-                
+Author      : Seunghwan Shin
+Create date : 2025-00-00
+Description :
+
 History     : 2025-00-00 Seunghwan Shin       # [v.1.0.0] first create
-*/ 
+*/
 
 mod common;
 use common::*;
@@ -34,12 +34,11 @@ async fn main() {
 
     let query_service: QueryServicePub = QueryServicePub::new();
     let es_query_service: EsQueryServicePub = EsQueryServicePub::new();
-    let main_controller: MainController<QueryServicePub, EsQueryServicePub> = MainController::new(query_service, es_query_service);
+    let main_controller: MainController<QueryServicePub, EsQueryServicePub> =
+        MainController::new(query_service, es_query_service);
 
     main_controller.main_task().await.unwrap();
 }
-
-
 
 // // 소수 판별 함수
 // fn is_prime(n: u64) -> bool {

@@ -1,9 +1,7 @@
 use crate::common::*;
 
-
 use crate::service::es_query_service::*;
 use crate::service::query_service::*;
-
 
 use crate::models::consume_prodt_detail::*;
 use crate::models::consume_prodt_detail_es::*;
@@ -23,7 +21,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
             .es_query_service
             .get_all_list_from_es_partial::<ConsumeProdtDetailES>(CONSUME_DETAIL)
             .await?;
-        
+
         let all_es_to_rdb_data: Vec<ConsumeProdtDetail> = match all_es_data
             .into_iter()
             .map(|elem| elem.transfer_to_consume_prodt_detail())
@@ -42,14 +40,14 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
         } else {
             info!("ES -> MySQL : {}", insert_size);
         }
-        
+
         Ok(())
     }
-    
+
     #[doc = "Elasticsearch data is loaded into MySQL through the ETL process. -> If there is data in the table"]
     /// # Arguments
     /// * `recent_prodt` - Most up-to-date data stored in the table
-    /// 
+    ///
     /// # Returns
     /// * Result<(), anyhow::Error>
     async fn insert_es_to_mysql_non_empty_data(
@@ -66,7 +64,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
             .es_query_service
             .get_timetamp_gt_filter_list_from_es_partial(CONSUME_DETAIL, cur_timestamp)
             .await?;
-        
+
         /* If there are no changes */
         if es_recent_prodt_infos.is_empty() {
             info!("[dynamic_indexing()] There are no additional incremental indexes.");
@@ -101,7 +99,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
 
     #[doc = "Elasticsearch data is loaded into MySQL through the ETL process."]
     async fn insert_batch_es_to_mysql(&self) -> Result<(), anyhow::Error> {
-        /* Returns the most up-to-date written data that exists in MySQL 
+        /* Returns the most up-to-date written data that exists in MySQL
         -> If there is none, it can be considered that there is just no data. */
         let recent_prodt: Vec<ConsumeProdtDetail> = self
             .query_service
@@ -133,7 +131,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
                 &consume_prodt_type,
             )
             .await?;
-        
+
         /* 2-2. consume_prodt_details */
         let consume_prodt_details: Vec<ConsumeProdtDetail> =
             self.query_service.get_all_consume_prodt_detail()?;

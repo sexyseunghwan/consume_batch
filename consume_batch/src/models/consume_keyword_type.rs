@@ -1,6 +1,5 @@
 use crate::common::*;
 
-
 use crate::schema::CONSUMUE_KEYWORD_TYPE;
 
 #[derive(Queryable, Serialize, Deserialize, Debug, Insertable)]

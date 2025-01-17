@@ -91,9 +91,9 @@ impl EsQueryService for EsQueryServicePub {
             .await?;
         es_conn.delete_query(&old_index_name).await?;
 
-        /* Functions to enable search immediately after index */ 
+        /* Functions to enable search immediately after index */
         es_conn.refresh_index(index_alias_name).await?;
-        
+
         Ok(())
     }
 
@@ -272,7 +272,6 @@ impl EsQueryService for EsQueryServicePub {
                     ScoreManager::<ConsumeProdtKeyword>::new();
 
                 for consume_type in results {
-                    //let keyword_type = consume_type.consume_keyword_type();
                     let keyword = consume_type.consume_keyword();
 
                     /* Use the 'levenshtein' algorithm to determine word match */
@@ -281,41 +280,16 @@ impl EsQueryService for EsQueryServicePub {
                     manager.insert(word_dist_i32, consume_type);
                 }
 
-                let test = match manager.pop_lowest() {
-                    Some(test) => test,
+                let score_data_keyword: ScoredData<ConsumeProdtKeyword> = match manager.pop_lowest()
+                {
+                    Some(score_data_keyword) => score_data_keyword,
                     None => {
-                        error!("error!!!!!!!@@@@@");
+                        error!("[Error][get_consume_prodt_details_specify_type()] The mapped data for variable 'score_data_keyword' does not exist.");
                         continue;
                     }
                 };
-
-                let tests = test.data().consume_keyword_type();
-                prodt_type = tests.to_string();
-                // let mut score_pair: HashMap<String, usize> = HashMap::new();
-
-                // for consume_type in &results {
-                //     let keyword_type = consume_type.consume_keyword_type();
-                //     let keyword = consume_type.consume_keyword();
-
-                //     /* Use the 'levenshtein' algorithm to determine word match */
-                //     let word_dist = levenshtein(keyword, &prodt_name);
-
-                //     let entry = score_pair
-                //         .entry(keyword_type.to_string())
-                //         .or_insert(word_dist);
-                //     *entry += word_dist;
-                // }
-
-                // let top_score_consume_type = match score_pair.iter()
-                //     .min_by_key(|entry| entry.1)
-                //     .map(|(key, _)| key.to_string()) {
-                //         Some(top_score_consume_type) => top_score_consume_type,
-                //         None => {
-                //             return Err(anyhow!("[Error][get_consume_type_judgement()] Data 'top_score_consume_type' cannot have a None value."))
-                //         }
-                //     };
-
-                // prodt_type = top_score_consume_type;
+                
+                prodt_type = score_data_keyword.data().consume_keyword_type().to_string();
             }
 
             let prodt_detail_timestamp = get_str_from_naive_datetime(*prodt_detail.timestamp());
