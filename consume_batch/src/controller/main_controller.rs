@@ -1,6 +1,5 @@
 use crate::common::*;
 
-use crate::repository::es_repository::*;
 
 use crate::service::es_query_service::*;
 use crate::service::query_service::*;
@@ -9,7 +8,6 @@ use crate::service::query_service::*;
 use crate::models::consume_prodt_detail::*;
 use crate::models::consume_prodt_detail_es::*;
 use crate::models::consume_prodt_keyword::*;
-use crate::models::consume_prodt_keyword_es::*;
 
 #[derive(Debug, new)]
 pub struct MainController<Q: QueryService, E: EsQueryService> {
@@ -18,7 +16,7 @@ pub struct MainController<Q: QueryService, E: EsQueryService> {
 }
 
 impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
-    #[doc = ""]
+    #[doc = "Elasticsearch data is loaded into MySQL through the ETL process. -> There is no data in the table "]
     async fn insert_es_to_mysql_empty_data(&self) -> Result<(), anyhow::Error> {
         /* Get all the data from elasticsearch and bulk insert it into MySQL. */
         let all_es_data: Vec<ConsumeProdtDetailES> = self
@@ -41,12 +39,19 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
 
         if insert_size != all_es_to_rdb_data.len() {
             return Err(anyhow!("[Error][insert_es_to_mysql_empty_data()] The number of extracted data does not match the number of loaded data."));
+        } else {
+            info!("ES -> MySQL : {}", insert_size);
         }
-
+        
         Ok(())
     }
     
-    #[doc = ""]
+    #[doc = "Elasticsearch data is loaded into MySQL through the ETL process. -> If there is data in the table"]
+    /// # Arguments
+    /// * `recent_prodt` - Most up-to-date data stored in the table
+    /// 
+    /// # Returns
+    /// * Result<(), anyhow::Error>
     async fn insert_es_to_mysql_non_empty_data(
         &self,
         recent_prodt: Vec<ConsumeProdtDetail>,
@@ -70,7 +75,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
 
         let es_recent_prodt_infos_len = es_recent_prodt_infos.len();
         /*
-            변경분이 있는 경우 - 여기서 변경된 es 데이터를 모두 MySQL 에 넣어준다.
+            If there are changes - put all the changed es data into MySQL here.
         */
         let consume_prodt_details: Vec<ConsumeProdtDetail> = match es_recent_prodt_infos
             .into_iter()
@@ -87,14 +92,17 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
 
         if insert_size != es_recent_prodt_infos_len {
             return Err(anyhow!("[Error][insert_es_to_mysql_non_empty_data()] The number of extracted data does not match the number of loaded data."));
+        } else {
+            info!("ES -> MySQL : {}", insert_size);
         }
 
         Ok(())
     }
 
-    #[doc = ""]
+    #[doc = "Elasticsearch data is loaded into MySQL through the ETL process."]
     async fn insert_batch_es_to_mysql(&self) -> Result<(), anyhow::Error> {
-        /* RDB 에서 가장 뒤의 데이터를 가져와준다. -> 하나도 없다면, 데이터가 그냥 없다고 볼 수 있다. */
+        /* Returns the most up-to-date written data that exists in MySQL 
+        -> If there is none, it can be considered that there is just no data. */
         let recent_prodt: Vec<ConsumeProdtDetail> = self
             .query_service
             .get_top_consume_prodt_detail_order_by_timestamp(1, false)?;
@@ -111,6 +119,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
     #[doc = "Main Batch Function"]
     pub async fn main_task(&self) -> Result<(), anyhow::Error> {
         /* 1. ES -> MySQL ETL */
+        self.insert_batch_es_to_mysql().await?;
 
         /* 2. MySQL -> ES Indexing */
         /* 2-1. consuming_index_prod_type */
@@ -141,19 +150,6 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
                 &consume_prodt_details,
             )
             .await?;
-
-        // let consume_prodt_type_es: Vec<ConsumeProdtKeywordES> = consume_prodt_type
-        //     .iter()
-        //     .map(|elem| elem.transfer_to_consume_prodt_keyword_es())
-        //     .collect();
-
-        /* 2-2. consuming_index_prod_new */
-
-        //let test = self.query_service.consume_keyword_type_join_consume_prodt_keyword()?;
-
-        // for elem in test {
-        //     println!("{:?}", elem);
-        // }
 
         Ok(())
     }
