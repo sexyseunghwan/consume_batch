@@ -3,7 +3,6 @@ use crate::common::*;
 use crate::repository::mysql_repository::*;
 
 use crate::schema::CONSUME_PRODT_DETAIL;
-use crate::schema::CONSUME_PRODT_DETAIL::dsl::*;
 
 #[derive(Queryable, Debug, Insertable, AsChangeset, Getters)]
 #[table_name = "CONSUME_PRODT_DETAIL"]

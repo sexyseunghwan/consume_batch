@@ -1,9 +1,7 @@
 use crate::common::*;
 
-use crate::repository::mysql_repository::*;
 
 use crate::schema::CONSUMUE_KEYWORD_TYPE;
-use crate::schema::CONSUMUE_KEYWORD_TYPE::dsl::*;
 
 #[derive(Queryable, Serialize, Deserialize, Debug, Insertable)]
 #[table_name = "CONSUMUE_KEYWORD_TYPE"]

@@ -5,7 +5,6 @@ use crate::repository::es_repository::*;
 use crate::service::es_query_service::*;
 use crate::service::query_service::*;
 
-use crate::utils_module::time_utils::*;
 
 use crate::models::consume_prodt_detail::*;
 use crate::models::consume_prodt_detail_es::*;
@@ -26,7 +25,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
             .es_query_service
             .get_all_list_from_es_partial::<ConsumeProdtDetailES>(CONSUME_DETAIL)
             .await?;
-
+        
         let all_es_to_rdb_data: Vec<ConsumeProdtDetail> = match all_es_data
             .into_iter()
             .map(|elem| elem.transfer_to_consume_prodt_detail())

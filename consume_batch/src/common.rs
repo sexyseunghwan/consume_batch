@@ -1,53 +1,47 @@
 pub use std::{
-    cmp,
-    cmp::{Ordering, Reverse},
+    cmp::Ordering,
     collections::{BinaryHeap, HashMap, VecDeque},
     env,
     fs::File,
     future::Future,
     io::{BufReader, Write},
-    path::Path,
-    str::FromStr,
-    sync::{Arc, Mutex, MutexGuard},
-    thread,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
 pub use rand::{prelude::SliceRandom, rngs::StdRng, SeedableRng};
 
-pub use tokio::{sync::OnceCell, task};
+pub use tokio::task;
 
 pub use log::{error, info};
 
 pub use flexi_logger::{Age, Cleanup, Criterion, FileSpec, Logger, Naming, Record};
 
 pub use chrono::{
-    DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc, Weekday,
+    DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc,
 };
 pub use chrono_tz::Asia::Seoul;
 
 pub use serde::{Deserialize, Serialize};
 
-pub use serde_json::{from_reader, from_value, json, Value};
+pub use serde_json::{json, Value};
 
-pub use serde::de::DeserializeOwned;
 
 pub use http::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
 
 pub use dotenv::dotenv;
 
 pub use elasticsearch::{
-    http::request::Body,
     http::response::Response,
     http::transport::{ConnectionPool, Transport},
-    http::transport::{MultiNodeConnectionPool, SingleNodeConnectionPool, TransportBuilder},
+    http::transport::{SingleNodeConnectionPool, TransportBuilder},
     http::Url,
     indices::{IndicesCreateParts, IndicesDeleteParts, IndicesGetAliasParts, IndicesRefreshParts},
-    BulkOperation, BulkParts, DeleteByQueryParts, DeleteParts, Elasticsearch, IndexParts,
+    BulkOperation, BulkParts, DeleteParts, Elasticsearch, IndexParts,
     SearchParts,
 };
 
-pub use anyhow::{anyhow, Context, Result};
+pub use anyhow::{anyhow, Result};
 
 pub use derive_new::new;
 pub use getset::Getters;
@@ -68,20 +62,10 @@ pub use num_format::{Locale, ToFormattedString};
 pub use kafka::producer::{Producer, Record as KafkaRecord, RequiredAcks};
 
 pub use diesel::{
-    associations::HasTable,
-    dsl::{count, count_star},
-    expression::NonAggregate,
-    helper_types::SqlTypeOf,
-    mysql::sql_types::Datetime,
-    mysql::{Mysql, MysqlConnection},
-    query_builder::{AsQuery, QueryFragment, QueryId},
-    query_dsl::methods::{BoxedDsl, LimitDsl, OrderDsl},
-    r2d2::{ConnectionManager, Pool, PooledConnection},
-    sql_types::{Integer, Text},
-    sql_types::{SingleValue, SqlType},
-    AppearsOnTable, AsChangeset, Column, Expression, ExpressionMethods, Insertable, JoinOnDsl,
+    dsl::count_star,
+    mysql::MysqlConnection,
+    r2d2::{ConnectionManager, Pool, PooledConnection}, AsChangeset, ExpressionMethods, Insertable,
     NullableExpressionMethods, QueryDsl, Queryable, QueryableByName, RunQueryDsl,
-    SelectableExpression, Table,
 };
 
 pub use async_trait::async_trait;

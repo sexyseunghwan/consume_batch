@@ -5,7 +5,7 @@ use crate::models::consume_prodt_keyword::*;
 
 use crate::repository::mysql_repository::*;
 
-use crate::schema::{CONSUME_PRODT_DETAIL, CONSUME_PRODT_KEYWORD, CONSUMUE_KEYWORD_TYPE};
+use crate::schema::{CONSUME_PRODT_DETAIL, CONSUME_PRODT_KEYWORD};
 
 use crate::schema::CONSUME_PRODT_DETAIL::dsl::*;
 
