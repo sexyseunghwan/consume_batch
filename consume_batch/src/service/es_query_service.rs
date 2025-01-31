@@ -291,12 +291,12 @@ impl EsQueryService for EsQueryServicePub {
                 for consume_type in results {
                     let keyword: &String = consume_type.source.consume_keyword();
                     let score: i64 = consume_type.score as i64;
-                    let score_i64: i64 = score * -2;
+                    let score_i64: i64 = score * -10;
 
                     /* Use the 'levenshtein' algorithm to determine word match */
                     let word_dist: usize = levenshtein(keyword, &prodt_name);
-                    let word_dist_i32: i64 = word_dist.try_into()?;
-                    manager.insert(word_dist_i32 + score_i64, consume_type.source);
+                    let word_dist_i64: i64 = word_dist.try_into()?;
+                    manager.insert(word_dist_i64 + score_i64, consume_type.source);
                 }
 
                 let score_data_keyword: ScoredData<ConsumeProdtKeyword> = match manager.pop_lowest()
@@ -310,7 +310,7 @@ impl EsQueryService for EsQueryServicePub {
                 
                 prodt_type = score_data_keyword.data().consume_keyword_type().to_string();
             }
-
+            
             let prodt_detail_timestamp: String = get_str_from_naive_datetime(*prodt_detail.timestamp());
             let prodt_detail_cur_timestamp: String = get_str_from_naive_datetime(*prodt_detail.timestamp());
 
