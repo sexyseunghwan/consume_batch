@@ -36,7 +36,7 @@ impl QueryService for QueryServicePub {
             CONSUME_PRODT_KEYWORD::consume_keyword,
         ));
 
-        let result = query.load::<ConsumeProdtKeyword>(&mut conn)?;
+        let result: Vec<ConsumeProdtKeyword> = query.load::<ConsumeProdtKeyword>(&mut conn)?;
 
         Ok(result)
     }

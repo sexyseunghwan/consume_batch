@@ -13,6 +13,11 @@ use crate::utils_module::time_utils::*;
 
 #[async_trait]
 pub trait EsQueryService {
+    async fn get_query_result_vec<T: DeserializeOwned>(
+        &self,
+        response_body: &Value,
+    ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error>;
+
     async fn get_search_data_by_bulk<T: for<'de> Deserialize<'de> + Send>(
         &self,
         index_name: &str,
@@ -48,6 +53,55 @@ pub struct EsQueryServicePub;
 
 #[async_trait]
 impl EsQueryService for EsQueryServicePub {
+    
+    #[doc = "Functions that return queried results as vectors"]
+    /// # Arguments
+    /// * `response_body` - Querying Results
+    ///
+    /// # Returns
+    /// * Result<Vec<T>, anyhow::Error>
+    async fn get_query_result_vec<T: DeserializeOwned>(
+        &self,
+        response_body: &Value,
+    ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error> {
+        let hits: &Value = &response_body["hits"]["hits"];
+
+        let results: Vec<DocumentWithId<T>> = hits
+            .as_array()
+            .ok_or_else(|| anyhow!("[Error][get_query_result_vec()] 'hits' field is not an array"))?
+            .iter()
+            .map(|hit| {
+                
+                let id: &str = hit.get("_id").and_then(|id| id.as_str()).ok_or_else(|| {
+                    anyhow!("[Error][get_query_result_vec()] Missing '_id' field")
+                })?;
+
+                let score: f64 = hit.get("_score").and_then(|score| score.as_f64()).ok_or_else(|| {
+                    anyhow!("[Error][get_query_result_vec()] Missing '_score' field")
+                })?;
+                
+                let source: &Value = hit.get("_source").ok_or_else(|| {
+                    anyhow!("[Error][get_query_result_vec()] Missing '_source' field")
+                })?;
+
+                let source: T = serde_json::from_value(source.clone()).map_err(|e| {
+                    anyhow!(
+                        "[Error][get_query_result_vec()] Failed to deserialize source: {:?}",
+                        e
+                    )
+                })?;
+
+                Ok::<DocumentWithId<T>, anyhow::Error>(DocumentWithId {
+                    id: id.to_string(),
+                    score,
+                    source,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(results)
+    }
+    
     #[doc = "static index function"]
     /// # Arguments
     /// * `index_alias_name` - alias for index
@@ -165,31 +219,18 @@ impl EsQueryService for EsQueryServicePub {
         query: &Value,
     ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error> {
         let es_conn: EsRepositoryPub = get_elastic_conn()?;
-
+        
         let scroll_resp: Value = es_conn
             .get_scroll_initial_search_query(index_name, "1m", &query)
             .await?;
-
+        
         let mut scroll_id: String = scroll_resp
             .get("_scroll_id")
             .map_or(String::from(""), |s| s.to_string())
             .trim_matches('"')
             .replace(r#"\""#, "");
-
-        let hits: &Value = &scroll_resp["hits"]["hits"];
-
-        let mut hits_vector: Vec<DocumentWithId<T>> = hits
-            .as_array()
-            .ok_or_else(|| anyhow!("[Error][get_data_from_es_bulk()] error"))?
-            .iter()
-            .map(|hit| {
-                hit.get("_source")
-                    .ok_or_else(|| {
-                        anyhow!("[Error][get_data_from_es_bulk()] Missing '_source' field")
-                    })
-                    .and_then(|source| serde_json::from_value(source.clone()).map_err(Into::into))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        
+        let mut hits_vector: Vec<DocumentWithId<T>> = self.get_query_result_vec(&scroll_resp).await?;
 
         loop {
             let scroll_resp: Value = es_conn.get_scroll_search_query("1m", &scroll_id).await?;
@@ -199,31 +240,16 @@ impl EsQueryService for EsQueryServicePub {
                 .map_or(String::from(""), |s| s.to_string())
                 .trim_matches('"')
                 .replace(r#"\""#, "");
+            
+            let scroll_resp_hits_vector: Vec<DocumentWithId<T>> = self.get_query_result_vec(&scroll_resp).await?;
 
-            let scroll_resp_hits: &&Vec<Value> = &scroll_resp["hits"]["hits"]
-                .as_array()
-                .ok_or_else(|| anyhow!("[Error][get_data_from_es_bulk()] There was a problem converting the 'hits' variable into an array."))?;
-
-            if scroll_resp_hits.is_empty() {
+            if scroll_resp_hits_vector.is_empty() {
                 break;
             }
 
-            let scroll_resp_hits_vector: Vec<DocumentWithId<T>> = scroll_resp_hits
-                .iter()
-                .map(|hit| {
-                    hit.get("_source")
-                        .ok_or_else(|| {
-                            anyhow!("[Error][get_data_from_es_bulk()] Missing '_source' field")
-                        })
-                        .and_then(|source| {
-                            serde_json::from_value(source.clone()).map_err(Into::into)
-                        })
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-
             hits_vector.extend(scroll_resp_hits_vector);
         }
-
+        
         es_conn.clear_scroll_info(&scroll_id).await?;
 
         Ok(hits_vector)
@@ -254,17 +280,7 @@ impl EsQueryService for EsQueryServicePub {
             });
 
             let search_res_body: Value = es_conn.get_search_query(&es_query, CONSUME_TYPE).await?;
-            let hits: &Value = &search_res_body["hits"]["hits"];
-
-            let results: Vec<DocumentWithId<ConsumeProdtKeyword>> = hits.as_array()
-                .ok_or_else(|| anyhow!("[Error][get_consume_prodt_details_specify_type()] error"))?
-                .iter()
-                .map(|hit| {
-                    hit.get("_source") 
-                        .ok_or_else(|| anyhow!("[Error][get_consume_prodt_details_specify_type()] Missing '_source' field"))
-                        .and_then(|source| serde_json::from_value(source.clone()).map_err(Into::into))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
+            let results: Vec<DocumentWithId<ConsumeProdtKeyword>> = self.get_query_result_vec(&search_res_body).await?;
 
             if results.is_empty() {
                 prodt_type = String::from("etc");

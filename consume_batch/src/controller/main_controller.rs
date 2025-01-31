@@ -23,11 +23,6 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
             .get_all_list_from_es_partial::<ConsumeProdtDetailES>(CONSUME_DETAIL)
             .await?;
 
-        // let all_es_data: Vec<ConsumeProdtDetailES> = self
-        //     .es_query_service
-        //     .get_all_list_from_es_partial::<ConsumeProdtDetailES>(CONSUME_DETAIL)
-        //     .await?;
-
         let all_es_to_rdb_data: Vec<ConsumeProdtDetail> = match all_es_data
             .into_iter()
             .map(|elem| elem.source.transfer_to_consume_prodt_detail())
@@ -92,7 +87,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
             }
         };
 
-        let insert_size = insert_multiple_consume_prodt_detail(&consume_prodt_details)?;
+        let insert_size: usize = insert_multiple_consume_prodt_detail(&consume_prodt_details)?;
 
         if insert_size != es_recent_prodt_infos_len {
             return Err(anyhow!("[Error][insert_es_to_mysql_non_empty_data()] The number of extracted data does not match the number of loaded data."));
@@ -137,7 +132,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
                 &consume_prodt_type,
             )
             .await?;
-
+        
         /* 2-2. consume_prodt_details */
         let consume_prodt_details: Vec<ConsumeProdtDetail> =
             self.query_service.get_all_consume_prodt_detail()?;
@@ -146,7 +141,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
             .es_query_service
             .get_consume_prodt_details_specify_type(&consume_prodt_details)
             .await?;
-
+        
         self.es_query_service
             .post_indexing_data_by_bulk::<ConsumeProdtDetailES>(
                 CONSUME_DETAIL,

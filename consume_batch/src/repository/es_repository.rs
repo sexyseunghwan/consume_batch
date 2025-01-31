@@ -234,7 +234,7 @@ impl EsRepository for EsRepositoryPub {
         if response.status_code().is_success() {
             Ok(())
         } else {
-            let error_body = response.text().await?;
+            let error_body: String = response.text().await?;
             Err(anyhow!(
                 "[Elasticsearch Error][{}] response status is failed: {:?}",
                 function_name,
