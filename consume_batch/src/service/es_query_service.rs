@@ -288,26 +288,35 @@ impl EsQueryService for EsQueryServicePub {
                 let mut manager: ScoreManager<ConsumeProdtKeyword> =
                     ScoreManager::<ConsumeProdtKeyword>::new();
 
+                info!("===========================================================================");
+                info!("prodt_name: {}", prodt_name);
+
                 for consume_type in results {
                     let keyword: &String = consume_type.source.consume_keyword();
                     let score: i64 = consume_type.score as i64;
-                    let score_i64: i64 = score * -10;
-
+                    let score_i64: i64 = score * -1;
+                    
                     /* Use the 'levenshtein' algorithm to determine word match */
                     let word_dist: usize = levenshtein(keyword, &prodt_name);
                     let word_dist_i64: i64 = word_dist.try_into()?;
-                    manager.insert(word_dist_i64 + score_i64, consume_type.source);
+                    // test code
+                    info!("{:?} :: {:?} :: {:?}", consume_type.source, word_dist_i64, score_i64);
+                    manager.insert(word_dist_i64 + score_i64, consume_type.source); 
                 }
-
+                
                 let score_data_keyword: ScoredData<ConsumeProdtKeyword> = match manager.pop_lowest()
                 {
-                    Some(score_data_keyword) => score_data_keyword,
+                    Some(score_data_keyword) => {
+                        info!("{:?}", score_data_keyword);
+                        score_data_keyword
+                    },
                     None => {
                         error!("[Error][get_consume_prodt_details_specify_type()] The mapped data for variable 'score_data_keyword' does not exist.");
                         continue;
                     }
                 };
                 
+                info!("===========================================================================");
                 prodt_type = score_data_keyword.data().consume_keyword_type().to_string();
             }
             
