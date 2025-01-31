@@ -2,6 +2,7 @@ use crate::common::*;
 
 use crate::repository::es_repository::*;
 
+use crate::models::document_with_id::*;
 use crate::models::consume_prodt_detail::*;
 use crate::models::consume_prodt_detail_es::*;
 use crate::models::consume_prodt_keyword::*;
@@ -16,18 +17,18 @@ pub trait EsQueryService {
         &self,
         index_name: &str,
         query: &Value,
-    ) -> Result<Vec<T>, anyhow::Error>;
+    ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error>;
 
     async fn get_all_list_from_es_partial<T: for<'de> Deserialize<'de> + Send>(
         &self,
         index_name: &str,
-    ) -> Result<Vec<T>, anyhow::Error>;
+    ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error>;
 
     async fn get_timetamp_gt_filter_list_from_es_partial<T: for<'de> Deserialize<'de> + Send>(
         &self,
         index_name: &str,
         start_dt: NaiveDateTime,
-    ) -> Result<Vec<T>, anyhow::Error>;
+    ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error>;
 
     async fn post_indexing_data_by_bulk<T: Serialize + Send + Sync>(
         &self,
@@ -61,10 +62,10 @@ impl EsQueryService for EsQueryServicePub {
         index_settings_path: &str,
         data: &Vec<T>,
     ) -> Result<(), anyhow::Error> {
-        let es_conn = get_elastic_conn()?;
+        let es_conn: EsRepositoryPub = get_elastic_conn()?;
 
         /* Put today's date time on the index you want to create. */
-        let curr_time = get_current_kor_naive_datetime()
+        let curr_time: String = get_current_kor_naive_datetime()
             .format("%Y%m%d%H%M%S")
             .to_string();
         let new_index_name: String = format!("{}-{}", index_alias_name, curr_time);
@@ -74,9 +75,9 @@ impl EsQueryService for EsQueryServicePub {
 
         /* Bulk post the data to the index above at once. */
         es_conn.bulk_indexing_query(&new_index_name, data).await?;
-
+        
         /* Change alias */
-        let alias_resp = es_conn
+        let alias_resp: Value = es_conn
             .get_indexes_mapping_by_alias(index_alias_name)
             .await?;
         let old_index_name: String;
@@ -108,7 +109,7 @@ impl EsQueryService for EsQueryServicePub {
         &self,
         index_name: &str,
         start_dt: NaiveDateTime,
-    ) -> Result<Vec<T>, anyhow::Error> {
+    ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error> {
         let query = json!({
             "query": {
                 "range": {
@@ -120,7 +121,7 @@ impl EsQueryService for EsQueryServicePub {
             "size": 1000
         });
 
-        let res = self
+        let res: Vec<DocumentWithId<T>> = self
             .get_search_data_by_bulk::<T>(index_name, &query)
             .await?;
 
@@ -136,15 +137,15 @@ impl EsQueryService for EsQueryServicePub {
     async fn get_all_list_from_es_partial<T: for<'de> Deserialize<'de> + Send>(
         &self,
         index_name: &str,
-    ) -> Result<Vec<T>, anyhow::Error> {
-        let query = json!({
+    ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error> {
+        let query: Value = json!({
             "query": {
                 "match_all": {}
             },
             "size": 1000
         });
 
-        let res_vec = self
+        let res_vec: Vec<DocumentWithId<T>> = self
             .get_search_data_by_bulk::<T>(index_name, &query)
             .await?;
 
@@ -162,22 +163,22 @@ impl EsQueryService for EsQueryServicePub {
         &self,
         index_name: &str,
         query: &Value,
-    ) -> Result<Vec<T>, anyhow::Error> {
-        let es_conn = get_elastic_conn()?;
+    ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error> {
+        let es_conn: EsRepositoryPub = get_elastic_conn()?;
 
         let scroll_resp: Value = es_conn
             .get_scroll_initial_search_query(index_name, "1m", &query)
             .await?;
 
-        let mut scroll_id = scroll_resp
+        let mut scroll_id: String = scroll_resp
             .get("_scroll_id")
             .map_or(String::from(""), |s| s.to_string())
             .trim_matches('"')
             .replace(r#"\""#, "");
 
-        let hits = &scroll_resp["hits"]["hits"];
+        let hits: &Value = &scroll_resp["hits"]["hits"];
 
-        let mut hits_vector: Vec<T> = hits
+        let mut hits_vector: Vec<DocumentWithId<T>> = hits
             .as_array()
             .ok_or_else(|| anyhow!("[Error][get_data_from_es_bulk()] error"))?
             .iter()
@@ -191,7 +192,7 @@ impl EsQueryService for EsQueryServicePub {
             .collect::<Result<Vec<_>, _>>()?;
 
         loop {
-            let scroll_resp = es_conn.get_scroll_search_query("1m", &scroll_id).await?;
+            let scroll_resp: Value = es_conn.get_scroll_search_query("1m", &scroll_id).await?;
 
             scroll_id = scroll_resp
                 .get("_scroll_id")
@@ -199,7 +200,7 @@ impl EsQueryService for EsQueryServicePub {
                 .trim_matches('"')
                 .replace(r#"\""#, "");
 
-            let scroll_resp_hits = &scroll_resp["hits"]["hits"]
+            let scroll_resp_hits: &&Vec<Value> = &scroll_resp["hits"]["hits"]
                 .as_array()
                 .ok_or_else(|| anyhow!("[Error][get_data_from_es_bulk()] There was a problem converting the 'hits' variable into an array."))?;
 
@@ -207,7 +208,7 @@ impl EsQueryService for EsQueryServicePub {
                 break;
             }
 
-            let scroll_resp_hits_vector: Vec<T> = scroll_resp_hits
+            let scroll_resp_hits_vector: Vec<DocumentWithId<T>> = scroll_resp_hits
                 .iter()
                 .map(|hit| {
                     hit.get("_source")
@@ -242,9 +243,9 @@ impl EsQueryService for EsQueryServicePub {
         let mut consume_prodt_details_es: Vec<ConsumeProdtDetailES> = Vec::new();
 
         for prodt_detail in consume_prodt_details {
-            let prodt_name = prodt_detail.prodt_name.to_string();
+            let prodt_name: String = prodt_detail.prodt_name.to_string();
             let prodt_type: String;
-            let es_query = json!({
+            let es_query: Value = json!({
                 "query": {
                     "match": {
                         "consume_keyword": prodt_name
@@ -252,10 +253,10 @@ impl EsQueryService for EsQueryServicePub {
                 }
             });
 
-            let search_res_body = es_conn.get_search_query(&es_query, CONSUME_TYPE).await?;
-            let hits = &search_res_body["hits"]["hits"];
+            let search_res_body: Value = es_conn.get_search_query(&es_query, CONSUME_TYPE).await?;
+            let hits: &Value = &search_res_body["hits"]["hits"];
 
-            let results: Vec<ConsumeProdtKeyword> = hits.as_array()
+            let results: Vec<DocumentWithId<ConsumeProdtKeyword>> = hits.as_array()
                 .ok_or_else(|| anyhow!("[Error][get_consume_prodt_details_specify_type()] error"))?
                 .iter()
                 .map(|hit| {
@@ -272,12 +273,14 @@ impl EsQueryService for EsQueryServicePub {
                     ScoreManager::<ConsumeProdtKeyword>::new();
 
                 for consume_type in results {
-                    let keyword = consume_type.consume_keyword();
+                    let keyword: &String = consume_type.source.consume_keyword();
+                    let score: i64 = consume_type.score as i64;
+                    let score_i64: i64 = score * -1;
 
                     /* Use the 'levenshtein' algorithm to determine word match */
-                    let word_dist = levenshtein(keyword, &prodt_name);
-                    let word_dist_i32: i32 = word_dist.try_into()?;
-                    manager.insert(word_dist_i32, consume_type);
+                    let word_dist: usize = levenshtein(keyword, &prodt_name);
+                    let word_dist_i32: i64 = word_dist.try_into()?;
+                    manager.insert(word_dist_i32 + score_i64, consume_type.source);
                 }
 
                 let score_data_keyword: ScoredData<ConsumeProdtKeyword> = match manager.pop_lowest()
@@ -292,10 +295,10 @@ impl EsQueryService for EsQueryServicePub {
                 prodt_type = score_data_keyword.data().consume_keyword_type().to_string();
             }
 
-            let prodt_detail_timestamp = get_str_from_naive_datetime(*prodt_detail.timestamp());
-            let prodt_detail_cur_timestamp = get_str_from_naive_datetime(*prodt_detail.timestamp());
+            let prodt_detail_timestamp: String = get_str_from_naive_datetime(*prodt_detail.timestamp());
+            let prodt_detail_cur_timestamp: String = get_str_from_naive_datetime(*prodt_detail.timestamp());
 
-            let consume_detail_es = ConsumeProdtDetailES::new(
+            let consume_detail_es: ConsumeProdtDetailES = ConsumeProdtDetailES::new(
                 prodt_detail_timestamp,
                 Some(prodt_detail_cur_timestamp),
                 prodt_detail.prodt_name().to_string(),
@@ -305,7 +308,7 @@ impl EsQueryService for EsQueryServicePub {
 
             consume_prodt_details_es.push(consume_detail_es);
         }
-
+        
         Ok(consume_prodt_details_es)
     }
 }

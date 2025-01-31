@@ -40,7 +40,7 @@ pub use elasticsearch::{
 pub use anyhow::{anyhow, Result};
 
 pub use derive_new::new;
-pub use getset::Getters;
+pub use getset::{Getters, Setters};
 
 pub use num_format::{Locale, ToFormattedString};
 

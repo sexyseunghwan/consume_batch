@@ -597,8 +597,6 @@ impl EsRepository for EsRepositoryPub {
                     .send()
                     .await?;
 
-                println!("{:?}", response);
-
                 Ok(response)
             })
             .await?;
@@ -622,8 +620,6 @@ impl EsRepository for EsRepositoryPub {
                     .refresh(IndicesRefreshParts::Index(&[index_name]))
                     .send()
                     .await?;
-
-                println!("{:?}", response);
 
                 Ok(response)
             })

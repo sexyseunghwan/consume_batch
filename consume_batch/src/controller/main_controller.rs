@@ -3,6 +3,7 @@ use crate::common::*;
 use crate::service::es_query_service::*;
 use crate::service::query_service::*;
 
+use crate::models::document_with_id::*;
 use crate::models::consume_prodt_detail::*;
 use crate::models::consume_prodt_detail_es::*;
 use crate::models::consume_prodt_keyword::*;
@@ -17,14 +18,19 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
     #[doc = "Elasticsearch data is loaded into MySQL through the ETL process. -> There is no data in the table "]
     async fn insert_es_to_mysql_empty_data(&self) -> Result<(), anyhow::Error> {
         /* Get all the data from elasticsearch and bulk insert it into MySQL. */
-        let all_es_data: Vec<ConsumeProdtDetailES> = self
+        let all_es_data: Vec<DocumentWithId<ConsumeProdtDetailES>> = self
             .es_query_service
             .get_all_list_from_es_partial::<ConsumeProdtDetailES>(CONSUME_DETAIL)
             .await?;
 
+        // let all_es_data: Vec<ConsumeProdtDetailES> = self
+        //     .es_query_service
+        //     .get_all_list_from_es_partial::<ConsumeProdtDetailES>(CONSUME_DETAIL)
+        //     .await?;
+
         let all_es_to_rdb_data: Vec<ConsumeProdtDetail> = match all_es_data
             .into_iter()
-            .map(|elem| elem.transfer_to_consume_prodt_detail())
+            .map(|elem| elem.source.transfer_to_consume_prodt_detail())
             .collect()
         {
             Ok(all_es_to_rdb_data) => all_es_to_rdb_data,
@@ -60,7 +66,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
             .cur_timestamp;
 
         /* Get data after 'cur_timestamp' from Elasticsearch. */
-        let es_recent_prodt_infos: Vec<ConsumeProdtDetailES> = self
+        let es_recent_prodt_infos: Vec<DocumentWithId<ConsumeProdtDetailES>> = self
             .es_query_service
             .get_timetamp_gt_filter_list_from_es_partial(CONSUME_DETAIL, cur_timestamp)
             .await?;
@@ -77,7 +83,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
         */
         let consume_prodt_details: Vec<ConsumeProdtDetail> = match es_recent_prodt_infos
             .into_iter()
-            .map(|elem| elem.transfer_to_consume_prodt_detail())
+            .map(|elem| elem.source.transfer_to_consume_prodt_detail())
             .collect()
         {
             Ok(consume_prodt_details) => consume_prodt_details,

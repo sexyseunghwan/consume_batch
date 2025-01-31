@@ -37,7 +37,10 @@ async fn main() {
     let main_controller: MainController<QueryServicePub, EsQueryServicePub> =
         MainController::new(query_service, es_query_service);
 
-    main_controller.main_task().await.unwrap();
+    match main_controller.main_task().await {
+        Ok(_) => info!("Batch Program End"),
+        Err(e) => error!("{:?}", e),
+    }
 }
 
 // // 소수 판별 함수

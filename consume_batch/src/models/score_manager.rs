@@ -3,13 +3,13 @@ use crate::common::*;
 #[derive(Debug, Clone, Getters)]
 #[getset(get = "pub")]
 pub struct ScoredData<T> {
-    pub score: i32,
+    pub score: i64,
     pub data: T,
 }
 
 /* Sort by Score */
 #[derive(Eq, PartialEq)]
-struct MinHeapItem(i32);
+struct MinHeapItem(i64);
 
 impl Ord for MinHeapItem {
     fn cmp(&self, other: &Self) -> Ordering {
@@ -26,7 +26,7 @@ impl PartialOrd for MinHeapItem {
 
 pub struct ScoreManager<T> {
     heap: BinaryHeap<MinHeapItem>, /* Manage your score to a minimum heap */
-    data_map: HashMap<i32, Vec<ScoredData<T>>>, /* Data Management by Score */
+    data_map: HashMap<i64, Vec<ScoredData<T>>>, /* Data Management by Score */
 }
 
 impl<T> ScoreManager<T> {
@@ -38,7 +38,7 @@ impl<T> ScoreManager<T> {
     }
 
     // 점수와 데이터를 삽입
-    pub fn insert(&mut self, score: i32, data: T) {
+    pub fn insert(&mut self, score: i64, data: T) {
         // 데이터 삽입
         self.data_map
             .entry(score)
