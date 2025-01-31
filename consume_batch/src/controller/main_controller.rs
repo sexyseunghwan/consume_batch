@@ -33,7 +33,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
                 return Err(anyhow!("[Error][insert_es_to_mysql_empty_data()] Problem while converting vector 'all_es_to_rdb_data' : {:?}", e));
             }
         };
-
+        
         let insert_size: usize = insert_multiple_consume_prodt_detail(&all_es_to_rdb_data)?;
 
         if insert_size != all_es_to_rdb_data.len() {

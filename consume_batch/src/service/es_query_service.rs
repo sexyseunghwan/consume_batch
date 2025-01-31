@@ -291,7 +291,7 @@ impl EsQueryService for EsQueryServicePub {
                 for consume_type in results {
                     let keyword: &String = consume_type.source.consume_keyword();
                     let score: i64 = consume_type.score as i64;
-                    let score_i64: i64 = score * -1;
+                    let score_i64: i64 = score * -2;
 
                     /* Use the 'levenshtein' algorithm to determine word match */
                     let word_dist: usize = levenshtein(keyword, &prodt_name);
