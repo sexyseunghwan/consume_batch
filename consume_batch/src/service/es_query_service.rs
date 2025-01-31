@@ -2,40 +2,44 @@ use crate::common::*;
 
 use crate::repository::es_repository::*;
 
-use crate::models::document_with_id::*;
 use crate::models::consume_prodt_detail::*;
 use crate::models::consume_prodt_detail_es::*;
 use crate::models::consume_prodt_keyword::*;
+use crate::models::document_with_id::*;
 use crate::models::score_manager::*;
 
 use crate::utils_module::io_utils::*;
 use crate::utils_module::time_utils::*;
 
+use crate::configuration::elasitc_index_name::*;
+
 #[async_trait]
 pub trait EsQueryService {
-    async fn get_query_result_vec<T: DeserializeOwned>(
+    async fn get_query_result_vec<T: DeserializeOwned + Debug>(
         &self,
         response_body: &Value,
     ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error>;
 
-    async fn get_search_data_by_bulk<T: for<'de> Deserialize<'de> + Send>(
+    async fn get_search_data_by_bulk<T: for<'de> Deserialize<'de> + Send + Debug>(
         &self,
         index_name: &str,
         query: &Value,
     ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error>;
 
-    async fn get_all_list_from_es_partial<T: for<'de> Deserialize<'de> + Send>(
+    async fn get_all_list_from_es_partial<T: for<'de> Deserialize<'de> + Send + Debug>(
         &self,
         index_name: &str,
     ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error>;
 
-    async fn get_timetamp_gt_filter_list_from_es_partial<T: for<'de> Deserialize<'de> + Send>(
+    async fn get_timetamp_gt_filter_list_from_es_partial<
+        T: for<'de> Deserialize<'de> + Send + Debug,
+    >(
         &self,
         index_name: &str,
         start_dt: NaiveDateTime,
     ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error>;
 
-    async fn post_indexing_data_by_bulk<T: Serialize + Send + Sync>(
+    async fn post_indexing_data_by_bulk<T: Serialize + Send + Sync + Debug>(
         &self,
         index_alias_name: &str,
         index_settings_path: &str,
@@ -53,14 +57,13 @@ pub struct EsQueryServicePub;
 
 #[async_trait]
 impl EsQueryService for EsQueryServicePub {
-    
     #[doc = "Functions that return queried results as vectors"]
     /// # Arguments
     /// * `response_body` - Querying Results
     ///
     /// # Returns
     /// * Result<Vec<T>, anyhow::Error>
-    async fn get_query_result_vec<T: DeserializeOwned>(
+    async fn get_query_result_vec<T: DeserializeOwned + Debug>(
         &self,
         response_body: &Value,
     ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error> {
@@ -71,15 +74,17 @@ impl EsQueryService for EsQueryServicePub {
             .ok_or_else(|| anyhow!("[Error][get_query_result_vec()] 'hits' field is not an array"))?
             .iter()
             .map(|hit| {
-                
                 let id: &str = hit.get("_id").and_then(|id| id.as_str()).ok_or_else(|| {
                     anyhow!("[Error][get_query_result_vec()] Missing '_id' field")
                 })?;
 
-                let score: f64 = hit.get("_score").and_then(|score| score.as_f64()).ok_or_else(|| {
-                    anyhow!("[Error][get_query_result_vec()] Missing '_score' field")
-                })?;
-                
+                let score: f64 = hit
+                    .get("_score")
+                    .and_then(|score| score.as_f64())
+                    .ok_or_else(|| {
+                        anyhow!("[Error][get_query_result_vec()] Missing '_score' field")
+                    })?;
+
                 let source: &Value = hit.get("_source").ok_or_else(|| {
                     anyhow!("[Error][get_query_result_vec()] Missing '_source' field")
                 })?;
@@ -101,7 +106,7 @@ impl EsQueryService for EsQueryServicePub {
 
         Ok(results)
     }
-    
+
     #[doc = "static index function"]
     /// # Arguments
     /// * `index_alias_name` - alias for index
@@ -110,7 +115,7 @@ impl EsQueryService for EsQueryServicePub {
     ///
     /// # Returns
     /// * Result<(), anyhow::Error>
-    async fn post_indexing_data_by_bulk<T: Serialize + Send + Sync>(
+    async fn post_indexing_data_by_bulk<T: Serialize + Send + Sync + Debug>(
         &self,
         index_alias_name: &str,
         index_settings_path: &str,
@@ -123,13 +128,13 @@ impl EsQueryService for EsQueryServicePub {
             .format("%Y%m%d%H%M%S")
             .to_string();
         let new_index_name: String = format!("{}-{}", index_alias_name, curr_time);
-
+        
         let json_body: Value = read_json_from_file(index_settings_path)?;
         es_conn.create_index(&new_index_name, &json_body).await?;
 
         /* Bulk post the data to the index above at once. */
         es_conn.bulk_indexing_query(&new_index_name, data).await?;
-        
+
         /* Change alias */
         let alias_resp: Value = es_conn
             .get_indexes_mapping_by_alias(index_alias_name)
@@ -159,15 +164,17 @@ impl EsQueryService for EsQueryServicePub {
     ///
     /// # Returns
     /// * Result<Vec<T>, anyhow::Error>
-    async fn get_timetamp_gt_filter_list_from_es_partial<T: for<'de> Deserialize<'de> + Send>(
+    async fn get_timetamp_gt_filter_list_from_es_partial<
+        T: for<'de> Deserialize<'de> + Send + Debug,
+    >(
         &self,
         index_name: &str,
         start_dt: NaiveDateTime,
     ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error> {
-        let query = json!({
+        let query: Value = json!({
             "query": {
                 "range": {
-                    "@timestamp" : {
+                    "cur_timestamp" : {
                         "gt": get_str_from_naive_datetime(start_dt)
                     }
                 }
@@ -188,7 +195,7 @@ impl EsQueryService for EsQueryServicePub {
     ///
     /// # Returns
     /// * Result<Vec<T>, anyhow::Error>
-    async fn get_all_list_from_es_partial<T: for<'de> Deserialize<'de> + Send>(
+    async fn get_all_list_from_es_partial<T: for<'de> Deserialize<'de> + Send + Debug>(
         &self,
         index_name: &str,
     ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error> {
@@ -213,24 +220,25 @@ impl EsQueryService for EsQueryServicePub {
     ///
     /// # Returns
     /// * Result<Vec<T>, anyhow::Error>
-    async fn get_search_data_by_bulk<T: for<'de> Deserialize<'de> + Send>(
+    async fn get_search_data_by_bulk<T: for<'de> Deserialize<'de> + Send + Debug>(
         &self,
         index_name: &str,
         query: &Value,
     ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error> {
         let es_conn: EsRepositoryPub = get_elastic_conn()?;
-        
+
         let scroll_resp: Value = es_conn
             .get_scroll_initial_search_query(index_name, "1m", &query)
             .await?;
-        
+
         let mut scroll_id: String = scroll_resp
             .get("_scroll_id")
             .map_or(String::from(""), |s| s.to_string())
             .trim_matches('"')
             .replace(r#"\""#, "");
-        
-        let mut hits_vector: Vec<DocumentWithId<T>> = self.get_query_result_vec(&scroll_resp).await?;
+
+        let mut hits_vector: Vec<DocumentWithId<T>> =
+            self.get_query_result_vec(&scroll_resp).await?;
 
         loop {
             let scroll_resp: Value = es_conn.get_scroll_search_query("1m", &scroll_id).await?;
@@ -240,8 +248,9 @@ impl EsQueryService for EsQueryServicePub {
                 .map_or(String::from(""), |s| s.to_string())
                 .trim_matches('"')
                 .replace(r#"\""#, "");
-            
-            let scroll_resp_hits_vector: Vec<DocumentWithId<T>> = self.get_query_result_vec(&scroll_resp).await?;
+
+            let scroll_resp_hits_vector: Vec<DocumentWithId<T>> =
+                self.get_query_result_vec(&scroll_resp).await?;
 
             if scroll_resp_hits_vector.is_empty() {
                 break;
@@ -249,7 +258,7 @@ impl EsQueryService for EsQueryServicePub {
 
             hits_vector.extend(scroll_resp_hits_vector);
         }
-        
+
         es_conn.clear_scroll_info(&scroll_id).await?;
 
         Ok(hits_vector)
@@ -279,8 +288,9 @@ impl EsQueryService for EsQueryServicePub {
                 }
             });
 
-            let search_res_body: Value = es_conn.get_search_query(&es_query, CONSUME_TYPE).await?;
-            let results: Vec<DocumentWithId<ConsumeProdtKeyword>> = self.get_query_result_vec(&search_res_body).await?;
+            let search_res_body: Value = es_conn.get_search_query(&es_query, &CONSUME_TYPE).await?;
+            let results: Vec<DocumentWithId<ConsumeProdtKeyword>> =
+                self.get_query_result_vec(&search_res_body).await?;
 
             if results.is_empty() {
                 prodt_type = String::from("etc");
@@ -288,40 +298,33 @@ impl EsQueryService for EsQueryServicePub {
                 let mut manager: ScoreManager<ConsumeProdtKeyword> =
                     ScoreManager::<ConsumeProdtKeyword>::new();
 
-                info!("===========================================================================");
-                info!("prodt_name: {}", prodt_name);
-
                 for consume_type in results {
                     let keyword: &String = consume_type.source.consume_keyword();
                     let score: i64 = consume_type.score as i64;
                     let score_i64: i64 = score * -1;
-                    
+
                     /* Use the 'levenshtein' algorithm to determine word match */
                     let word_dist: usize = levenshtein(keyword, &prodt_name);
                     let word_dist_i64: i64 = word_dist.try_into()?;
-                    // test code
-                    info!("{:?} :: {:?} :: {:?}", consume_type.source, word_dist_i64, score_i64);
-                    manager.insert(word_dist_i64 + score_i64, consume_type.source); 
+                    manager.insert(word_dist_i64 + score_i64, consume_type.source);
                 }
-                
+
                 let score_data_keyword: ScoredData<ConsumeProdtKeyword> = match manager.pop_lowest()
                 {
-                    Some(score_data_keyword) => {
-                        info!("{:?}", score_data_keyword);
-                        score_data_keyword
-                    },
+                    Some(score_data_keyword) => score_data_keyword,
                     None => {
                         error!("[Error][get_consume_prodt_details_specify_type()] The mapped data for variable 'score_data_keyword' does not exist.");
                         continue;
                     }
                 };
-                
-                info!("===========================================================================");
+
                 prodt_type = score_data_keyword.data().consume_keyword_type().to_string();
             }
-            
-            let prodt_detail_timestamp: String = get_str_from_naive_datetime(*prodt_detail.timestamp());
-            let prodt_detail_cur_timestamp: String = get_str_from_naive_datetime(*prodt_detail.timestamp());
+
+            let prodt_detail_timestamp: String =
+                get_str_from_naive_datetime(*prodt_detail.timestamp());
+            let prodt_detail_cur_timestamp: String =
+                get_str_from_naive_datetime(*prodt_detail.timestamp());
 
             let consume_detail_es: ConsumeProdtDetailES = ConsumeProdtDetailES::new(
                 prodt_detail_timestamp,
@@ -333,7 +336,7 @@ impl EsQueryService for EsQueryServicePub {
 
             consume_prodt_details_es.push(consume_detail_es);
         }
-        
+
         Ok(consume_prodt_details_es)
     }
 }

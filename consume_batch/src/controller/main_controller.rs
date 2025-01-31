@@ -3,10 +3,12 @@ use crate::common::*;
 use crate::service::es_query_service::*;
 use crate::service::query_service::*;
 
-use crate::models::document_with_id::*;
 use crate::models::consume_prodt_detail::*;
 use crate::models::consume_prodt_detail_es::*;
 use crate::models::consume_prodt_keyword::*;
+use crate::models::document_with_id::*;
+
+use crate::configuration::elasitc_index_name::*;
 
 #[derive(Debug, new)]
 pub struct MainController<Q: QueryService, E: EsQueryService> {
@@ -20,7 +22,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
         /* Get all the data from elasticsearch and bulk insert it into MySQL. */
         let all_es_data: Vec<DocumentWithId<ConsumeProdtDetailES>> = self
             .es_query_service
-            .get_all_list_from_es_partial::<ConsumeProdtDetailES>(CONSUME_DETAIL)
+            .get_all_list_from_es_partial::<ConsumeProdtDetailES>(&CONSUME_DETAIL)
             .await?;
 
         let all_es_to_rdb_data: Vec<ConsumeProdtDetail> = match all_es_data
@@ -33,7 +35,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
                 return Err(anyhow!("[Error][insert_es_to_mysql_empty_data()] Problem while converting vector 'all_es_to_rdb_data' : {:?}", e));
             }
         };
-        
+
         let insert_size: usize = insert_multiple_consume_prodt_detail(&all_es_to_rdb_data)?;
 
         if insert_size != all_es_to_rdb_data.len() {
@@ -63,7 +65,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
         /* Get data after 'cur_timestamp' from Elasticsearch. */
         let es_recent_prodt_infos: Vec<DocumentWithId<ConsumeProdtDetailES>> = self
             .es_query_service
-            .get_timetamp_gt_filter_list_from_es_partial(CONSUME_DETAIL, cur_timestamp)
+            .get_timetamp_gt_filter_list_from_es_partial(&CONSUME_DETAIL, cur_timestamp)
             .await?;
 
         /* If there are no changes */
@@ -72,7 +74,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
             return Ok(());
         }
 
-        let es_recent_prodt_infos_len = es_recent_prodt_infos.len();
+        let es_recent_prodt_infos_len: usize = es_recent_prodt_infos.len();
         /*
             If there are changes - put all the changed es data into MySQL here.
         */
@@ -127,12 +129,12 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
 
         self.es_query_service
             .post_indexing_data_by_bulk::<ConsumeProdtKeyword>(
-                CONSUME_TYPE,
-                CONSUME_TYPE_SETTINGS,
+                &CONSUME_TYPE,
+                &CONSUME_TYPE_SETTINGS,
                 &consume_prodt_type,
             )
             .await?;
-        
+
         /* 2-2. consume_prodt_details */
         let consume_prodt_details: Vec<ConsumeProdtDetail> =
             self.query_service.get_all_consume_prodt_detail()?;
@@ -141,11 +143,11 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
             .es_query_service
             .get_consume_prodt_details_specify_type(&consume_prodt_details)
             .await?;
-        
+
         self.es_query_service
             .post_indexing_data_by_bulk::<ConsumeProdtDetailES>(
-                CONSUME_DETAIL,
-                CONSUME_DETAIL_SETTINGS,
+                &CONSUME_DETAIL,
+                &CONSUME_DETAIL_SETTINGS,
                 &consume_prodt_details,
             )
             .await?;
