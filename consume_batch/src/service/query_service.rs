@@ -5,22 +5,19 @@ use crate::models::consume_prodt_keyword::*;
 
 use crate::repository::mysql_repository::*;
 
-use crate::schema::{CONSUME_PRODT_DETAIL, CONSUME_PRODT_KEYWORD};
-
-use crate::schema::CONSUME_PRODT_DETAIL::dsl::*;
+use crate::entity::{
+  consume_prodt_keyword  
+};
 
 pub trait QueryService {
-    // fn consume_keyword_type_join_consume_prodt_keyword(
-    //     &self,
-    // ) -> Result<Vec<ConsumeProdtKeyword>, anyhow::Error>;
+    async fn get_all_consume_prodt_type(&self, batch_size: usize) -> Result<Vec<ConsumeProdtKeyword>, anyhow::Error>;
     fn get_top_consume_prodt_detail_order_by_timestamp(
         &self,
         top_n: i64,
         ascending: bool,
     ) -> Result<Vec<ConsumeProdtDetail>, anyhow::Error>;
     fn get_total_count_consume_prodt_detail(&self) -> Result<i64, anyhow::Error>;
-    fn get_all_consume_prodt_detail(&self) -> Result<Vec<ConsumeProdtDetail>, anyhow::Error>;
-    fn get_all_consume_prodt_type(&self) -> Result<Vec<ConsumeProdtKeyword>, anyhow::Error>;
+    fn get_all_consume_prodt_detail(&self) -> Result<Vec<ConsumeProdtDetail>, anyhow::Error>;    
 }
 
 #[derive(Debug, new)]
@@ -28,17 +25,48 @@ pub struct QueryServicePub;
 
 impl QueryService for QueryServicePub {
     #[doc = "Functions that select all objects in the 'ConsumeProdtKeyword' table"]
-    fn get_all_consume_prodt_type(&self) -> Result<Vec<ConsumeProdtKeyword>, anyhow::Error> {
-        let mut conn = get_mysql_pool()?;
+    async fn get_all_consume_prodt_type(&self, batch_size: usize) -> Result<Vec<ConsumeProdtKeyword>, anyhow::Error> {
+        let db: &DatabaseConnection = establish_connection().await;
 
-        let query = CONSUME_PRODT_KEYWORD::table.select((
-            CONSUME_PRODT_KEYWORD::consume_keyword_type,
-            CONSUME_PRODT_KEYWORD::consume_keyword,
-        ));
+        let mut total_consume_prodt_keyword: Vec<ConsumeProdtKeyword> = Vec::new();
+        let mut last_keyword_type: Option<String> = None;
+        let mut last_keyword: Option<String> = None;
 
-        let result: Vec<ConsumeProdtKeyword> = query.load::<ConsumeProdtKeyword>(&mut conn)?;
+        loop {
+            let mut query: Select<consume_prodt_keyword::Entity> = consume_prodt_keyword::Entity::find()
+                .order_by_asc(consume_prodt_keyword::Column::ConsumeKeywordType)
+                .order_by_asc(consume_prodt_keyword::Column::ConsumeKeyword)
+                .limit(batch_size as u64)
+                .select_only()
+                .columns([consume_prodt_keyword::Column::ConsumeKeywordType, consume_prodt_keyword::Column::ConsumeKeyword]);
 
-        Ok(result)
+            if let (Some(last_type), Some(last_keyword_val)) = (&last_keyword_type, &last_keyword) {
+                query = query.filter(
+                    Condition::all()
+                        .add(consume_prodt_keyword::Column::ConsumeKeywordType.eq(last_type.clone()))
+                        .add(consume_prodt_keyword::Column::ConsumeKeyword.gt(last_keyword_val.clone())),
+                );
+            }
+
+            let mut batch_data: Vec<ConsumeProdtKeyword> = query
+                .into_model()
+                .all(db)
+                .await
+                .map_err(|e| anyhow!("[Error][get_all_consume_prodt_type()] {:?}", e))?;
+
+            if batch_data.is_empty() {
+                break;
+            }
+
+            total_consume_prodt_keyword.append(&mut batch_data);
+
+            if let Some(last) = batch_data.last() {
+                last_keyword_type = Some(last.consume_keyword_type.clone());
+                last_keyword = Some(last.consume_keyword.clone());
+            }
+        }
+        
+        Ok(total_consume_prodt_keyword)
     }
 
     #[doc = "Functions that select all objects in the 'ConsumeProdtDetail' table"]

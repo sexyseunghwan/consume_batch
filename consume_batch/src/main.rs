@@ -1,9 +1,10 @@
 /*
 Author      : Seunghwan Shin
-Create date : 2025-00-00
+Create date : 2025-01-01
 Description :
 
-History     : 2025-00-00 Seunghwan Shin       # [v.1.0.0] first create
+History     : 2025-01-01 Seunghwan Shin       # [v.1.0.0] first create
+              2025-03-22 Seunghwan Shin       # [v.1.1.0] Change the RDB-related crate (Diesel -> Sear-orm)
 */
 
 mod common;
@@ -16,8 +17,6 @@ mod repository;
 
 mod models;
 
-mod schema;
-
 mod controller;
 use controller::main_controller::*;
 
@@ -26,6 +25,8 @@ use service::es_query_service::*;
 use service::query_service::*;
 
 mod configuration;
+
+mod entity;
 
 #[tokio::main]
 async fn main() {

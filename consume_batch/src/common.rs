@@ -12,7 +12,9 @@ pub use std::{
 
 pub use rand::{prelude::SliceRandom, rngs::StdRng, SeedableRng};
 
-pub use tokio::task;
+pub use tokio::{
+    task, sync::OnceCell
+};
 
 pub use log::{error, info};
 
@@ -60,15 +62,21 @@ pub use num_format::{Locale, ToFormattedString};
 
 pub use kafka::producer::{Producer, Record as KafkaRecord, RequiredAcks};
 
-pub use diesel::{
-    dsl::count_star,
-    mysql::MysqlConnection,
-    r2d2::{ConnectionManager, Pool, PooledConnection},
-    AsChangeset, ExpressionMethods, Insertable, NullableExpressionMethods, QueryDsl, Queryable,
-    QueryableByName, RunQueryDsl,
-};
+// pub use diesel::{
+//     dsl::count_star,
+//     mysql::MysqlConnection,
+//     r2d2::{ConnectionManager, Pool, PooledConnection},
+//     AsChangeset, ExpressionMethods, Insertable, NullableExpressionMethods, QueryDsl, Queryable,
+//     QueryableByName, RunQueryDsl,
+// };
 
 pub use async_trait::async_trait;
+
+pub use sea_orm::{
+    prelude::{Decimal, Expr},
+    ActiveModelBehavior, ColumnTrait, Condition, Database, DatabaseConnection, EntityTrait,
+    FromQueryResult, JoinType, QueryFilter, QueryOrder, QuerySelect, RelationTrait, Select,
+};
 
 //use crate::repository::es_repository::*;
 //use crate::repository::kafka_repository::*;
