@@ -128,13 +128,13 @@ impl EsQueryService for EsQueryServicePub {
             .format("%Y%m%d%H%M%S")
             .to_string();
         let new_index_name: String = format!("{}-{}", index_alias_name, curr_time);
-        
+
         let json_body: Value = read_json_from_file(index_settings_path)?;
         es_conn.create_index(&new_index_name, &json_body).await?;
-        
+
         /* Bulk post the data to the index above at once. */
         es_conn.bulk_indexing_query(&new_index_name, data).await?;
-        
+
         /* Change alias */
         let alias_resp: Value = es_conn
             .get_indexes_mapping_by_alias(index_alias_name)

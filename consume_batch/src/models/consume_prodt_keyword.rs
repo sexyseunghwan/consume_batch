@@ -2,11 +2,11 @@ use crate::common::*;
 
 use crate::repository::mysql_repository::*;
 
-#[doc = "CONSUME_PRODT_KEYWORD 테이블과 맵핑할 구조체"]
+#[doc = "Structures to map to the `CONSUME_PRODT_KEYWORD` table"]
 #[derive(Debug, FromQueryResult)]
 pub struct ConsumeProdtKeyword {
     pub consume_keyword_type: String,
-    pub consume_keyword: String
+    pub consume_keyword: String,
 }
 
 // #[derive(Queryable, Serialize, Deserialize, Debug, Insertable, Getters)]
@@ -25,7 +25,6 @@ pub struct ConsumeProdtKeyword {
 
 //     let result = QueryDsl::filter(CONSUME_PRODT_KEYWORD, consume_keyword_type.eq(keyword))
 //         .load::<ConsumeProdtKeyword>(&mut conn)?; /* Dereference Arc to get the connection */
-
 //     Ok(result)
 // }
 

@@ -3,7 +3,6 @@
 pub mod prelude;
 
 pub mod consume_prodt_detail;
-pub mod consume_prodt_detail_backupver;
 pub mod consume_prodt_keyword;
 pub mod consumue_keyword_type;
 pub mod users;

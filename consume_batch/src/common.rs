@@ -12,9 +12,7 @@ pub use std::{
 
 pub use rand::{prelude::SliceRandom, rngs::StdRng, SeedableRng};
 
-pub use tokio::{
-    task, sync::OnceCell
-};
+pub use tokio::{sync::OnceCell, task};
 
 pub use log::{error, info};
 
@@ -74,8 +72,9 @@ pub use async_trait::async_trait;
 
 pub use sea_orm::{
     prelude::{Decimal, Expr},
-    ActiveModelBehavior, ColumnTrait, Condition, Database, DatabaseConnection, EntityTrait,
-    FromQueryResult, JoinType, QueryFilter, QueryOrder, QuerySelect, RelationTrait, Select,
+    ActiveModelBehavior, ActiveModelTrait, ColumnTrait, Condition, Database, DatabaseConnection,
+    DatabaseTransaction, EntityTrait, FromQueryResult, InsertResult, JoinType, QueryFilter,
+    QueryOrder, QuerySelect, RelationTrait, Select, TransactionTrait,
 };
 
 //use crate::repository::es_repository::*;

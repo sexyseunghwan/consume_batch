@@ -45,7 +45,7 @@ impl ConsumeProdtDetailES {
             "%Y-%m-%dT%H:%M",
         ];
 
-        let mut timestamp =
+        let mut timestamp: NaiveDateTime =
             NaiveDateTime::parse_from_str("1970-01-01T00:00:00", "%Y-%m-%dT%H:%M:%S")?;
 
         for format in formats {
@@ -63,7 +63,7 @@ impl ConsumeProdtDetailES {
             cur_timestamp = timestamp.clone();
         }
 
-        let consume_prodt_detail = ConsumeProdtDetail {
+        let consume_prodt_detail: ConsumeProdtDetail = ConsumeProdtDetail {
             timestamp: timestamp,
             cur_timestamp: cur_timestamp,
             prodt_name: self.prodt_name().to_string(),

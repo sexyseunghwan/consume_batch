@@ -2,10 +2,7 @@ use crate::common::*;
 
 use crate::repository::mysql_repository::*;
 
-use crate::schema::CONSUME_PRODT_DETAIL;
-
-#[derive(Queryable, Debug, Insertable, AsChangeset, Getters)]
-#[table_name = "CONSUME_PRODT_DETAIL"]
+#[derive(Debug, FromQueryResult, Getters)]
 #[getset(get = "pub")]
 pub struct ConsumeProdtDetail {
     pub timestamp: NaiveDateTime,
@@ -16,22 +13,4 @@ pub struct ConsumeProdtDetail {
     pub chg_dt: Option<NaiveDateTime>,
     pub reg_id: Option<String>,
     pub chg_id: Option<String>,
-}
-
-#[doc = "Function that inserts 'ConsumeProdtDetail' object into MySQL - bulk insert"]
-/// # Arguments
-/// * `consume_prodt_detais` - Object of `ConsumeProdtDetail`
-///
-/// # Returns
-/// * Result<usize, anyhow::Error>
-pub fn insert_multiple_consume_prodt_detail(
-    consume_prodt_detais: &Vec<ConsumeProdtDetail>,
-) -> Result<usize, anyhow::Error> {
-    let mut conn = get_mysql_pool()?;
-
-    let size = diesel::insert_into(CONSUME_PRODT_DETAIL::table)
-        .values(consume_prodt_detais)
-        .execute(&mut conn)?;
-
-    Ok(size)
 }
