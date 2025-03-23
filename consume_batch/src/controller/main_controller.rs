@@ -8,7 +8,9 @@ use crate::models::consume_prodt_detail_es::*;
 use crate::models::consume_prodt_keyword::*;
 use crate::models::document_with_id::*;
 
-use crate::configuration::elasitc_index_name::*;
+use crate::configuration::config_settings::*;
+
+use crate::entity::consume_prodt_detail;
 
 #[derive(Debug, new)]
 pub struct MainController<Q: QueryService, E: EsQueryService> {
@@ -36,9 +38,12 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
             }
         };
 
-        let insert_size: usize = insert_multiple_consume_prodt_detail(&all_es_to_rdb_data)?;
+        let active_consume_prodt_detail: Vec<consume_prodt_detail::ActiveModel> = 
+            to_active_models_comsume_prodt_detail(all_es_to_rdb_data);
 
-        if insert_size != all_es_to_rdb_data.len() {
+        let insert_size: usize = self.query_service.batch_insert(&active_consume_prodt_detail, *BATCH_SIZE).await?;
+
+        if insert_size != active_consume_prodt_detail.len() {
             return Err(anyhow!("[Error][insert_es_to_mysql_empty_data()] The number of extracted data does not match the number of loaded data."));
         } else {
             info!("ES -> MySQL : {}", insert_size);
@@ -47,58 +52,63 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
         Ok(())
     }
 
-    // #[doc = "Elasticsearch data is loaded into MySQL through the ETL process. -> If there is data in the table"]
-    // /// # Arguments
-    // /// * `recent_prodt` - Most up-to-date data stored in the table
-    // ///
-    // /// # Returns
-    // /// * Result<(), anyhow::Error>
-    // async fn insert_es_to_mysql_non_empty_data(
-    //     &self,
-    //     recent_prodt: Vec<ConsumeProdtDetail>,
-    // ) -> Result<(), anyhow::Error> {
-    //     let cur_timestamp: NaiveDateTime = recent_prodt
-    //         .get(0)
-    //         .ok_or_else(|| anyhow!("[Error][dynamic_indexing()] The 0th data in array 'recent_prodt' does not exist."))?
-    //         .cur_timestamp;
+    #[doc = "Elasticsearch data is loaded into MySQL through the ETL process. -> If there is data in the table"]
+    /// # Arguments
+    /// * `recent_prodt` - Most up-to-date data stored in the table
+    ///
+    /// # Returns
+    /// * Result<(), anyhow::Error>
+    async fn insert_es_to_mysql_non_empty_data(
+        &self,
+        recent_prodt: Vec<ConsumeProdtDetail>,
+    ) -> Result<(), anyhow::Error> {
+        let cur_timestamp: NaiveDateTime = recent_prodt
+            .get(0)
+            .ok_or_else(|| anyhow!("[Error][dynamic_indexing()] The 0th data in array 'recent_prodt' does not exist."))?
+            .cur_timestamp;
 
-    //     /* Get data after 'cur_timestamp' from Elasticsearch. */
-    //     let es_recent_prodt_infos: Vec<DocumentWithId<ConsumeProdtDetailES>> = self
-    //         .es_query_service
-    //         .get_timetamp_gt_filter_list_from_es_partial(&CONSUME_DETAIL, cur_timestamp)
-    //         .await?;
+        /* Get data after 'cur_timestamp' from Elasticsearch. */
+        let es_recent_prodt_infos: Vec<DocumentWithId<ConsumeProdtDetailES>> = self
+            .es_query_service
+            .get_timetamp_gt_filter_list_from_es_partial(&CONSUME_DETAIL, cur_timestamp)
+            .await?;
 
-    //     /* If there are no changes */
-    //     if es_recent_prodt_infos.is_empty() {
-    //         info!("[dynamic_indexing()] There are no additional incremental indexes.");
-    //         return Ok(());
-    //     }
+        /* If there are no changes */
+        if es_recent_prodt_infos.is_empty() {
+            info!("[insert_es_to_mysql_non_empty_data()] There are no additional incremental indexes.");
+            return Ok(());
+        }
 
-    //     let es_recent_prodt_infos_len: usize = es_recent_prodt_infos.len();
-    //     /*
-    //         If there are changes - put all the changed es data into MySQL here.
-    //     */
-    //     let consume_prodt_details: Vec<ConsumeProdtDetail> = match es_recent_prodt_infos
-    //         .into_iter()
-    //         .map(|elem| elem.source.transfer_to_consume_prodt_detail())
-    //         .collect()
-    //     {
-    //         Ok(consume_prodt_details) => consume_prodt_details,
-    //         Err(e) => {
-    //             return Err(anyhow!("[Error][insert_es_to_mysql_non_empty_data()] Problem while converting vector 'consume_prodt_details' : {:?}", e));
-    //         }
-    //     };
+        let es_recent_prodt_infos_len: usize = es_recent_prodt_infos.len();
 
-    //     let insert_size: usize = insert_multiple_consume_prodt_detail(&consume_prodt_details)?;
+        /*
+            If there are changes - put all the changed es data into MySQL here.
+        */
+        let consume_prodt_details: Vec<ConsumeProdtDetail> = match es_recent_prodt_infos
+            .into_iter()
+            .map(|elem| elem.source.transfer_to_consume_prodt_detail())
+            .collect()
+        {
+            Ok(consume_prodt_details) => consume_prodt_details,
+            Err(e) => {
+                return Err(anyhow!("[Error][insert_es_to_mysql_non_empty_data()] Problem while converting vector 'consume_prodt_details' : {:?}", e));
+            }
+        };
 
-    //     if insert_size != es_recent_prodt_infos_len {
-    //         return Err(anyhow!("[Error][insert_es_to_mysql_non_empty_data()] The number of extracted data does not match the number of loaded data."));
-    //     } else {
-    //         info!("ES -> MySQL : {}", insert_size);
-    //     }
+        let active_consume_prodt_detail: Vec<consume_prodt_detail::ActiveModel> = 
+            to_active_models_comsume_prodt_detail(consume_prodt_details);
+        
+        // 여기까지는 문제가 없는데 아래에서 문제가 생기는 듯.
+        let insert_size: usize = self.query_service.batch_insert(&active_consume_prodt_detail, *BATCH_SIZE).await?;
 
-    //     Ok(())
-    // }
+        if insert_size != es_recent_prodt_infos_len {
+            return Err(anyhow!("[Error][insert_es_to_mysql_non_empty_data()] The number of extracted data does not match the number of loaded data."));
+        } else {
+            info!("ES -> MySQL : {}", insert_size);
+        }
+
+        Ok(())
+    }
 
     #[doc = "Elasticsearch data is loaded into MySQL through the ETL process."]
     async fn insert_batch_es_to_mysql(&self) -> Result<(), anyhow::Error> {
@@ -121,12 +131,18 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
     #[doc = "Main Batch Function"]
     pub async fn main_task(&self) -> Result<(), anyhow::Error> {
         /* 1. ES -> MySQL ETL */
-        self.insert_batch_es_to_mysql().await?;
+        //self.insert_batch_es_to_mysql().await?;
 
         /* 2. MySQL -> ES Indexing */
         /* 2-1. consuming_index_prod_type */
-        // let consume_prodt_type: Vec<ConsumeProdtKeyword> =
-        //     self.query_service.get_all_consume_prodt_type()?;
+        let consume_prodt_type: Vec<ConsumeProdtKeyword> =
+            self.query_service.get_all_consume_prodt_type(*BATCH_SIZE).await?;
+        
+        println!("consume_prodt_type-len: {}", consume_prodt_type.len());
+
+        // for elem in consume_prodt_type {
+        //     println!("{:?}", elem);
+        // }
 
         // self.es_query_service
         //     .post_indexing_data_by_bulk::<ConsumeProdtKeyword>(
@@ -138,8 +154,8 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
 
         // /* 2-2. consume_prodt_details */
         // let consume_prodt_details: Vec<ConsumeProdtDetail> =
-        //     self.query_service.get_all_consume_prodt_detail()?;
-
+        //     self.query_service.get_all_consume_prodt_detail(*BATCH_SIZE).await?;
+        
         // let consume_prodt_details: Vec<ConsumeProdtDetailES> = self
         //     .es_query_service
         //     .get_consume_prodt_details_specify_type(&consume_prodt_details)

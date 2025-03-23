@@ -22,7 +22,7 @@ pub trait QueryService {
     ) -> Result<Vec<ConsumeProdtDetail>, anyhow::Error>;
     async fn batch_insert<M>(
         &self,
-        models: Vec<M>,
+        models: &Vec<M>,
         batch_size: usize,
     ) -> Result<usize, anyhow::Error>
     where
@@ -45,6 +45,7 @@ impl QueryService for QueryServicePub {
         let mut last_keyword: Option<String> = None;
 
         loop {
+            
             let mut query: Select<consume_prodt_keyword::Entity> =
                 consume_prodt_keyword::Entity::find()
                     .order_by_asc(consume_prodt_keyword::Column::ConsumeKeywordType)
@@ -55,20 +56,22 @@ impl QueryService for QueryServicePub {
                         consume_prodt_keyword::Column::ConsumeKeywordType,
                         consume_prodt_keyword::Column::ConsumeKeyword,
                     ]);
-
+            
             if let (Some(last_type), Some(last_keyword_val)) = (&last_keyword_type, &last_keyword) {
+                
                 query = query.filter(
-                    Condition::all()
+                    Condition::any()
                         .add(
                             consume_prodt_keyword::Column::ConsumeKeywordType.gt(last_type.clone()),
                         )
                         .add(
-                            consume_prodt_keyword::Column::ConsumeKeyword
-                                .gt(last_keyword_val.clone()),
+                            Condition::all()
+                                .add(consume_prodt_keyword::Column::ConsumeKeywordType.eq(last_type.clone()))
+                                .add(consume_prodt_keyword::Column::ConsumeKeyword.gt(last_keyword_val.clone()))
                         ),
                 );
             }
-
+            
             let mut batch_data: Vec<ConsumeProdtKeyword> = query
                 .into_model()
                 .all(db)
@@ -79,12 +82,12 @@ impl QueryService for QueryServicePub {
                 break;
             }
 
-            total_consume_prodt_keyword.append(&mut batch_data);
-
             if let Some(last) = batch_data.last() {
                 last_keyword_type = Some(last.consume_keyword_type.clone());
                 last_keyword = Some(last.consume_keyword.clone());
             }
+
+            total_consume_prodt_keyword.append(&mut batch_data);
         }
 
         Ok(total_consume_prodt_keyword)
@@ -215,7 +218,7 @@ impl QueryService for QueryServicePub {
     /// * Result<InsertResult<Self::ActiveModel>, anyhow::Error>
     async fn batch_insert<M>(
         &self,
-        models: Vec<M>,
+        models: &Vec<M>,
         batch_size: usize,
     ) -> Result<usize, anyhow::Error>
     where
@@ -245,7 +248,7 @@ impl QueryService for QueryServicePub {
         }
 
         txn.commit().await?;
-        
+
         Ok(total_inserted)
     }
 

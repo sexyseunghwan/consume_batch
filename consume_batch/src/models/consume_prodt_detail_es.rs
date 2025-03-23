@@ -55,7 +55,7 @@ impl ConsumeProdtDetailES {
             }
         }
 
-        let cur_timestamp;
+        let cur_timestamp: NaiveDateTime;
 
         if let Some(value) = self.cur_timestamp() {
             cur_timestamp = get_naive_datetime_from_str(value, "%Y-%m-%dT%H:%M:%SZ")?;
@@ -68,12 +68,12 @@ impl ConsumeProdtDetailES {
             cur_timestamp: cur_timestamp,
             prodt_name: self.prodt_name().to_string(),
             prodt_money: *self.prodt_money(),
-            reg_dt: None,
+            reg_dt: Some(cur_timestamp),
             chg_dt: None,
-            reg_id: None,
+            reg_id: Some(String::from("system")),
             chg_id: None,
         };
-
+        
         Ok(consume_prodt_detail)
     }
 }

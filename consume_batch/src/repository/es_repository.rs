@@ -57,7 +57,7 @@ pub fn initialize_elastic_clients() -> VecDeque<EsRepositoryPub> {
 
 #[doc = "Function to get elasticsearch connection"]
 pub fn get_elastic_conn() -> Result<EsRepositoryPub, anyhow::Error> {
-    let mut pool = match ELASTICSEARCH_CONN_POOL.lock() {
+    let mut pool: std::sync::MutexGuard<'_, VecDeque<EsRepositoryPub>> = match ELASTICSEARCH_CONN_POOL.lock() {
         Ok(pool) => pool,
         Err(e) => {
             return Err(anyhow!("[Error][get_elastic_conn()] {:?}", e));
@@ -69,7 +69,7 @@ pub fn get_elastic_conn() -> Result<EsRepositoryPub, anyhow::Error> {
     })?;
 
     //info!("pool.len = {:?}", pool.len());
-
+    
     Ok(es_repo)
 }
 
@@ -383,13 +383,13 @@ impl EsRepository for EsRepositoryPub {
 
                 for item in data {
                     /* Converting Data to JSON */
-                    let json_value = serde_json::to_value(&item)?;
+                    let json_value: Value = serde_json::to_value(&item)?;
 
                     /* BulkOperation Generation (without ID) */
                     ops.push(BulkOperation::index(json_value).into());
                 }
 
-                let response = es_client
+                let response: Response = es_client
                     .es_conn
                     .bulk(BulkParts::Index(index_name))
                     .body(ops)
@@ -412,7 +412,7 @@ impl EsRepository for EsRepositoryPub {
     async fn clear_scroll_info(&self, scroll_id: &str) -> Result<(), anyhow::Error> {
         let response = self
             .execute_on_any_node(|es_client| async move {
-                let response = es_client
+                let response: Response = es_client
                     .es_conn
                     .clear_scroll(elasticsearch::ClearScrollParts::ScrollId(&[scroll_id]))
                     .send()
@@ -438,7 +438,7 @@ impl EsRepository for EsRepositoryPub {
         scroll_duration: &str,
         scroll_id: &str,
     ) -> Result<Value, anyhow::Error> {
-        let response = self
+        let response: Response = self
             .execute_on_any_node(|es_client| async move {
                 let scroll_response = es_client
                     .es_conn
@@ -469,7 +469,7 @@ impl EsRepository for EsRepositoryPub {
         scroll_duration: &str,
         es_query: &Value,
     ) -> Result<Value, anyhow::Error> {
-        let response = self
+        let response: Response = self
             .execute_on_any_node(|es_client| async move {
                 let response = es_client
                     .es_conn
@@ -499,7 +499,7 @@ impl EsRepository for EsRepositoryPub {
         es_query: &Value,
         index_name: &str,
     ) -> Result<Value, anyhow::Error> {
-        let response = self
+        let response: Response = self
             .execute_on_any_node(|es_client| async move {
                 let response = es_client
                     .es_conn
@@ -543,7 +543,7 @@ impl EsRepository for EsRepositoryPub {
     async fn post_query(&self, document: &Value, index_name: &str) -> Result<(), anyhow::Error> {
         let response = self
             .execute_on_any_node(|es_client| async move {
-                let response = es_client
+                let response: Response = es_client
                     .es_conn
                     .index(IndexParts::Index(index_name))
                     .body(document)
@@ -566,7 +566,7 @@ impl EsRepository for EsRepositoryPub {
     async fn delete_query(&self, index_name: &str) -> Result<(), anyhow::Error> {
         let response = self
             .execute_on_any_node(|es_client| async move {
-                let response = es_client
+                let response: Response = es_client
                     .es_conn
                     .indices()
                     .delete(IndicesDeleteParts::Index(&[index_name]))
@@ -589,7 +589,7 @@ impl EsRepository for EsRepositoryPub {
     /// # Returns
     /// * Result<(), anyhow::Error>
     async fn delete_query_doc(&self, doc_id: &str, index_name: &str) -> Result<(), anyhow::Error> {
-        let response = self
+        let response: Response = self
             .execute_on_any_node(|es_client| async move {
                 let response = es_client
                     .es_conn
@@ -612,9 +612,9 @@ impl EsRepository for EsRepositoryPub {
     /// # Returns
     /// * Result<(), anyhow::Error>
     async fn refresh_index(&self, index_name: &str) -> Result<(), anyhow::Error> {
-        let response = self
+        let response: Response = self
             .execute_on_any_node(|es_client| async move {
-                let response = es_client
+                let response: Response = es_client
                     .es_conn
                     .indices()
                     .refresh(IndicesRefreshParts::Index(&[index_name]))

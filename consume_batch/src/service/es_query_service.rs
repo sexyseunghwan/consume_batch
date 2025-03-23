@@ -11,7 +11,7 @@ use crate::models::score_manager::*;
 use crate::utils_module::io_utils::*;
 use crate::utils_module::time_utils::*;
 
-use crate::configuration::elasitc_index_name::*;
+use crate::configuration::config_settings::*;
 
 #[async_trait]
 pub trait EsQueryService {
@@ -179,7 +179,7 @@ impl EsQueryService for EsQueryServicePub {
                     }
                 }
             },
-            "size": 1000
+            "size": *BATCH_SIZE
         });
 
         let res: Vec<DocumentWithId<T>> = self
@@ -203,7 +203,7 @@ impl EsQueryService for EsQueryServicePub {
             "query": {
                 "match_all": {}
             },
-            "size": 1000
+            "size": *BATCH_SIZE
         });
 
         let res_vec: Vec<DocumentWithId<T>> = self
@@ -291,7 +291,7 @@ impl EsQueryService for EsQueryServicePub {
             let search_res_body: Value = es_conn.get_search_query(&es_query, &CONSUME_TYPE).await?;
             let results: Vec<DocumentWithId<ConsumeProdtKeyword>> =
                 self.get_query_result_vec(&search_res_body).await?;
-
+            
             if results.is_empty() {
                 prodt_type = String::from("etc");
             } else {

@@ -1,1 +1,1 @@
-pub mod elasitc_index_name;
+pub mod config_settings;
