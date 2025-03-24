@@ -288,7 +288,9 @@ impl EsQueryService for EsQueryServicePub {
                 }
             });
 
+
             let search_res_body: Value = es_conn.get_search_query(&es_query, &CONSUME_TYPE).await?;
+
             let results: Vec<DocumentWithId<ConsumeProdtKeyword>> =
                 self.get_query_result_vec(&search_res_body).await?;
             

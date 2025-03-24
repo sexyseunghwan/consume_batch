@@ -46,6 +46,7 @@ async fn main() {
     }
 }
 
+
 // // 소수 판별 함수
 // fn is_prime(n: u64) -> bool {
 //     if n < 2 {

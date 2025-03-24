@@ -122,14 +122,18 @@ impl QueryService for QueryServicePub {
                         consume_prodt_detail::Column::RegDt,
                         consume_prodt_detail::Column::ChgDt,
                     ]);
-
+            
             if let (Some(last_prodt_name), Some(last_timestamp)) =
                 (&last_prodt_name, &last_timestamp)
             {
                 query = query.filter(
-                    Condition::all()
-                        .add(consume_prodt_detail::Column::CurTimestamp.gt(last_timestamp.clone()))
-                        .add(consume_prodt_detail::Column::ProdtName.gt(last_prodt_name.clone())),
+                    Condition::any()
+                        .add(consume_prodt_detail::Column::Timestamp.gt(last_timestamp.clone()))
+                        .add(
+                            Condition::all()
+                                .add(consume_prodt_detail::Column::Timestamp.eq(last_timestamp.clone()))
+                                .add(consume_prodt_detail::Column::ProdtName.gt(last_prodt_name.clone()))
+                        )
                 );
             }
 
@@ -139,16 +143,17 @@ impl QueryService for QueryServicePub {
                 .await
                 .map_err(|e| anyhow!("[Error][get_all_consume_prodt_detail()] {:?}", e))?;
 
+
             if batch_data.is_empty() {
                 break;
             }
-
-            consume_prodt_details.append(&mut batch_data);
-
+            
             if let Some(last) = batch_data.last() {
                 last_prodt_name = Some(last.prodt_name.clone());
                 last_timestamp = Some(last.timestamp.clone());
             }
+
+            consume_prodt_details.append(&mut batch_data);
         }
 
         Ok(consume_prodt_details)

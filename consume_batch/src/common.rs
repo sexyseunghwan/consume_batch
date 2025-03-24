@@ -71,10 +71,9 @@ pub use kafka::producer::{Producer, Record as KafkaRecord, RequiredAcks};
 pub use async_trait::async_trait;
 
 pub use sea_orm::{
-    prelude::{Decimal, Expr},
     ActiveModelBehavior, ActiveModelTrait, ColumnTrait, Condition, Database, DatabaseConnection,
-    DatabaseTransaction, EntityTrait, FromQueryResult, InsertResult, JoinType, QueryFilter,
-    QueryOrder, QuerySelect, RelationTrait, Select, TransactionTrait, ActiveValue
+    DatabaseTransaction, EntityTrait, FromQueryResult, InsertResult, QueryFilter,
+    QueryOrder, QuerySelect, Select, TransactionTrait, ActiveValue
 };
 
 //use crate::repository::es_repository::*;

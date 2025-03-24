@@ -1,6 +1,5 @@
 use crate::common::*;
 
-use crate::repository::mysql_repository::*;
 
 use crate::entity::consume_prodt_detail;
 

@@ -98,7 +98,6 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
         let active_consume_prodt_detail: Vec<consume_prodt_detail::ActiveModel> = 
             to_active_models_comsume_prodt_detail(consume_prodt_details);
         
-        // 여기까지는 문제가 없는데 아래에서 문제가 생기는 듯.
         let insert_size: usize = self.query_service.batch_insert(&active_consume_prodt_detail, *BATCH_SIZE).await?;
 
         if insert_size != es_recent_prodt_infos_len {
@@ -131,43 +130,38 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
     #[doc = "Main Batch Function"]
     pub async fn main_task(&self) -> Result<(), anyhow::Error> {
         /* 1. ES -> MySQL ETL */
-        //self.insert_batch_es_to_mysql().await?;
+        self.insert_batch_es_to_mysql().await?;
 
         /* 2. MySQL -> ES Indexing */
         /* 2-1. consuming_index_prod_type */
         let consume_prodt_type: Vec<ConsumeProdtKeyword> =
             self.query_service.get_all_consume_prodt_type(*BATCH_SIZE).await?;
+
+        self.es_query_service
+            .post_indexing_data_by_bulk::<ConsumeProdtKeyword>(
+                &CONSUME_TYPE,
+                &CONSUME_TYPE_SETTINGS,
+                &consume_prodt_type,
+            )
+            .await?;
         
-        println!("consume_prodt_type-len: {}", consume_prodt_type.len());
+        /* 2-2. consume_prodt_details */
+        let consume_prodt_details: Vec<ConsumeProdtDetail> =
+            self.query_service.get_all_consume_prodt_detail(*BATCH_SIZE).await?;
+    
 
-        // for elem in consume_prodt_type {
-        //     println!("{:?}", elem);
-        // }
+        let consume_prodt_details: Vec<ConsumeProdtDetailES> = self
+            .es_query_service
+            .get_consume_prodt_details_specify_type(&consume_prodt_details)
+            .await?;
 
-        // self.es_query_service
-        //     .post_indexing_data_by_bulk::<ConsumeProdtKeyword>(
-        //         &CONSUME_TYPE,
-        //         &CONSUME_TYPE_SETTINGS,
-        //         &consume_prodt_type,
-        //     )
-        //     .await?;
-
-        // /* 2-2. consume_prodt_details */
-        // let consume_prodt_details: Vec<ConsumeProdtDetail> =
-        //     self.query_service.get_all_consume_prodt_detail(*BATCH_SIZE).await?;
-        
-        // let consume_prodt_details: Vec<ConsumeProdtDetailES> = self
-        //     .es_query_service
-        //     .get_consume_prodt_details_specify_type(&consume_prodt_details)
-        //     .await?;
-
-        // self.es_query_service
-        //     .post_indexing_data_by_bulk::<ConsumeProdtDetailES>(
-        //         &CONSUME_DETAIL,
-        //         &CONSUME_DETAIL_SETTINGS,
-        //         &consume_prodt_details,
-        //     )
-        //     .await?;
+        self.es_query_service
+            .post_indexing_data_by_bulk::<ConsumeProdtDetailES>(
+                &CONSUME_DETAIL,
+                &CONSUME_DETAIL_SETTINGS,
+                &consume_prodt_details,
+            )
+            .await?;
 
         Ok(())
     }
