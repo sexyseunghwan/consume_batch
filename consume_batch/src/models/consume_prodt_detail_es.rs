@@ -73,7 +73,7 @@ impl ConsumeProdtDetailES {
             reg_id: Some(String::from("system")),
             chg_id: None,
         };
-        
+
         Ok(consume_prodt_detail)
     }
 }

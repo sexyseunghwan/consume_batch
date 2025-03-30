@@ -38,10 +38,13 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
             }
         };
 
-        let active_consume_prodt_detail: Vec<consume_prodt_detail::ActiveModel> = 
+        let active_consume_prodt_detail: Vec<consume_prodt_detail::ActiveModel> =
             to_active_models_comsume_prodt_detail(all_es_to_rdb_data);
 
-        let insert_size: usize = self.query_service.batch_insert(&active_consume_prodt_detail, *BATCH_SIZE).await?;
+        let insert_size: usize = self
+            .query_service
+            .batch_insert(&active_consume_prodt_detail, *BATCH_SIZE)
+            .await?;
 
         if insert_size != active_consume_prodt_detail.len() {
             return Err(anyhow!("[Error][insert_es_to_mysql_empty_data()] The number of extracted data does not match the number of loaded data."));
@@ -95,10 +98,13 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
             }
         };
 
-        let active_consume_prodt_detail: Vec<consume_prodt_detail::ActiveModel> = 
+        let active_consume_prodt_detail: Vec<consume_prodt_detail::ActiveModel> =
             to_active_models_comsume_prodt_detail(consume_prodt_details);
-        
-        let insert_size: usize = self.query_service.batch_insert(&active_consume_prodt_detail, *BATCH_SIZE).await?;
+
+        let insert_size: usize = self
+            .query_service
+            .batch_insert(&active_consume_prodt_detail, *BATCH_SIZE)
+            .await?;
 
         if insert_size != es_recent_prodt_infos_len {
             return Err(anyhow!("[Error][insert_es_to_mysql_non_empty_data()] The number of extracted data does not match the number of loaded data."));
@@ -134,8 +140,10 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
 
         /* 2. MySQL -> ES Indexing */
         /* 2-1. consuming_index_prod_type */
-        let consume_prodt_type: Vec<ConsumeProdtKeyword> =
-            self.query_service.get_all_consume_prodt_type(*BATCH_SIZE).await?;
+        let consume_prodt_type: Vec<ConsumeProdtKeyword> = self
+            .query_service
+            .get_all_consume_prodt_type(*BATCH_SIZE)
+            .await?;
 
         self.es_query_service
             .post_indexing_data_by_bulk::<ConsumeProdtKeyword>(
@@ -144,11 +152,12 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
                 &consume_prodt_type,
             )
             .await?;
-        
+
         /* 2-2. consume_prodt_details */
-        let consume_prodt_details: Vec<ConsumeProdtDetail> =
-            self.query_service.get_all_consume_prodt_detail(*BATCH_SIZE).await?;
-    
+        let consume_prodt_details: Vec<ConsumeProdtDetail> = self
+            .query_service
+            .get_all_consume_prodt_detail(*BATCH_SIZE)
+            .await?;
 
         let consume_prodt_details: Vec<ConsumeProdtDetailES> = self
             .es_query_service

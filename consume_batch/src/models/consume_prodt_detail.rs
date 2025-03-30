@@ -1,6 +1,5 @@
 use crate::common::*;
 
-
 use crate::entity::consume_prodt_detail;
 
 #[derive(Debug, FromQueryResult, Getters)]
@@ -16,15 +15,15 @@ pub struct ConsumeProdtDetail {
     pub chg_id: Option<String>,
 }
 
-
 #[doc = "Converting 'ConsumeProdtDetail' structure to Seaorm-compatible active model"]
 /// # Arguments
 /// * `data` - List of `ConsumeProdtDetail`
 ///
 /// # Returns
 /// * Vec<consume_prodt_detail::ActiveModel>
-pub fn to_active_models_comsume_prodt_detail(data: Vec<ConsumeProdtDetail>) -> Vec<consume_prodt_detail::ActiveModel> {
-    
+pub fn to_active_models_comsume_prodt_detail(
+    data: Vec<ConsumeProdtDetail>,
+) -> Vec<consume_prodt_detail::ActiveModel> {
     data.into_iter()
         .map(|item| consume_prodt_detail::ActiveModel {
             timestamp: ActiveValue::Set(item.timestamp),

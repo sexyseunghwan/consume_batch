@@ -1,6 +1,5 @@
 use crate::common::*;
 
-
 #[doc = "Structures to map to the `CONSUME_PRODT_KEYWORD` table"]
 #[derive(Debug, FromQueryResult, Serialize, Deserialize, Getters)]
 #[getset(get = "pub")]

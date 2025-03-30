@@ -45,7 +45,6 @@ impl QueryService for QueryServicePub {
         let mut last_keyword: Option<String> = None;
 
         loop {
-            
             let mut query: Select<consume_prodt_keyword::Entity> =
                 consume_prodt_keyword::Entity::find()
                     .order_by_asc(consume_prodt_keyword::Column::ConsumeKeywordType)
@@ -56,9 +55,8 @@ impl QueryService for QueryServicePub {
                         consume_prodt_keyword::Column::ConsumeKeywordType,
                         consume_prodt_keyword::Column::ConsumeKeyword,
                     ]);
-            
+
             if let (Some(last_type), Some(last_keyword_val)) = (&last_keyword_type, &last_keyword) {
-                
                 query = query.filter(
                     Condition::any()
                         .add(
@@ -66,12 +64,18 @@ impl QueryService for QueryServicePub {
                         )
                         .add(
                             Condition::all()
-                                .add(consume_prodt_keyword::Column::ConsumeKeywordType.eq(last_type.clone()))
-                                .add(consume_prodt_keyword::Column::ConsumeKeyword.gt(last_keyword_val.clone()))
+                                .add(
+                                    consume_prodt_keyword::Column::ConsumeKeywordType
+                                        .eq(last_type.clone()),
+                                )
+                                .add(
+                                    consume_prodt_keyword::Column::ConsumeKeyword
+                                        .gt(last_keyword_val.clone()),
+                                ),
                         ),
                 );
             }
-            
+
             let mut batch_data: Vec<ConsumeProdtKeyword> = query
                 .into_model()
                 .all(db)
@@ -122,7 +126,7 @@ impl QueryService for QueryServicePub {
                         consume_prodt_detail::Column::RegDt,
                         consume_prodt_detail::Column::ChgDt,
                     ]);
-            
+
             if let (Some(last_prodt_name), Some(last_timestamp)) =
                 (&last_prodt_name, &last_timestamp)
             {
@@ -131,9 +135,15 @@ impl QueryService for QueryServicePub {
                         .add(consume_prodt_detail::Column::Timestamp.gt(last_timestamp.clone()))
                         .add(
                             Condition::all()
-                                .add(consume_prodt_detail::Column::Timestamp.eq(last_timestamp.clone()))
-                                .add(consume_prodt_detail::Column::ProdtName.gt(last_prodt_name.clone()))
-                        )
+                                .add(
+                                    consume_prodt_detail::Column::Timestamp
+                                        .eq(last_timestamp.clone()),
+                                )
+                                .add(
+                                    consume_prodt_detail::Column::ProdtName
+                                        .gt(last_prodt_name.clone()),
+                                ),
+                        ),
                 );
             }
 
@@ -143,11 +153,10 @@ impl QueryService for QueryServicePub {
                 .await
                 .map_err(|e| anyhow!("[Error][get_all_consume_prodt_detail()] {:?}", e))?;
 
-
             if batch_data.is_empty() {
                 break;
             }
-            
+
             if let Some(last) = batch_data.last() {
                 last_prodt_name = Some(last.prodt_name.clone());
                 last_timestamp = Some(last.timestamp.clone());
@@ -239,7 +248,7 @@ impl QueryService for QueryServicePub {
             let chunk_vec = chunk.to_vec();
             let result: std::result::Result<InsertResult<_>, sea_orm::DbErr> =
                 M::Entity::insert_many(chunk_vec).exec(&txn).await;
-            
+
             match result {
                 Ok(_res) => {
                     total_inserted += chunk.len(); /* Accumulated number of inserts */

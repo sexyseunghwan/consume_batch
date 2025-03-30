@@ -57,19 +57,20 @@ pub fn initialize_elastic_clients() -> VecDeque<EsRepositoryPub> {
 
 #[doc = "Function to get elasticsearch connection"]
 pub fn get_elastic_conn() -> Result<EsRepositoryPub, anyhow::Error> {
-    let mut pool: std::sync::MutexGuard<'_, VecDeque<EsRepositoryPub>> = match ELASTICSEARCH_CONN_POOL.lock() {
-        Ok(pool) => pool,
-        Err(e) => {
-            return Err(anyhow!("[Error][get_elastic_conn()] {:?}", e));
-        }
-    };
+    let mut pool: std::sync::MutexGuard<'_, VecDeque<EsRepositoryPub>> =
+        match ELASTICSEARCH_CONN_POOL.lock() {
+            Ok(pool) => pool,
+            Err(e) => {
+                return Err(anyhow!("[Error][get_elastic_conn()] {:?}", e));
+            }
+        };
 
     let es_repo = pool.pop_front().ok_or_else(|| {
         anyhow!("[Error][get_elastic_conn()] Cannot Find Elasticsearch Connection")
     })?;
 
     //info!("pool.len = {:?}", pool.len());
-    
+
     Ok(es_repo)
 }
 
@@ -97,6 +98,11 @@ pub trait EsRepository {
         &self,
         index_alias_name: &str,
     ) -> Result<Value, anyhow::Error>;
+    async fn create_index_alias(
+        &self,
+        index_alias: &str,
+        index_name: &str,
+    ) -> Result<(), anyhow::Error>;
     async fn update_index_alias(
         &self,
         index_alias: &str,
@@ -267,6 +273,43 @@ impl EsRepository for EsRepositoryPub {
                 error_body
             ))
         }
+    }
+
+    #[doc = "Functions that create an alias for a particular index"]
+    /// # Arguments
+    /// * `index_alias` - index alias name
+    /// * `index_name` - Index name to be newly mapped to alias
+    ///
+    /// # Returns
+    /// * Result<(), anyhow::Error>
+    async fn create_index_alias(
+        &self,
+        index_alias: &str,
+        index_name: &str,
+    ) -> Result<(), anyhow::Error> {
+        
+        let response: Response = self
+            .execute_on_any_node(|es_client| async move {
+                let actions = json!({
+                    "actions": [
+                        { "add": { "index": index_name, "alias": index_alias } }
+                    ]
+                });
+
+                let create_response = es_client
+                    .es_conn
+                    .indices()
+                    .update_aliases()
+                    .body(actions)
+                    .send()
+                    .await?;
+
+                Ok(create_response)
+            })
+            .await?;
+        
+        self.process_response_empty("create_index_alias()", response)
+            .await
     }
 
     #[doc = "Functions that change the index specified for a particular alias"]

@@ -1,3 +1,5 @@
+use log::warn;
+
 use crate::common::*;
 
 use crate::repository::es_repository::*;
@@ -135,24 +137,33 @@ impl EsQueryService for EsQueryServicePub {
         /* Bulk post the data to the index above at once. */
         es_conn.bulk_indexing_query(&new_index_name, data).await?;
 
-        /* Change alias */
-        let alias_resp: Value = es_conn
-            .get_indexes_mapping_by_alias(index_alias_name)
-            .await?;
-        let old_index_name: String;
-        if let Some(first_key) = alias_resp.as_object().and_then(|map| map.keys().next()) {
-            old_index_name = first_key.to_string();
-        } else {
-            return Err(anyhow!("[Error][post_indexing_data_by_bulk()] Failed to extract index name within 'index-alias'"));
-        }
+        /* Change alias or Create alias */
+        match es_conn.get_indexes_mapping_by_alias(index_alias_name).await {
+            Ok(alias_resp) => {
+                let old_index_name: String;
+                if let Some(first_key) = alias_resp.as_object().and_then(|map| map.keys().next()) {
+                    old_index_name = first_key.to_string();
+                } else {
+                    return Err(anyhow!("[Error][post_indexing_data_by_bulk()] Failed to extract index name within 'index-alias'"));
+                }
 
-        es_conn
-            .update_index_alias(index_alias_name, &new_index_name, &old_index_name)
-            .await?;
-        es_conn.delete_query(&old_index_name).await?;
+                es_conn
+                    .update_index_alias(index_alias_name, &new_index_name, &old_index_name)
+                    .await?;
+                es_conn.delete_query(&old_index_name).await?;
 
-        /* Functions to enable search immediately after index */
-        es_conn.refresh_index(index_alias_name).await?;
+                /* Functions to enable search immediately after index */
+                es_conn.refresh_index(index_alias_name).await?;
+            }
+            Err(e) => {
+                /* This alias does not exist - It just creates an index. */
+                error!("[Error][post_indexing_data_by_bulk()] Failed to get index mapping by alias: {:?}, Create a new index.", e);
+                es_conn
+                    .create_index_alias(index_alias_name, &new_index_name)
+                    .await?;
+                info!("Index generation was successful.- {}", index_alias_name);
+            }
+        };
 
         Ok(())
     }
@@ -288,12 +299,11 @@ impl EsQueryService for EsQueryServicePub {
                 }
             });
 
-
             let search_res_body: Value = es_conn.get_search_query(&es_query, &CONSUME_TYPE).await?;
 
             let results: Vec<DocumentWithId<ConsumeProdtKeyword>> =
                 self.get_query_result_vec(&search_res_body).await?;
-            
+
             if results.is_empty() {
                 prodt_type = String::from("etc");
             } else {

@@ -71,9 +71,9 @@ pub use kafka::producer::{Producer, Record as KafkaRecord, RequiredAcks};
 pub use async_trait::async_trait;
 
 pub use sea_orm::{
-    ActiveModelBehavior, ActiveModelTrait, ColumnTrait, Condition, Database, DatabaseConnection,
-    DatabaseTransaction, EntityTrait, FromQueryResult, InsertResult, QueryFilter,
-    QueryOrder, QuerySelect, Select, TransactionTrait, ActiveValue
+    ActiveModelBehavior, ActiveModelTrait, ActiveValue, ColumnTrait, Condition, Database,
+    DatabaseConnection, DatabaseTransaction, EntityTrait, FromQueryResult, InsertResult,
+    QueryFilter, QueryOrder, QuerySelect, Select, TransactionTrait,
 };
 
 //use crate::repository::es_repository::*;
