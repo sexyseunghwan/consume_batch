@@ -336,7 +336,7 @@ impl EsQueryService for EsQueryServicePub {
             let prodt_detail_timestamp: String =
                 get_str_from_naive_datetime(*prodt_detail.timestamp());
             let prodt_detail_cur_timestamp: String =
-                get_str_from_naive_datetime(*prodt_detail.timestamp());
+                get_str_from_naive_datetime(*prodt_detail.cur_timestamp());
 
             let consume_detail_es: ConsumeProdtDetailES = ConsumeProdtDetailES::new(
                 prodt_detail_timestamp,
