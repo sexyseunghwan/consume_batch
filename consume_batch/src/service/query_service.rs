@@ -106,14 +106,14 @@ impl QueryService for QueryServicePub {
 
         let mut consume_prodt_details: Vec<ConsumeProdtDetail> = Vec::new();
 
-        let mut last_prodt_name: Option<String> = None;
+        //let mut last_prodt_name: Option<String> = None;
         let mut last_timestamp: Option<NaiveDateTime> = None;
 
         loop {
+
             let mut query: Select<consume_prodt_detail::Entity> =
                 consume_prodt_detail::Entity::find()
                     .order_by_asc(consume_prodt_detail::Column::Timestamp)
-                    .order_by_asc(consume_prodt_detail::Column::ProdtName)
                     .limit(batch_size as u64)
                     .select_only()
                     .columns([
@@ -126,27 +126,10 @@ impl QueryService for QueryServicePub {
                         consume_prodt_detail::Column::RegDt,
                         consume_prodt_detail::Column::ChgDt,
                     ]);
-            //test
-            if let (Some(last_prodt_name), Some(last_timestamp)) =
-                (&last_prodt_name, &last_timestamp)
-            {
+            
+            if let Some(last_timestamp) = &last_timestamp {
                 query = query.filter(
-                    // Condition::any()
-                    //     .add(consume_prodt_detail::Column::Timestamp.gt(last_timestamp.clone()))
-                    //     .add(
-                    //         Condition::all()
-                    //             .add(
-                    //                 consume_prodt_detail::Column::Timestamp
-                    //                     .eq(last_timestamp.clone()),
-                    //             )
-                    //             .add(
-                    //                 consume_prodt_detail::Column::ProdtName
-                    //                     .gt(last_prodt_name.clone()),
-                    //             ),
-                    //     ),
-                    Condition::all()
-                        .add( consume_prodt_detail::Column::Timestamp.eq(last_timestamp.clone()))
-                        .add( consume_prodt_detail::Column::Timestamp.eq(last_prodt_name.clone()))
+                    consume_prodt_detail::Column::Timestamp.gt(last_timestamp.clone())
                 );
             }
 
@@ -159,15 +142,14 @@ impl QueryService for QueryServicePub {
             if batch_data.is_empty() {
                 break;
             }
-
+            
             if let Some(last) = batch_data.last() {
-                last_prodt_name = Some(last.prodt_name.clone());
                 last_timestamp = Some(last.timestamp.clone());
             }
 
             consume_prodt_details.append(&mut batch_data);
         }
-
+        
         Ok(consume_prodt_details)
     }
 
@@ -219,9 +201,9 @@ impl QueryService for QueryServicePub {
                 consume_prodt_detail::Column::RegDt,
                 consume_prodt_detail::Column::ChgDt,
             ])
-            .order_by_desc(consume_prodt_detail::Column::CurTimestamp)
+            .order_by_desc(consume_prodt_detail::Column::Timestamp)
             .limit(top_n as u64);
-
+            
         let result: Vec<ConsumeProdtDetail> = query.into_model().all(db).await?;
 
         Ok(result)

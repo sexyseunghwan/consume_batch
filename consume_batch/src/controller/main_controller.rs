@@ -123,7 +123,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
             .query_service
             .get_top_consume_prodt_detail_order_by_timestamp(1)
             .await?;
-
+        
         if recent_prodt.is_empty() {
             self.insert_es_to_mysql_empty_data().await?;
         } else {
@@ -152,7 +152,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
                 &consume_prodt_type,
             )
             .await?;
-
+          
         /* 2-2. consume_prodt_details */
         let consume_prodt_details: Vec<ConsumeProdtDetail> = self
             .query_service
