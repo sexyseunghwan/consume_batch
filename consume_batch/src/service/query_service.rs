@@ -126,7 +126,7 @@ impl QueryService for QueryServicePub {
                         consume_prodt_detail::Column::RegDt,
                         consume_prodt_detail::Column::ChgDt,
                     ]);
-
+            //test
             if let (Some(last_prodt_name), Some(last_timestamp)) =
                 (&last_prodt_name, &last_timestamp)
             {
