@@ -16,7 +16,7 @@ pub trait QueryService {
         &self,
         batch_size: usize,
     ) -> Result<Vec<ConsumeProdtDetail>, anyhow::Error>;
-    async fn get_top_consume_prodt_detail_order_by_timestamp(
+    async fn get_top_consume_prodt_detail_order_by_regdt(
         &self,
         top_n: usize,
     ) -> Result<Vec<ConsumeProdtDetail>, anyhow::Error>;
@@ -179,7 +179,7 @@ impl QueryService for QueryServicePub {
     ///
     /// # Returns
     /// * Result<Vec<ConsumeProdtDetail>, anyhow::Error>
-    async fn get_top_consume_prodt_detail_order_by_timestamp(
+    async fn get_top_consume_prodt_detail_order_by_regdt(
         &self,
         top_n: usize,
     ) -> Result<Vec<ConsumeProdtDetail>, anyhow::Error> {
@@ -201,7 +201,7 @@ impl QueryService for QueryServicePub {
                 consume_prodt_detail::Column::RegDt,
                 consume_prodt_detail::Column::ChgDt,
             ])
-            .order_by_desc(consume_prodt_detail::Column::Timestamp)
+            .order_by_desc(consume_prodt_detail::Column::RegDt)
             .limit(top_n as u64);
             
         let result: Vec<ConsumeProdtDetail> = query.into_model().all(db).await?;

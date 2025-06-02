@@ -6,6 +6,7 @@ Description :
 History     : 2025-01-01 Seunghwan Shin       # [v.1.0.0] first create
               2025-03-22 Seunghwan Shin       # [v.1.1.0] Change the RDB-related crate (Diesel -> Sear-orm)
               2025-05-28 Seunghwan Shin       # [v.1.1.1] Correct duplicate index problem
+              2025-06-00 Seunghwan Shin       # [v.1.1.2] ???
 */
 
 mod common;
@@ -35,12 +36,12 @@ async fn main() {
     dotenv().ok();
 
     info!("Batch Program Start");
-
+    
     let query_service: QueryServicePub = QueryServicePub::new();
     let es_query_service: EsQueryServicePub = EsQueryServicePub::new();
     let main_controller: MainController<QueryServicePub, EsQueryServicePub> =
         MainController::new(query_service, es_query_service);
-
+    
     match main_controller.main_task().await {
         Ok(_) => info!("Batch Program End"),
         Err(e) => error!("{:?}", e),

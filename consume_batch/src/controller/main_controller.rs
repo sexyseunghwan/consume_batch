@@ -121,7 +121,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
         -> If there is none, it can be considered that there is just no data. */
         let recent_prodt: Vec<ConsumeProdtDetail> = self
             .query_service
-            .get_top_consume_prodt_detail_order_by_timestamp(1)
+            .get_top_consume_prodt_detail_order_by_regdt(1)
             .await?;
         
         if recent_prodt.is_empty() {
@@ -144,7 +144,7 @@ impl<Q: QueryService, E: EsQueryService> MainController<Q, E> {
             .query_service
             .get_all_consume_prodt_type(*BATCH_SIZE)
             .await?;
-
+        
         self.es_query_service
             .post_indexing_data_by_bulk::<ConsumeProdtKeyword>(
                 &CONSUME_TYPE,
