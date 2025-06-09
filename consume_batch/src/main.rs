@@ -6,7 +6,7 @@ Description :
 History     : 2025-01-01 Seunghwan Shin       # [v.1.0.0] first create
               2025-03-22 Seunghwan Shin       # [v.1.1.0] Change the RDB-related crate (Diesel -> Sear-orm)
               2025-05-28 Seunghwan Shin       # [v.1.1.1] Correct duplicate index problem
-              2025-06-00 Seunghwan Shin       # [v.1.1.2] ???
+              2025-06-09 Seunghwan Shin       # [v.1.1.2] Unindexable issues exist when duplicate documents exist
 */
 
 mod common;
