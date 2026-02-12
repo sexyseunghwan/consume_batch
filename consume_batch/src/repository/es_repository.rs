@@ -349,6 +349,7 @@ impl EsRepository for EsRepositoryImpl {
     /// - Elasticsearch returns non-2xx status code
     /// - Response body cannot be parsed as JSON
     async fn get_search_query(&self, es_query: &Value, index_name: &str) -> anyhow::Result<Value> {
+
         // Execute search request against the specified index
         let response: Response = self
             .es_client
@@ -356,7 +357,7 @@ impl EsRepository for EsRepositoryImpl {
             .body(es_query)
             .send()
             .await?;
-
+        
         // Check response status and return appropriate result
         if response.status_code().is_success() {
             let response_body: Value = response.json::<Value>().await?;

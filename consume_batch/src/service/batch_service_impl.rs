@@ -42,8 +42,10 @@
 use crate::app_config::*;
 use crate::common::*;
 
-use crate::models::{batch_schedule::*, spent_type_keyword::*};
-use crate::service_trait::producer_service;
+use crate::models::{
+    ConsumingIndexProdtType, SpentDetail, batch_schedule::*, spent_type_keyword::*,
+};
+
 use crate::service_trait::{
     batch_service::*, consume_service::*, elastic_service::*, mysql_service::*, producer_service::*,
 };
@@ -103,7 +105,7 @@ where
     /// Loaded batch schedule configuration.
     schedule_config: BatchScheduleConfig,
 
-    produce_service: Arc<P>,
+    producer_service: Arc<P>,
 }
 
 impl<M, E, C, P> BatchServiceImpl<M, E, C, P>
@@ -149,7 +151,7 @@ where
         mysql_service: M,
         elastic_service: E,
         consume_service: C,
-        produce_service: P,
+        producer_service: P,
     ) -> Result<Self> {
         let app_config: &AppConfig = AppConfig::global();
         let batch_schedule: &str = app_config.batch_schedule().as_str();
@@ -169,7 +171,7 @@ where
             elastic_service: Arc::new(elastic_service),
             consume_service: Arc::new(consume_service),
             schedule_config,
-            produce_service: Arc::new(produce_service),
+            producer_service: Arc::new(producer_service),
         })
     }
 
@@ -243,6 +245,7 @@ where
             let mysql: Arc<M> = Arc::clone(&self.mysql_service);
             let elastic: Arc<E> = Arc::clone(&self.elastic_service);
             let consume: Arc<C> = Arc::clone(&self.consume_service);
+            let produce: Arc<P> = Arc::clone(&self.producer_service);
             let item: BatchScheduleItem = schedule_item.clone();
 
             info!(
@@ -253,7 +256,7 @@ where
             immediate_jobs.spawn(async move {
                 info!("[{}] Immediate job started", item.index_name());
 
-                match Self::process_index_batch(&item, &mysql, &elastic, &consume).await {
+                match Self::process_index_batch(&item, &mysql, &elastic, &consume, &produce).await {
                     Ok(()) => {
                         info!(
                             "[{}] Immediate job completed successfully",
@@ -299,6 +302,7 @@ where
         let mysql_service: Arc<M> = Arc::clone(&self.mysql_service);
         let elastic_service: Arc<E> = Arc::clone(&self.elastic_service);
         let consume_service: Arc<C> = Arc::clone(&self.consume_service);
+        let producer_service: Arc<P> = Arc::clone(&self.producer_service);
         let schedule_item_move: BatchScheduleItem = schedule_item.clone();
 
         info!(
@@ -311,13 +315,22 @@ where
             let mysql: Arc<M> = Arc::clone(&mysql_service);
             let elastic: Arc<E> = Arc::clone(&elastic_service);
             let consume: Arc<C> = Arc::clone(&consume_service);
+            let produce: Arc<P> = Arc::clone(&producer_service);
             let schedule_item: BatchScheduleItem = schedule_item_move.clone();
 
             Box::pin(async move {
                 info!("[{}] Cron job triggered", schedule_item.index_name());
 
                 // Call the batch processing logic with schedule_item
-                match Self::process_index_batch(&schedule_item, &mysql, &elastic, &consume).await {
+                match Self::process_index_batch(
+                    &schedule_item,
+                    &mysql,
+                    &elastic,
+                    &consume,
+                    &produce,
+                )
+                .await
+                {
                     Ok(()) => {
                         info!(
                             "[{}] Cron job completed successfully",
@@ -370,6 +383,7 @@ where
         mysql_service: &Arc<M>,
         elastic_service: &Arc<E>,
         consume_service: &Arc<C>,
+        producer_service: &Arc<P>,
     ) -> Result<()> {
         let start_time: DateTime<Utc> = Utc::now();
         let batch_name: &str = schedule_item.batch_name();
@@ -395,9 +409,20 @@ where
                 Self::process_spent_type_full(schedule_item, mysql_service, elastic_service)
                     .await?;
             }
-            // "spent_detail_migration_to_kafka" => {
-
-            // }
+            "spent_detail_migration_to_kafka" => {
+                Self::process_migration_spent_detail_to_kafka(schedule_item, mysql_service, producer_service)
+                    .await
+                    .context("[BatchServiceImpl::process_index_batch] process_migration_spent_detail_to_kafka ")?;
+            }
+            "all_change_spent_detail_type" => {
+                Self::process_update_all_check_type_detail(
+                    schedule_item,
+                    mysql_service,
+                    elastic_service,
+                )
+                .await
+                .context("[BatchServiceImpl::process_index_batch] all_change_spent_detail_type ")?;
+            }
             // "spent_detail2" => {
             //     Self::process_spent_detail2(schedule_item, mysql_service, elastic_service, consume_service).await?;
             // }
@@ -419,6 +444,98 @@ where
             index_name,
             elapsed.num_milliseconds()
         );
+
+        Ok(())
+    }
+
+    /* ====================================================================================================== */
+    /* ====================================================================================================== */
+    /* ====================================================================================================== */
+    /* ====================================================================================================== */
+    /* ====================================================================================================== */
+
+    async fn process_update_all_check_type_detail(
+        schedule_item: &BatchScheduleItem,
+        mysql_service: &Arc<M>,
+        elastic_service: &Arc<E>,
+    ) -> anyhow::Result<()> {
+
+        //let start: Instant = Instant::now();
+        
+        let batch_size: u64 = *schedule_item.batch_size() as u64;
+
+        info!(
+            "[BatchServiceImpl::process_update_all_check_type_detail] Starting. batch_size={}",
+            batch_size
+        );
+
+        let mut offset: u64 = 0;
+        let mut total_updated: u64 = 0;
+        let mut total_processed: u64 = 0;
+
+        loop {
+            let details: Vec<SpentDetail> = mysql_service
+                .fetch_spent_details(offset, batch_size)
+                .await
+                .context("[process_update_all_check_type_detail] Failed to fetch spent details")?;
+
+            if details.is_empty() {
+                break;
+            }
+
+            let batch_count: usize = details.len();
+            total_processed += batch_count as u64;
+
+            // Find records that need type update
+            let mut updates: Vec<(i64, i64)> = Vec::new();
+
+            for detail in &details {
+                let spent_type: ConsumingIndexProdtType = elastic_service
+                    .get_consume_type_judgement(detail.spent_name())
+                    .await
+                    .context(
+                        "[BatchServiceImpl::process_update_all_check_type_detail] spent_type ",
+                    )?;
+                
+                updates.push((*detail.spent_idx(), *spent_type.consume_keyword_type_id()));
+            }
+
+            if !updates.is_empty() {
+                let update_count: usize = updates.len();
+                let updated: u64 = mysql_service
+                    .update_spent_detail_type_batch(updates)
+                    .await
+                    .context("[process_update_all_check_type_detail] Failed to update batch")?;
+
+                total_updated += updated;
+
+                info!(
+                    "[process_update_all_check_type_detail] Batch offset={}, updated {}/{} records",
+                    offset, update_count, batch_count
+                );
+            }
+
+            offset += batch_size;
+        }
+
+        
+        //let elapsed: f64 = start.elapsed().as_secs_f64();
+
+        info!(
+            "[process_update_all_check_type_detail] Completed. processed={}, updated={}",
+            total_processed, total_updated
+        );
+
+
+        Ok(())
+    }
+
+    async fn process_migration_spent_detail_to_kafka(
+        schedule_item: &BatchScheduleItem,
+        mysql_service: &Arc<M>,
+        producer_service: &Arc<P>,
+    ) -> anyhow::Result<()> {
+        let produce_topic: &str = schedule_item.relation_topic().as_str();
 
         Ok(())
     }
@@ -462,13 +579,6 @@ where
         info!("[BatchServiceImpl::process_spent_detail] Completed");
         Ok(())
     }
-
-    // async fn process_migration_spent_detail_to_kafka(
-    //     schedule_item: &BatchScheduleItem,
-    //     mysql_service: &Arc<M>,
-    //     elastic_service: &Arc<E>,
-    //     kafka_service: &Arc<>
-    // )
 
     async fn process_spent_type_full(
         schedule_item: &BatchScheduleItem,

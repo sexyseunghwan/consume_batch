@@ -97,5 +97,5 @@ pub use tokio_cron_scheduler::{Job, JobScheduler};
 
 pub use tokio::{
     task::JoinSet,
-    time::{Duration as tokio_duration, sleep},
+    time::{Duration as tokio_duration, sleep, Instant},
 };

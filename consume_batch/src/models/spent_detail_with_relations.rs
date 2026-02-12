@@ -43,12 +43,6 @@ pub struct SpentDetailWithRelations {
     /// User identifier
     pub user_seq: i64,
 
-    /// Keyword identifier
-    pub consume_keyword_id: i64,
-
-    /// The actual keyword text
-    pub consume_keyword: String,
-
     /// Keyword type identifier
     pub consume_keyword_type_id: i64,
 

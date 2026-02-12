@@ -4,6 +4,10 @@ use crate::service_trait::elastic_service::*;
 
 use crate::repository::es_repository::*;
 
+use crate::app_config::AppConfig;
+
+use crate::models::{ConsumingIndexProdtType, DocumentWithId, score_manager::*};
+
 #[derive(Debug, Getters, Clone, new)]
 pub struct ElasticServiceImpl<R: EsRepository> {
     elastic_conn: R,
@@ -47,5 +51,120 @@ where
         self.elastic_conn
             .swap_alias(alias_name, new_index_name)
             .await
+    }
+
+    async fn get_query_result_vec<T: DeserializeOwned>(
+        &self,
+        response_body: &Value,
+    ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error> {
+        let hits: &Value = &response_body["hits"]["hits"];
+
+        let results: Vec<DocumentWithId<T>> = hits
+            .as_array()
+            .ok_or_else(|| anyhow!("[Error][get_query_result_vec()] 'hits' field is not an array"))?
+            .iter()
+            .map(|hit| {
+                let id: &str = hit.get("_id").and_then(|id| id.as_str()).ok_or_else(|| {
+                    anyhow!("[Error][get_query_result_vec()] Missing '_id' field")
+                })?;
+
+                let source: &Value = hit.get("_source").ok_or_else(|| {
+                    anyhow!("[Error][get_query_result_vec()] Missing '_source' field")
+                })?;
+
+                let source: T = serde_json::from_value(source.clone()).map_err(|e| {
+                    anyhow!(
+                        "[Error][get_query_result_vec()] Failed to deserialize source: {:?}",
+                        e
+                    )
+                })?;
+
+                let score: f64 = hit
+                    .get("_score")
+                    .and_then(|score| score.as_f64())
+                    .unwrap_or(0.0);
+
+                Ok::<DocumentWithId<T>, anyhow::Error>(DocumentWithId {
+                    id: id.to_string(),
+                    score,
+                    source,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(results)
+    }
+
+    async fn get_consume_type_judgement(
+        &self,
+        prodt_name: &str,
+    ) -> Result<ConsumingIndexProdtType, anyhow::Error> {
+        let app_config: &AppConfig = AppConfig::global();
+        let es_spent_type: &str = app_config.es_spent_type().as_str();
+
+        let es_query: Value = json!({
+            "query": {
+                "match": {
+                    "consume_keyword": prodt_name
+                }
+            }
+        });
+
+        let response_body: Value = self
+            .elastic_conn
+            .get_search_query(&es_query, es_spent_type)
+            .await
+            .map_err(|e| {
+                anyhow!(
+                    "[ElasticServiceImpl::get_consume_type_judgement] response_body: {:?}",
+                    e
+                )
+            })?;
+
+        let results: Vec<DocumentWithId<ConsumingIndexProdtType>> = self
+            .get_query_result_vec(&response_body)
+            .await
+            .map_err(|e| {
+                anyhow!(
+                    "[ElasticServiceImpl::get_consume_type_judgement] results: {:?}",
+                    e
+                )
+            })?;
+
+        if results.len() == 0 {
+            return Ok(ConsumingIndexProdtType::new(
+                0,
+                String::from("etc"),
+                prodt_name.to_string(),
+                0,
+            ));
+        } else {
+            let mut manager: ScoreManager<ConsumingIndexProdtType> =
+                ScoreManager::<ConsumingIndexProdtType>::new();
+
+            for consume_type in results {
+                let keyword_weight: f64 = *consume_type.source().keyword_weight() as f64;
+                let score: f64 = *consume_type.score() * -1.0 * keyword_weight;
+                let score_i64: i64 = score as i64;
+                let keyword: &str = consume_type.source.consume_keyword();
+
+                /* Use the 'levenshtein' algorithm to determine word match */
+                let word_dist: usize = levenshtein(keyword, &prodt_name);
+                let word_dist_i64: i64 = word_dist.try_into()?;
+                manager.insert(word_dist_i64 + score_i64, consume_type.source);
+            }
+
+            let score_data_keyword: ScoredData<ConsumingIndexProdtType> = match manager.pop_lowest()
+            {
+                Some(score_data_keyword) => score_data_keyword,
+                None => {
+                    return Err(anyhow!(
+                        "[ElasticServiceImpl::get_consume_type_judgement] The mapped data for variable 'score_data_keyword' does not exist."
+                    ));
+                }
+            };
+
+            return Ok(score_data_keyword.data);
+        }
     }
 }

@@ -17,7 +17,7 @@ pub struct Model {
     pub updated_by: Option<String>,
     pub user_seq: i64,
     pub spent_group_id: i64,
-    pub consume_keyword_id: i64,
+    pub consume_keyword_type_id: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -35,11 +35,11 @@ pub enum Relation {
     )]
     Users,
     #[sea_orm(
-        belongs_to = "super::common_consume_prodt_keyword::Entity",
-        from = "Column::ConsumeKeywordId",
-        to = "super::common_consume_prodt_keyword::Column::ConsumeKeywordId"
+        belongs_to = "super::common_consume_keyword_type::Entity",
+        from = "Column::ConsumeKeywordTypeId",
+        to = "super::common_consume_keyword_type::Column::ConsumeKeywordTypeId"
     )]
-    CommonConsumeProdtKeyword,
+    CommonConsumeKeywordType,
 }
 
 impl Related<super::spent_group_info::Entity> for Entity {
@@ -56,7 +56,7 @@ impl Related<super::users::Entity> for Entity {
 
 impl Related<super::common_consume_prodt_keyword::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::CommonConsumeProdtKeyword.def()
+        Relation::CommonConsumeKeywordType.def()
     }
 }
 

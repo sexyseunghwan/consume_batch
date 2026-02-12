@@ -1,5 +1,7 @@
 use crate::common::*;
 
+use crate::models::{ConsumingIndexProdtType, DocumentWithId};
+
 #[async_trait]
 pub trait ElasticService {
     /// Creates a new Elasticsearch index with specified settings and mappings.
@@ -98,4 +100,14 @@ pub trait ElasticService {
     /// - Alias update fails
     /// - Network/connection failure
     async fn swap_alias(&self, alias_name: &str, new_index_name: &str) -> anyhow::Result<()>;
+
+    async fn get_consume_type_judgement(
+        &self,
+        prodt_name: &str,
+    ) -> Result<ConsumingIndexProdtType, anyhow::Error>;
+
+    async fn get_query_result_vec<T: DeserializeOwned>(
+        &self,
+        response_body: &Value,
+    ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error>;
 }

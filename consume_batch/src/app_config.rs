@@ -24,6 +24,9 @@ pub struct AppConfig {
     pub database_url: String,
     pub batch_size: usize,
     pub batch_schedule: String,
+
+    pub es_spent_detail: String,
+    pub es_spent_type: String,
 }
 
 /// Global static instance of AppConfig
@@ -75,6 +78,10 @@ impl AppConfig {
                 .map_err(|_| "BATCH_SIZE must be a valid number".to_string())?,
             batch_schedule: env::var("BATCH_SCHEDULE")
                 .map_err(|_| "BATCH_SCHEDULE not found in environment".to_string())?,
+            es_spent_detail: env::var("ES_SPENT_DETAIL")
+                .map_err(|_| "ES_SPENT_DETAIL not found in environment".to_string())?,
+            es_spent_type: env::var("ES_SPENT_TYPE")
+                .map_err(|_| "ES_SPENT_TYPE not found in environment".to_string())?,
         };
 
         APP_CONFIG

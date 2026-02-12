@@ -34,6 +34,7 @@ use repository::{es_repository::*, kafka_repository::*, mysql_repository::*};
 mod models;
 
 mod app_config;
+use app_config::AppConfig;
 
 mod config;
 
@@ -51,6 +52,8 @@ async fn main() {
     set_global_logger();
 
     info!("Indexing Batch Program Start.");
+
+    AppConfig::init().expect("Failed to initialize AppConfig");
 
     let elastic_repo: EsRepositoryImpl = match EsRepositoryImpl::new() {
         Ok(es_repo) => es_repo,
@@ -84,7 +87,8 @@ async fn main() {
 
     // Share Kafka repository across multiple services (clone is cheap - only Arc increment)
     let consume_service: ConsumeService = ConsumeServiceImpl::new(Arc::clone(&shared_kafka_repo));
-    let producer_service: ProducerService = ProducerServiceImpl::new(Arc::clone(&shared_kafka_repo));
+    let producer_service: ProducerService =
+        ProducerServiceImpl::new(Arc::clone(&shared_kafka_repo));
 
     // Create batch service with all dependencies
     let batch_service: BatchService = match BatchServiceImpl::new(
@@ -102,7 +106,7 @@ async fn main() {
 
     // Create controller with batch service
     let batch_controller: Controller = BatchController::new(batch_service);
-    
+
     match batch_controller.main_task().await {
         Ok(_) => (),
         Err(e) => {

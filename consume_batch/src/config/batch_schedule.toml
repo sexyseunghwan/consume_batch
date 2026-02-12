@@ -21,7 +21,7 @@ mapping_schema = "./src/config/elastic_schema/consume_index_prod_type.json"
 [[batch_schedule]]
 batch_name = "spent_type_dev"
 index_name = "spent_type_dev"
-enabled = true
+enabled = false
 relation_topic = ""
 batch_size = 100
 cron_schedule_apply = false
@@ -31,9 +31,19 @@ mapping_schema = "./src/config/elastic_schema/consume_index_prod_type.json"
 [[batch_schedule]]
 batch_name = "spent_detail_migration_to_kafka"
 index_name = ""
-enabled = true
+enabled = false
 relation_topic = "full_spent_detail_dev"
 batch_size = 100
 cron_schedule_apply = false
 cron_schedule = "0 * 23 * * *"
 mapping_schema = "./src/config/elastic_schema/consume_index_prod_type.json"
+
+[[batch_schedule]]
+batch_name = "all_change_spent_detail_type"
+index_name = ""
+enabled = true
+relation_topic = ""
+batch_size = 1000
+cron_schedule_apply = false
+cron_schedule = "0 * 23 * * *"
+mapping_schema = ""

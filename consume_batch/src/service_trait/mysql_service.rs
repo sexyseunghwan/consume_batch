@@ -1,5 +1,5 @@
 use crate::common::*;
-use crate::models::{SpentDetailWithRelations, SpentTypeKeyword};
+use crate::models::{SpentDetail, SpentDetailWithRelations, SpentTypeKeyword};
 
 #[async_trait]
 pub trait MysqlService {
@@ -28,7 +28,6 @@ pub trait MysqlService {
         offset: u64,
         limit: u64,
     ) -> anyhow::Result<Vec<SpentTypeKeyword>>;
-
     /// Fetches spent details with related information for indexing.
     ///
     /// Queries the JOIN of SPENT_DETAIL, COMMON_CONSUME_PRODT_KEYWORD,
@@ -58,4 +57,22 @@ pub trait MysqlService {
         offset: u64,
         limit: u64,
     ) -> anyhow::Result<Vec<SpentDetailWithRelations>>;
+
+    async fn fetch_spent_details(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> anyhow::Result<Vec<SpentDetail>>;
+
+    /// Updates consume_keyword_type_id for multiple spent_detail records.
+    ///
+    /// # Arguments
+    ///
+    /// * `updates` - Vec of (spent_idx, new_consume_keyword_type_id)
+    ///
+    /// # Returns
+    ///
+    /// Returns the number of updated rows.
+    async fn update_spent_detail_type_batch(&self, updates: Vec<(i64, i64)>)
+    -> anyhow::Result<u64>;
 }

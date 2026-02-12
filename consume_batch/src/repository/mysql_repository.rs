@@ -272,7 +272,7 @@ impl MysqlRepositoryImpl {
         // Load database URL from environment
         //let db_url: String = ENV.mysql().database_url().to_string();
         let app_config: &AppConfig = AppConfig::global();
-        let db_url: &String = app_config.es_db_url();
+        let db_url: &String = app_config.database_url();
 
         // Establish database connection
         let db_conn: DatabaseConnection = Database::connect(db_url)
