@@ -1,7 +1,5 @@
 use crate::common::*;
 
-use crate::repository::kafka_repository::*;
-
 #[doc = "Function responsible for logging"]
 pub fn set_global_logger() {
     let log_directory = "logs"; /* Directory to store log files */
@@ -41,37 +39,37 @@ fn custom_format(
     )
 }
 
-#[doc = "Function that produces messages to kafka"]
-async fn logging_kafka(msg: &str) {
-    let kafka_producer = get_kafka_producer();
-    let msg_owned = msg.to_string();
+// #[doc = "Function that produces messages to kafka"]
+// async fn logging_kafka(msg: &str) {
+//     let kafka_producer = get_kafka_producer();
+//     let msg_owned = msg.to_string();
 
-    let handle = task::spawn_blocking(move || {
-        let _kafka_producer_lock = match kafka_producer.lock() {
-            Ok(mut kafka_producer_lock) => {
-                kafka_producer_lock.produce_message("consume_alert_rust", &msg_owned)
-            }
-            Err(e) => {
-                error!("{:?}", e);
-                Ok(())
-            }
-        };
-    });
+//     let handle = task::spawn_blocking(move || {
+//         let _kafka_producer_lock = match kafka_producer.lock() {
+//             Ok(mut kafka_producer_lock) => {
+//                 kafka_producer_lock.produce_message("consume_alert_rust", &msg_owned)
+//             }
+//             Err(e) => {
+//                 error!("{:?}", e);
+//                 Ok(())
+//             }
+//         };
+//     });
 
-    match handle.await {
-        Ok(_) => (),
-        Err(e) => error!("Error waiting for task: {:?}", e),
-    }
-}
+//     match handle.await {
+//         Ok(_) => (),
+//         Err(e) => error!("Error waiting for task: {:?}", e),
+//     }
+// }
 
-#[doc = "Function that writes the error history to a file and sends it to kafka"]
-pub async fn errork(err: anyhow::Error) {
-    error!("{:?}", err);
-    logging_kafka(&err.to_string()).await;
-}
+// #[doc = "Function that writes the error history to a file and sends it to kafka"]
+// pub async fn errork(err: anyhow::Error) {
+//     error!("{:?}", err);
+//     logging_kafka(&err.to_string()).await;
+// }
 
-#[doc = "Function that writes the information history to a file and sends it to kafka"]
-pub async fn infok(info: &str) {
-    info!("{:?}", info);
-    logging_kafka(info).await;
-}
+// #[doc = "Function that writes the information history to a file and sends it to kafka"]
+// pub async fn infok(info: &str) {
+//     info!("{:?}", info);
+//     logging_kafka(info).await;
+// }

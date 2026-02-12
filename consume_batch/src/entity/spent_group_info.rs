@@ -3,18 +3,13 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
-#[sea_orm(table_name = "USERS")]
+#[sea_orm(table_name = "SPENT_GROUP_INFO")]
 pub struct Model {
     #[sea_orm(primary_key)]
-    pub user_seq: i64,
+    pub spent_group_id: i64,
     #[sea_orm(unique)]
-    pub user_id: String,
-    pub user_pw: String,
-    pub user_pw_salt: String,
-    pub user_name: String,
-    pub user_birth: String,
-    pub user_gender: Option<String>,
-    pub main_oauth_channel: Option<String>,
+    pub spent_group_nm: Option<String>,
+    pub status: Option<String>,
     pub created_at: DateTime,
     pub updated_at: Option<DateTime>,
     pub created_by: String,
@@ -25,19 +20,11 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(has_many = "super::spent_detail::Entity")]
     SpentDetail,
-    #[sea_orm(has_many = "super::telegram_room::Entity")]
-    TelegramRoom,
 }
 
 impl Related<super::spent_detail::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::SpentDetail.def()
-    }
-}
-
-impl Related<super::telegram_room::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::TelegramRoom.def()
     }
 }
 

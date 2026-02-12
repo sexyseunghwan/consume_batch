@@ -46,12 +46,18 @@
     },
     "mappings": {
       "properties": {
-        "consume_keyword_type": {
-          "type": "keyword"
+        "consume_keyword_id": {
+          "type": "integer"
         },
         "consume_keyword": {
           "type": "text",
           "analyzer": "korean"
+        },
+        "consume_keyword_type": {
+          "type": "keyword"
+        },
+        "keyword_weight": {
+          "type": "integer"
         }
       }
     }

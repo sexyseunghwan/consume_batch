@@ -1,674 +1,652 @@
-use crate::common::*;
+//! Elasticsearch repository implementation.
+//!
+//! This module provides the data access layer for Elasticsearch operations,
+//! including document search, indexing, and deletion.
+//!
+//! # Architecture
+//!
+//! ```text
+//! ┌─────────────────────────────────────────────────────────────────┐
+//! │                      EsRepositoryImpl                           │
+//! ├─────────────────────────────────────────────────────────────────┤
+//! │                                                                 │
+//! │  ┌─────────────────────────────────────────────────────────┐    │
+//! │  │              Elasticsearch Client                       │    │
+//! │  │         (Multi-node Connection Pool)                    │    │
+//! │  └─────────────────────────────────────────────────────────┘    │
+//! │                            │                                    │
+//! │         ┌──────────────────┼──────────────────┐                 │
+//! │         ▼                  ▼                  ▼                 │
+//! │  ┌────────────┐    ┌────────────┐    ┌────────────┐             │
+//! │  │   Search   │    │   Index    │    │   Delete   │             │
+//! │  │   Query    │    │  Document  │    │  Document  │             │
+//! │  └────────────┘    └────────────┘    └────────────┘             │
+//! │                                                                 │
+//! └─────────────────────────────────────────────────────────────────┘
+//! ```
+//!
+//! # Connection Management
+//!
+//! The repository uses a round-robin multi-node connection pool for:
+//! - Load balancing across multiple Elasticsearch nodes
+//! - Automatic failover when a node becomes unavailable
+//! - Configurable timeout (30 seconds default)
+//!
+//! # Environment Variables
+//!
+//! | Variable   | Description                              | Example                          |
+//! |------------|------------------------------------------|----------------------------------|
+//! | `ES_DB_URL`| Comma-separated list of ES hosts         | `host1:9200,host2:9200`          |
+//! | `ES_ID`    | Elasticsearch username (optional)        | `elastic`                        |
+//! | `ES_PW`    | Elasticsearch password (optional)        | `password`                       |
 
-use crate::utils_module::io_utils::*;
+use crate::{app_config::AppConfig, common::*};
 
-#[doc = "Elasticsearch connection object to be used in a single tone"]
-static ELASTICSEARCH_CONN_POOL: once_lazy<Arc<Mutex<VecDeque<EsRepositoryPub>>>> =
-    once_lazy::new(|| Arc::new(Mutex::new(initialize_elastic_clients())));
-
-#[doc = "Function to initialize Elasticsearch connection instances"]
-pub fn initialize_elastic_clients() -> VecDeque<EsRepositoryPub> {
-    info!("initialize_elastic_clients() START!");
-
-    /* Number of Elasticsearch connection pool */
-    let pool_cnt = match env::var("ES_POOL_CNT") {
-        Ok(pool_cnt) => {
-            let pool_cnt = pool_cnt.parse::<usize>().unwrap_or(3);
-            pool_cnt
-        }
-        Err(e) => {
-            error!("[Error][initialize_elastic_clients()] {:?}", e);
-            panic!("{:?}", e);
-        }
-    };
-
-    let es_host: Vec<String> = env::var("ES_DB_URL")
-        .expect("[ENV file read Error][initialize_db_clients()] 'ES_DB_URL' must be set")
-        .split(',')
-        .map(|s| s.to_string())
-        .collect();
-
-    let es_id = env::var("ES_ID")
-        .expect("[ENV file read Error][initialize_db_clients()] 'ES_ID' must be set");
-    let es_pw = env::var("ES_PW")
-        .expect("[ENV file read Error][initialize_db_clients()] 'ES_PW' must be set");
-
-    let mut es_pool_vec: VecDeque<EsRepositoryPub> = VecDeque::new();
-
-    for _conn_id in 0..pool_cnt {
-        /* Elasticsearch connection */
-        let es_connection: EsRepositoryPub = match EsRepositoryPub::new(
-            es_host.clone(),
-            &es_id,
-            &es_pw,
-        ) {
-            Ok(es_client) => es_client,
-            Err(err) => {
-                error!("[DB Connection Error][initialize_db_clients()] Failed to create Elasticsearch client : {:?}", err);
-                panic!("[DB Connection Error][initialize_db_clients()] Failed to create Elasticsearch client : {:?}", err);
-            }
-        };
-
-        es_pool_vec.push_back(es_connection);
-    }
-
-    es_pool_vec
-}
-
-#[doc = "Function to get elasticsearch connection"]
-pub fn get_elastic_conn() -> Result<EsRepositoryPub, anyhow::Error> {
-    let mut pool: std::sync::MutexGuard<'_, VecDeque<EsRepositoryPub>> =
-        match ELASTICSEARCH_CONN_POOL.lock() {
-            Ok(pool) => pool,
-            Err(e) => {
-                return Err(anyhow!("[Error][get_elastic_conn()] {:?}", e));
-            }
-        };
-
-    let es_repo = pool.pop_front().ok_or_else(|| {
-        anyhow!("[Error][get_elastic_conn()] Cannot Find Elasticsearch Connection")
-    })?;
-
-    //info!("pool.len = {:?}", pool.len());
-
-    Ok(es_repo)
-}
-
+use elasticsearch::{
+    BulkParts,
+    http::request::JsonBody,
+    indices::{
+        IndicesCreateParts, IndicesGetAliasParts, IndicesPutSettingsParts,
+        IndicesUpdateAliasesParts,
+    },
+};
+/// Trait defining Elasticsearch repository operations.
+///
+/// This trait abstracts the Elasticsearch data access layer, allowing for
+/// different implementations (e.g., mock implementations for testing).
+///
+/// # Implementors
+///
+/// - [`EsRepositoryImpl`] - Production implementation with real ES client
 #[async_trait]
 pub trait EsRepository {
-    async fn process_response_empty(
-        &self,
-        function_name: &str,
-        response: Response,
-    ) -> Result<(), anyhow::Error>;
-    async fn process_response(
-        &self,
-        function_name: &str,
-        response: Response,
-    ) -> Result<Value, anyhow::Error>;
+    /// Executes a search query against an Elasticsearch index.
+    ///
+    /// # Arguments
+    ///
+    /// * `es_query` - The Elasticsearch query DSL as a JSON value
+    /// * `index_name` - The target index name to search
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Value)` containing the search response on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The network request fails
+    /// - The Elasticsearch cluster returns an error response
+    /// - The response cannot be parsed as JSON
     async fn get_search_query(
         &self,
         es_query: &Value,
         index_name: &str,
     ) -> Result<Value, anyhow::Error>;
+
+    /// Indexes a document into an Elasticsearch index.
+    ///
+    /// # Arguments
+    ///
+    /// * `document` - The document to index as a JSON value
+    /// * `index_name` - The target index name
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful indexing.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The network request fails
+    /// - The document cannot be indexed (e.g., mapping conflict)
     async fn post_query(&self, document: &Value, index_name: &str) -> Result<(), anyhow::Error>;
-    async fn delete_query_doc(&self, doc_id: &str, index_name: &str) -> Result<(), anyhow::Error>;
-    async fn delete_query(&self, index_name: &str) -> Result<(), anyhow::Error>;
-    async fn get_indexes_mapping_by_alias(
-        &self,
-        index_alias_name: &str,
-    ) -> Result<Value, anyhow::Error>;
-    async fn create_index_alias(
-        &self,
-        index_alias: &str,
-        index_name: &str,
-    ) -> Result<(), anyhow::Error>;
-    async fn update_index_alias(
-        &self,
-        index_alias: &str,
-        new_index_name: &str,
-        old_index_name: &str,
-    ) -> Result<(), anyhow::Error>;
-    async fn bulk_indexing_query<T: Serialize + Send + Sync>(
-        &self,
-        index_name: &str,
-        data: &Vec<T>,
-    ) -> Result<(), anyhow::Error>;
+
+    /// Deletes a document from an Elasticsearch index.
+    ///
+    /// # Arguments
+    ///
+    /// * `doc_id` - The document ID to delete
+    /// * `index_name` - The target index name
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful deletion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The network request fails
+    /// - The document does not exist
+    async fn delete_query(&self, doc_id: &str, index_name: &str) -> Result<(), anyhow::Error>;
+
+    /// Creates a new Elasticsearch index with settings and mappings.
+    ///
+    /// # Arguments
+    ///
+    /// * `index_name` - The name of the index to create
+    /// * `settings` - Index settings JSON
+    /// * `mappings` - Field mappings JSON
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful index creation.
     async fn create_index(
         &self,
         index_name: &str,
-        index_setting_json: &Value,
+        settings: &Value,
+        mappings: &Value,
     ) -> Result<(), anyhow::Error>;
 
-    async fn post_query_struct<T: Serialize + Sync>(
+    /// Updates settings for an existing index.
+    ///
+    /// # Arguments
+    ///
+    /// * `index_name` - The name of the index to update
+    /// * `settings` - New settings to apply
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful update.
+    async fn update_index_settings(
         &self,
-        param_struct: &T,
         index_name: &str,
+        settings: &Value,
     ) -> Result<(), anyhow::Error>;
 
-    async fn get_scroll_initial_search_query(
+    /// Performs bulk indexing of documents.
+    ///
+    /// # Arguments
+    ///
+    /// * `index_name` - The target index name
+    /// * `documents` - Vector of documents to index
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful bulk indexing.
+    async fn bulk_index<T: Serialize + Send + Sync>(
         &self,
         index_name: &str,
-        scroll_duration: &str,
-        es_query: &Value,
-    ) -> Result<Value, anyhow::Error>;
+        documents: Vec<T>,
+    ) -> Result<(), anyhow::Error>;
 
-    async fn get_scroll_search_query(
-        &self,
-        scroll_duration: &str,
-        scroll_id: &str,
-    ) -> Result<Value, anyhow::Error>;
-
-    async fn clear_scroll_info(&self, scroll_id: &str) -> Result<(), anyhow::Error>;
-    async fn refresh_index(&self, index_name: &str) -> Result<(), anyhow::Error>;
+    /// Atomically swaps an alias from old index to new index.
+    ///
+    /// # Arguments
+    ///
+    /// * `alias_name` - The alias name
+    /// * `new_index_name` - The new index to point to
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful alias swap.
+    async fn swap_alias(&self, alias_name: &str, new_index_name: &str)
+    -> Result<(), anyhow::Error>;
 }
 
+/// Concrete implementation of the Elasticsearch repository.
+///
+/// `EsRepositoryImpl` manages the Elasticsearch client connection and
+/// provides methods for common operations like search, index, and delete.
+///
+/// # Connection Pool
+///
+/// Uses a round-robin multi-node connection pool for high availability:
+/// - Distributes requests across all configured nodes
+/// - Automatically handles node failures
+/// - 30-second timeout per request
+///
+/// # Authentication
+///
+/// Supports optional Basic authentication. If `ES_ID` and `ES_PW` environment
+/// variables are set and non-empty, Basic auth credentials will be included
+/// in all requests.
+///
+/// # Examples
+///
+/// ```rust,no_run
+/// use crate::repository::EsRepositoryImpl;
+///
+/// let es_repo = EsRepositoryImpl::new()?;
+///
+/// // Search for documents
+/// let query = serde_json::json!({
+///     "query": { "match_all": {} }
+/// });
+/// let results = es_repo.get_search_query(&query, "my_index").await?;
+/// # Ok::<(), anyhow::Error>(())
+/// ```
 #[derive(Debug, Getters, Clone)]
-pub struct EsRepositoryPub {
-    es_clients: Vec<EsClient>,
+pub struct EsRepositoryImpl {
+    /// The Elasticsearch client instance.
+    ///
+    /// This client is thread-safe and can be shared across async tasks.
+    es_client: Elasticsearch,
 }
 
-#[derive(Debug, Getters, Clone, new)]
-pub(crate) struct EsClient {
-    host: String,
-    es_conn: Elasticsearch,
-}
+impl EsRepositoryImpl {
+    /// Creates a new `EsRepositoryImpl` instance.
+    ///
+    /// Initializes the Elasticsearch client by:
+    /// 1. Reading connection configuration from environment variables
+    /// 2. Building a multi-node connection pool with round-robin strategy
+    /// 3. Configuring authentication if credentials are provided
+    /// 4. Setting up a 30-second request timeout
+    ///
+    /// # Environment Variables
+    ///
+    /// * `ES_DB_URL` - Required. Comma-separated list of Elasticsearch hosts (e.g., `host1:9200,host2:9200`)
+    /// * `ES_ID` - Required but can be empty. Username for Basic authentication
+    /// * `ES_PW` - Required but can be empty. Password for Basic authentication
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(EsRepositoryImpl)` on successful initialization.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Any required environment variable is not set
+    /// - Host URLs cannot be parsed
+    /// - Transport cannot be built
+    ///
+    /// # Panics
+    ///
+    /// Panics if `ES_DB_URL`, `ES_ID`, or `ES_PW` environment variables are not set.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// use crate::repository::EsRepositoryImpl;
+    ///
+    /// // Ensure environment variables are set:
+    /// // ES_DB_URL=localhost:9200
+    /// // ES_ID=elastic
+    /// // ES_PW=password
+    ///
+    /// let es_repo = EsRepositoryImpl::new()?;
+    /// # Ok::<(), anyhow::Error>(())
+    /// ```
+    pub fn new() -> anyhow::Result<Self> {
+        let app_config: &AppConfig = AppConfig::global();
 
-impl EsRepositoryPub {
-    pub fn new(es_url_vec: Vec<String>, es_id: &str, es_pw: &str) -> Result<Self, anyhow::Error> {
-        let mut es_clients: Vec<EsClient> = Vec::new();
+        // Parse comma-separated host list from environment
+        let es_host: Vec<String> = app_config
+            .es_db_url()
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect();
 
-        for url in es_url_vec {
-            let parse_url: String = format!("http://{}:{}@{}", es_id, es_pw, url);
-            let es_url: Url = Url::parse(&parse_url)?;
-            let conn_pool: SingleNodeConnectionPool = SingleNodeConnectionPool::new(es_url);
+        // Load authentication credentials
+        let es_id: String = app_config.es_id().to_string();
+        let es_pw: String = app_config.es_pw().to_string();
 
-            let mut headers = HeaderMap::new();
-            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+        // Build cluster URLs with http:// prefix
+        let cluster_urls: Vec<Url> = es_host
+            .iter()
+            .map(|host| Url::parse(&format!("http://{}", host)))
+            .collect::<Result<_, _>>()
+            .map_err(|e| anyhow!("[EsRepositoryImpl::new] {:?}", e))?;
 
-            let transport: Transport = TransportBuilder::new(conn_pool)
-                .timeout(Duration::new(5, 0))
-                .headers(headers)
-                .build()?;
+        // Create round-robin connection pool for load balancing
+        let conn_pool: MultiNodeConnectionPool =
+            MultiNodeConnectionPool::round_robin(cluster_urls, None);
 
-            let elastic_conn: Elasticsearch = Elasticsearch::new(transport);
-            let es_client: EsClient = EsClient::new(url, elastic_conn);
+        // Configure transport with 30-second timeout
+        let mut builder: TransportBuilder =
+            TransportBuilder::new(conn_pool).timeout(Duration::from_secs(30));
 
-            es_clients.push(es_client);
+        // Add Basic authentication if credentials are provided
+        if !es_id.is_empty() && !es_pw.is_empty() {
+            builder = builder.auth(EsCredentials::Basic(es_id, es_pw));
         }
 
-        Ok(EsRepositoryPub { es_clients })
-    }
+        // Build the transport layer
+        let transport: Transport = builder
+            .build()
+            .map_err(|e| anyhow!("[EsRepositoryImpl::new] {:?}", e))?;
 
-    #[doc = "Common logic: common node failure handling and node selection"]
-    async fn execute_on_any_node<F, Fut>(&self, operation: F) -> Result<Response, anyhow::Error>
-    where
-        F: Fn(EsClient) -> Fut + Send + Sync,
-        Fut: Future<Output = Result<Response, anyhow::Error>> + Send,
-    {
-        let mut last_error = None;
+        // Create and return the Elasticsearch client
+        let es_client: Elasticsearch = Elasticsearch::new(transport);
 
-        let mut rng = StdRng::from_entropy();
-        let mut shuffled_clients = self.es_clients.clone();
-        shuffled_clients.shuffle(&mut rng);
-
-        for es_client in shuffled_clients {
-            match operation(es_client).await {
-                Ok(response) => return Ok(response),
-                Err(err) => {
-                    last_error = Some(err);
-                }
-            }
-        }
-
-        Err(anyhow::anyhow!(
-            "All Elasticsearch nodes failed. Last error: {:?}",
-            last_error
-        ))
-    }
-}
-
-/* RAII pattern */
-impl Drop for EsRepositoryPub {
-    fn drop(&mut self) {
-        match ELASTICSEARCH_CONN_POOL.lock() {
-            Ok(mut pool) => {
-                pool.push_back(self.clone());
-            }
-            Err(e) => {
-                error!("[Error][EsRepositoryPub -> drop()] {:?}", e);
-            }
-        }
+        Ok(EsRepositoryImpl { es_client })
     }
 }
 
 #[async_trait]
-impl EsRepository for EsRepositoryPub {
-    #[doc = "Function that processes responses after making a specific request to Elasticsearch.
-    It processes functions that do not have a return value."]
+impl EsRepository for EsRepositoryImpl {
+    /// Executes a search query against an Elasticsearch index.
+    ///
+    /// Sends the provided query DSL to Elasticsearch and returns the full
+    /// response including hits, aggregations, and metadata.
+    ///
     /// # Arguments
-    /// * `function_name` - Name of the function that makes a specific request to Elasticsearch.
-    /// * `response` - Query response json value.
+    ///
+    /// * `es_query` - The Elasticsearch query DSL as a JSON value
+    /// * `index_name` - The target index name to search
     ///
     /// # Returns
-    /// * Result<(), anyhow::Error>
-    async fn process_response_empty(
-        &self,
-        function_name: &str,
-        response: Response,
-    ) -> Result<(), anyhow::Error> {
+    ///
+    /// Returns `Ok(Value)` containing the complete Elasticsearch response.
+    ///
+    /// # Response Structure
+    ///
+    /// ```json
+    /// {
+    ///     "hits": {
+    ///         "total": { "value": 100 },
+    ///         "hits": [...]
+    ///     },
+    ///     "aggregations": {...}
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Network request fails
+    /// - Elasticsearch returns non-2xx status code
+    /// - Response body cannot be parsed as JSON
+    async fn get_search_query(&self, es_query: &Value, index_name: &str) -> anyhow::Result<Value> {
+        // Execute search request against the specified index
+        let response: Response = self
+            .es_client
+            .search(SearchParts::Index(&[index_name]))
+            .body(es_query)
+            .send()
+            .await?;
+
+        // Check response status and return appropriate result
         if response.status_code().is_success() {
+            let response_body: Value = response.json::<Value>().await?;
+            Ok(response_body)
+        } else {
+            let error_body: String = response.text().await?;
+            Err(anyhow!(
+                "[EsRepositoryImpl::node_search_query] response status is failed: {:?}",
+                error_body
+            ))
+        }
+    }
+
+    /// Indexes a document into an Elasticsearch index.
+    ///
+    /// Creates a new document in the specified index. Elasticsearch will
+    /// automatically generate a document ID if not provided in the document.
+    ///
+    /// # Arguments
+    ///
+    /// * `document` - The document to index as a JSON value
+    /// * `index_name` - The target index name
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful indexing.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Network request fails
+    /// - Document violates index mapping (type mismatch)
+    /// - Index is read-only or unavailable
+    async fn post_query(&self, document: &Value, index_name: &str) -> anyhow::Result<()> {
+        // Send index request with the document as body
+        let response: Response = self
+            .es_client
+            .index(IndexParts::Index(index_name))
+            .body(document)
+            .send()
+            .await?;
+
+        // Verify successful indexing
+        if response.status_code().is_success() {
+            info!("[EsRepositoryImpl::post_query] index_name: {}", index_name);
+            Ok(())
+        } else {
+            let error_message = format!(
+                "[EsRepositoryImpl::post_query] Failed to index document: Status Code: {}",
+                response.status_code()
+            );
+            Err(anyhow!(error_message))
+        }
+    }
+
+    /// Deletes a document from an Elasticsearch index by ID.
+    ///
+    /// Removes the specified document from the index. The document must exist,
+    /// otherwise Elasticsearch will return a 404 error.
+    ///
+    /// # Arguments
+    ///
+    /// * `doc_id` - The unique document ID to delete
+    /// * `index_name` - The target index name containing the document
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful deletion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Network request fails
+    /// - Document with specified ID does not exist (404)
+    /// - Index is read-only or unavailable
+    async fn delete_query(&self, doc_id: &str, index_name: &str) -> anyhow::Result<()> {
+        // Send delete request for the specified document
+        let response: Response = self
+            .es_client
+            .delete(DeleteParts::IndexId(index_name, doc_id))
+            .send()
+            .await?;
+
+        // Verify successful deletion
+        if response.status_code().is_success() {
+            info!(
+                "[EsRepositoryImpl::delete_query] index name: {}, doc_id: {}",
+                index_name, doc_id
+            );
+            Ok(())
+        } else {
+            let error_message = format!(
+                "[EsRepositoryImpl::delete_query] Failed to delete document: Status Code: {}, Document ID: {}",
+                response.status_code(),
+                doc_id
+            );
+            Err(anyhow!(error_message))
+        }
+    }
+
+    async fn create_index(
+        &self,
+        index_name: &str,
+        settings: &Value,
+        mappings: &Value,
+    ) -> anyhow::Result<()> {
+        let body: Value = json!({
+            "settings": settings,
+            "mappings": mappings
+        });
+
+        let response: Response = self
+            .es_client
+            .indices()
+            .create(IndicesCreateParts::Index(index_name))
+            .body(body)
+            .send()
+            .await?;
+
+        if response.status_code().is_success() {
+            info!(
+                "[EsRepositoryImpl::create_index] Successfully created index: {}",
+                index_name
+            );
+            Ok(())
+        } else {
+            let error_body = response.text().await?;
+            Err(anyhow!(
+                "[EsRepositoryImpl::create_index] Failed to create index {}: {}",
+                index_name,
+                error_body
+            ))
+        }
+    }
+
+    async fn update_index_settings(
+        &self,
+        index_name: &str,
+        settings: &Value,
+    ) -> anyhow::Result<()> {
+        let response: Response = self
+            .es_client
+            .indices()
+            .put_settings(IndicesPutSettingsParts::Index(&[index_name]))
+            .body(settings)
+            .send()
+            .await?;
+
+        if response.status_code().is_success() {
+            info!(
+                "[EsRepositoryImpl::update_index_settings] Successfully updated settings for index: {}",
+                index_name
+            );
             Ok(())
         } else {
             let error_body: String = response.text().await?;
             Err(anyhow!(
-                "[Elasticsearch Error][{}] response status is failed: {:?}",
-                function_name,
+                "[EsRepositoryImpl::update_index_settings] Failed to update settings for index {}: {}",
+                index_name,
                 error_body
             ))
         }
     }
 
-    #[doc = "Function that processes responses after making a specific request to Elasticsearch.
-    It processes functions that have a return value."]
-    /// # Arguments
-    /// * `function_name` - Name of the function that makes a specific request to Elasticsearch.
-    /// * `response` - Query response json value.
-    ///
-    /// # Returns
-    /// * Result<Value, anyhow::Error>
-    async fn process_response(
+    async fn bulk_index<T: Serialize + Send + Sync>(
         &self,
-        function_name: &str,
-        response: Response,
-    ) -> Result<Value, anyhow::Error> {
+        index_name: &str,
+        documents: Vec<T>,
+    ) -> anyhow::Result<()> {
+        if documents.is_empty() {
+            return Ok(());
+        }
+
+        let mut body: Vec<JsonBody<_>> = Vec::with_capacity(documents.len() * 2);
+        let mut debug_body: Vec<Value> = Vec::with_capacity(documents.len() * 2);
+
+        for doc in documents {
+            let index_action: Value = json!({"index": {"_index": index_name}});
+            let doc_json: Value = json!(doc);
+
+            debug_body.push(index_action.clone());
+            debug_body.push(doc_json.clone());
+
+            // Add the index action
+            body.push(index_action.into());
+            // Add the document
+            body.push(doc_json.into());
+        }
+
+        info!("{:?}", debug_body);
+
+        let response: Response = self
+            .es_client
+            .bulk(BulkParts::None)
+            .body(body)
+            .send()
+            .await?;
+
         if response.status_code().is_success() {
-            let response_body = response.json::<Value>().await?;
-            Ok(response_body)
+            let response_body: Value = response.json().await?;
+
+            // Check if there were any errors in the bulk response
+            if let Some(errors) = response_body.get("errors") {
+                if errors.as_bool() == Some(true) {
+                    warn!(
+                        "[EsRepositoryImpl::bulk_index] Some documents failed to index: {:?}",
+                        response_body.get("items")
+                    );
+                }
+            }
+
+            info!(
+                "[EsRepositoryImpl::bulk_index] Successfully bulk indexed documents to: {}",
+                index_name
+            );
+            Ok(())
         } else {
-            let error_body = response.text().await?;
+            let error_body: String = response.text().await?;
             Err(anyhow!(
-                "[Elasticsearch Error][{}] response status is failed: {:?}",
-                function_name,
+                "[EsRepositoryImpl::bulk_index] Failed to bulk index to {}: {}",
+                index_name,
                 error_body
             ))
         }
     }
 
-    #[doc = "Functions that create an alias for a particular index"]
-    /// # Arguments
-    /// * `index_alias` - index alias name
-    /// * `index_name` - Index name to be newly mapped to alias
-    ///
-    /// # Returns
-    /// * Result<(), anyhow::Error>
-    async fn create_index_alias(
-        &self,
-        index_alias: &str,
-        index_name: &str,
-    ) -> Result<(), anyhow::Error> {
-        
-        let response: Response = self
-            .execute_on_any_node(|es_client| async move {
-                let actions = json!({
-                    "actions": [
-                        { "add": { "index": index_name, "alias": index_alias } }
-                    ]
-                });
+    async fn swap_alias(&self, alias_name: &str, new_index_name: &str) -> anyhow::Result<()> {
+        // First, check if the alias exists and get the old index
+        let get_alias_response: std::result::Result<Response, elasticsearch::Error> = self
+            .es_client
+            .indices()
+            .get_alias(IndicesGetAliasParts::Name(&[alias_name]))
+            .send()
+            .await;
 
-                let create_response = es_client
-                    .es_conn
-                    .indices()
-                    .update_aliases()
-                    .body(actions)
-                    .send()
-                    .await?;
+        let mut actions: Vec<Value> = Vec::new();
 
-                Ok(create_response)
-            })
-            .await?;
-        
-        self.process_response_empty("create_index_alias()", response)
-            .await
-    }
+        // If alias exists, remove it from the old index
+        if let Ok(response) = get_alias_response {
+            if response.status_code().is_success() {
+                let body: Value = response.json().await?;
 
-    #[doc = "Functions that change the index specified for a particular alias"]
-    /// # Arguments
-    /// * `index_alias` - index alias name
-    /// * `new_index_name` - Index name to be newly mapped to alias
-    /// * `old_index_name` - Index name mapped to alias
-    ///
-    /// # Returns
-    /// * Result<(), anyhow::Error>
-    async fn update_index_alias(
-        &self,
-        index_alias: &str,
-        new_index_name: &str,
-        old_index_name: &str,
-    ) -> Result<(), anyhow::Error> {
-        let response: Response = self
-            .execute_on_any_node(|es_client| async move {
-                let actions = json!({
-                    "actions": [
-                        { "remove": { "index": old_index_name, "alias": index_alias } },
-                        { "add": { "index": new_index_name, "alias": index_alias } }
-                    ]
-                });
-
-                let update_response = es_client
-                    .es_conn
-                    .indices()
-                    .update_aliases()
-                    .body(actions)
-                    .send()
-                    .await?;
-
-                Ok(update_response)
-            })
-            .await?;
-
-        self.process_response_empty("update_index_alias()", response)
-            .await
-    }
-
-    #[doc = "Functions that return the index name mapped to Elasticsearch alias"]
-    /// # Arguments
-    /// * `index_alias_name` - index alias name
-    ///
-    /// # Returns
-    /// * Result<Value, anyhow::Error>
-    async fn get_indexes_mapping_by_alias(
-        &self,
-        index_alias_name: &str,
-    ) -> Result<Value, anyhow::Error> {
-        let response: Response = self
-            .execute_on_any_node(|es_client| async move {
-                let response = es_client
-                    .es_conn
-                    .indices()
-                    .get_alias(IndicesGetAliasParts::Name(&[index_alias_name]))
-                    .send()
-                    .await?;
-
-                Ok(response)
-            })
-            .await?;
-
-        self.process_response("get_indexes_mapping_by_alias()", response)
-            .await
-    }
-
-    #[doc = "Function that first declares setting information and mapping information and then generates an index"]
-    /// # Arguments
-    /// * `index_name` - index name
-    /// * `index_setting_json` - setting/mapping information of Index
-    ///
-    /// # Returns
-    /// * Result<(), anyhow::Error>
-    async fn create_index(
-        &self,
-        index_name: &str,
-        index_setting_json: &Value,
-    ) -> Result<(), anyhow::Error> {
-        let response: Response = self
-            .execute_on_any_node(|es_client| async move {
-                let response = es_client
-                    .es_conn
-                    .indices()
-                    .create(IndicesCreateParts::Index(index_name))
-                    .body(index_setting_json)
-                    .send()
-                    .await?;
-
-                Ok(response)
-            })
-            .await?;
-
-        self.process_response_empty("create_index()", response)
-            .await
-    }
-
-    #[doc = "Function to index data to Elasticsearch at once"]
-    /// # Arguments
-    /// * `index_name` - index name
-    /// * `data` - Data vectors to be indexed
-    ///
-    /// # Returns
-    /// * Result<(), anyhow::Error>
-    async fn bulk_indexing_query<T: Serialize + Send + Sync>(
-        &self,
-        index_name: &str,
-        data: &Vec<T>,
-    ) -> Result<(), anyhow::Error> {
-        let response: Response = self
-            .execute_on_any_node(|es_client| async move {
-                let mut ops: Vec<BulkOperation<Value>> = Vec::with_capacity(data.len());
-
-                for item in data {
-                    /* Converting Data to JSON */
-                    let json_value: Value = serde_json::to_value(&item)?;
-
-                    /* BulkOperation Generation (without ID) */
-                    ops.push(BulkOperation::index(json_value).into());
+                // Add remove actions for all indices currently using this alias
+                if let Some(obj) = body.as_object() {
+                    for old_index in obj.keys() {
+                        actions.push(json!({
+                            "remove": {
+                                "index": old_index,
+                                "alias": alias_name
+                            }
+                        }));
+                    }
                 }
+            }
+        }
 
-                let response: Response = es_client
-                    .es_conn
-                    .bulk(BulkParts::Index(index_name))
-                    .body(ops)
-                    .send()
-                    .await?;
+        // Add the alias to the new index
+        actions.push(json!({
+            "add": {
+                "index": new_index_name,
+                "alias": alias_name
+            }
+        }));
 
-                Ok(response)
-            })
-            .await?;
+        let body: Value = json!({
+            "actions": actions
+        });
 
-        self.process_response_empty("bulk_query()", response).await
-    }
-
-    #[doc = "function that deletes the id in the final step of scroll-api"]
-    /// # Arguments
-    /// * `scroll_id` - scroll api ID
-    ///
-    /// # Returns
-    /// * Result<(), anyhow::Error>
-    async fn clear_scroll_info(&self, scroll_id: &str) -> Result<(), anyhow::Error> {
-        let response = self
-            .execute_on_any_node(|es_client| async move {
-                let response: Response = es_client
-                    .es_conn
-                    .clear_scroll(elasticsearch::ClearScrollParts::ScrollId(&[scroll_id]))
-                    .send()
-                    .await?;
-
-                Ok(response)
-            })
-            .await?;
-
-        self.process_response_empty("clear_scroll_info()", response)
-            .await
-    }
-
-    #[doc = "Functions using elasticsearch scroll api - Nth query ( N > 1)"]
-    /// # Arguments
-    /// * `scroll_duration` - Time to maintain search context
-    /// * `scroll_id` - scroll api ID
-    ///
-    /// # Returns
-    /// * Result<Value, anyhow::Error>
-    async fn get_scroll_search_query(
-        &self,
-        scroll_duration: &str,
-        scroll_id: &str,
-    ) -> Result<Value, anyhow::Error> {
         let response: Response = self
-            .execute_on_any_node(|es_client| async move {
-                let scroll_response = es_client
-                    .es_conn
-                    .scroll(elasticsearch::ScrollParts::ScrollId(scroll_id))
-                    .scroll(scroll_duration)
-                    .send()
-                    .await?;
-
-                Ok(scroll_response)
-            })
+            .es_client
+            .indices()
+            .update_aliases()
+            .body(body)
+            .send()
             .await?;
 
-        self.process_response("get_scroll_search_query()", response)
-            .await
-    }
-
-    #[doc = "Functions using elasticsearch scroll api - first query"]
-    /// # Arguments
-    /// * `index_name` - The index name that the query targets
-    /// * `scroll_duration` - Time to maintain search context
-    /// * `es_query` - Query format
-    ///
-    /// # Returns
-    /// * Result<Value, anyhow::Error>
-    async fn get_scroll_initial_search_query(
-        &self,
-        index_name: &str,
-        scroll_duration: &str,
-        es_query: &Value,
-    ) -> Result<Value, anyhow::Error> {
-        let response: Response = self
-            .execute_on_any_node(|es_client| async move {
-                let response = es_client
-                    .es_conn
-                    .search(SearchParts::Index(&[index_name]))
-                    .scroll(scroll_duration)
-                    .body(es_query)
-                    .send()
-                    .await?;
-
-                Ok(response)
-            })
-            .await?;
-
-        self.process_response("get_scroll_initial_search_query()", response)
-            .await
-    }
-
-    #[doc = "Function that EXECUTES elasticsearch queries - search"]
-    /// # Arguments
-    /// * `es_query` - Elasticsearch Query form
-    /// * `index_name` - Name of Elasticsearch index
-    ///
-    /// # Returns
-    /// * Result<Value, anyhow::Error>
-    async fn get_search_query(
-        &self,
-        es_query: &Value,
-        index_name: &str,
-    ) -> Result<Value, anyhow::Error> {
-        let response: Response = self
-            .execute_on_any_node(|es_client| async move {
-                let response = es_client
-                    .es_conn
-                    .search(SearchParts::Index(&[index_name]))
-                    .body(es_query)
-                    .send()
-                    .await?;
-
-                Ok(response)
-            })
-            .await?;
-
-        self.process_response("get_search_query()", response).await
-    }
-
-    #[doc = "Function that EXECUTES elasticsearch queries - indexing struct"]
-    /// # Arguments
-    /// * `param_struct` - Structural Forms to Index
-    /// * `index_name` - Name of Elasticsearch index
-    ///
-    /// # Returns
-    /// * Result<(), anyhow::Error>
-    async fn post_query_struct<T: Serialize + Sync>(
-        &self,
-        param_struct: &T,
-        index_name: &str,
-    ) -> Result<(), anyhow::Error> {
-        let struct_json = convert_json_from_struct(param_struct)?;
-        self.post_query(&struct_json, index_name).await?;
-
-        Ok(())
-    }
-
-    #[doc = "Function that EXECUTES elasticsearch queries - indexing"]
-    /// # Arguments
-    /// * `document` - Json data to index
-    /// * `index_name` - Name of Elasticsearch index
-    ///
-    /// # Returns
-    /// * Result<(), anyhow::Error>
-    async fn post_query(&self, document: &Value, index_name: &str) -> Result<(), anyhow::Error> {
-        let response = self
-            .execute_on_any_node(|es_client| async move {
-                let response: Response = es_client
-                    .es_conn
-                    .index(IndexParts::Index(index_name))
-                    .body(document)
-                    .send()
-                    .await?;
-
-                Ok(response)
-            })
-            .await?;
-
-        self.process_response_empty("post_query()", response).await
-    }
-
-    #[doc = "Functions that delete a particular index as a whole"]
-    /// # Arguments
-    /// * `index_name` - Index name to be deleted
-    ///
-    /// # Returns
-    /// * Result<(), anyhow::Error>
-    async fn delete_query(&self, index_name: &str) -> Result<(), anyhow::Error> {
-        let response = self
-            .execute_on_any_node(|es_client| async move {
-                let response: Response = es_client
-                    .es_conn
-                    .indices()
-                    .delete(IndicesDeleteParts::Index(&[index_name]))
-                    .send()
-                    .await?;
-
-                Ok(response)
-            })
-            .await?;
-
-        self.process_response_empty("delete_query()", response)
-            .await
-    }
-
-    #[doc = "Function that EXECUTES elasticsearch queries - delete"]
-    /// # Arguments
-    /// * `doc_id` - 'doc unique number' of the target to be deleted
-    /// * `index_name` - Index name to be deleted
-    ///
-    /// # Returns
-    /// * Result<(), anyhow::Error>
-    async fn delete_query_doc(&self, doc_id: &str, index_name: &str) -> Result<(), anyhow::Error> {
-        let response: Response = self
-            .execute_on_any_node(|es_client| async move {
-                let response = es_client
-                    .es_conn
-                    .delete(DeleteParts::IndexId(index_name, doc_id))
-                    .send()
-                    .await?;
-
-                Ok(response)
-            })
-            .await?;
-
-        self.process_response_empty("delete_query_doc()", response)
-            .await
-    }
-
-    #[doc = "Functions that refresh a particular index to enable immediate search"]
-    /// # Arguments
-    /// * `index_name` - Index name to be refresh
-    ///
-    /// # Returns
-    /// * Result<(), anyhow::Error>
-    async fn refresh_index(&self, index_name: &str) -> Result<(), anyhow::Error> {
-        let response: Response = self
-            .execute_on_any_node(|es_client| async move {
-                let response: Response = es_client
-                    .es_conn
-                    .indices()
-                    .refresh(IndicesRefreshParts::Index(&[index_name]))
-                    .send()
-                    .await?;
-
-                Ok(response)
-            })
-            .await?;
-
-        self.process_response_empty("delete_query_doc()", response)
-            .await
+        if response.status_code().is_success() {
+            info!(
+                "[EsRepositoryImpl::swap_alias] Successfully swapped alias {} to index {}",
+                alias_name, new_index_name
+            );
+            Ok(())
+        } else {
+            let error_body: String = response.text().await?;
+            Err(anyhow!(
+                "[EsRepositoryImpl::swap_alias] Failed to swap alias {} to {}: {}",
+                alias_name,
+                new_index_name,
+                error_body
+            ))
+        }
     }
 }
