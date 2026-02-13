@@ -97,6 +97,10 @@
 //! ```
 use crate::app_config::*;
 use crate::common::*;
+use rdkafka::admin::{AdminClient, AdminOptions};
+use rdkafka::client::DefaultClientContext;
+use rdkafka::consumer::BaseConsumer;
+use rdkafka::{Offset, TopicPartitionList};
 use std::ops::Deref;
 
 /// Trait defining Kafka repository operations.
@@ -169,6 +173,20 @@ pub trait KafkaRepository: Send + Sync {
         key: Option<&str>,
         payload: &Value,
     ) -> Result<(), anyhow::Error>;
+
+    /// Purges all records from a Kafka topic using the Admin API's delete_records.
+    ///
+    /// Fetches the high watermark offset for each partition, then deletes
+    /// all records up to that offset. The topic itself remains intact.
+    ///
+    /// # Arguments
+    ///
+    /// * `topic` - The Kafka topic to purge
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if all records were successfully deleted.
+    async fn purge_topic(&self, topic: &str) -> Result<(), anyhow::Error>;
 }
 
 /// Concrete implementation of the Kafka repository (consumer and producer).
@@ -457,11 +475,11 @@ impl KafkaRepository for KafkaRepositoryImpl {
         let mut stream: MessageStream<'_, rdkafka::consumer::DefaultConsumerContext> =
             consumer.stream();
 
-        info!(
-            "[KafkaRepositoryImpl::consume_messages] Starting to consume from topic: {} (max: {})",
-            topic, max_messages
-        );
-
+        // info!(
+        //     "[KafkaRepositoryImpl::consume_messages] Starting to consume from topic: {} (max: {})",
+        //     topic, max_messages
+        // );
+        
         // Consume messages up to the limit
         while messages.len() < max_messages {
             match tokio::time::timeout(Duration::from_secs(5), stream.next()).await {
@@ -485,14 +503,14 @@ impl KafkaRepository for KafkaRepositoryImpl {
 
                             messages.push(json_value);
 
-                            info!(
-                                "[KafkaRepositoryImpl::consume_messages] Consumed message {}/{} from topic: {}, partition: {}, offset: {}",
-                                messages.len(),
-                                max_messages,
-                                topic,
-                                borrowed_message.partition(),
-                                borrowed_message.offset()
-                            );
+                            // info!(
+                            //     "[KafkaRepositoryImpl::consume_messages] Consumed message {}/{} from topic: {}, partition: {}, offset: {}",
+                            //     messages.len(),
+                            //     max_messages,
+                            //     topic,
+                            //     borrowed_message.partition(),
+                            //     borrowed_message.offset()
+                            // );
                         }
                     }
                     Err(e) => {
@@ -584,13 +602,13 @@ impl KafkaRepository for KafkaRepositoryImpl {
         if let Some(k) = key {
             record = record.key(k);
         }
-
+        
         match self.producer.send(record, Duration::from_secs(30)).await {
             Ok(delivery) => {
-                info!(
-                    "[KafkaRepositoryImpl::send_message] Message sent to topic: {}, partition: {}, offset: {}",
-                    topic, delivery.partition, delivery.offset
-                );
+                // info!(
+                //     "[KafkaRepositoryImpl::send_message] Message sent to topic: {}, partition: {}, offset: {}",
+                //     topic, delivery.partition, delivery.offset
+                // );
                 Ok(())
             }
             Err((e, _)) => {
@@ -601,5 +619,192 @@ impl KafkaRepository for KafkaRepositoryImpl {
                 Err(anyhow!(error_message))
             }
         }
+    }
+
+    /// Purges all records from a Kafka topic.
+    ///
+    /// Creates an AdminClient, fetches the high watermark offset for each
+    /// partition, then calls `delete_records` to remove all records up to
+    /// those offsets. The topic itself remains intact.
+    ///
+    /// # Arguments
+    ///
+    /// * `topic` - The Kafka topic to purge
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if all records were successfully deleted,
+    /// or if the topic was already empty.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Admin client creation fails
+    /// - Topic metadata or watermark fetching fails
+    /// - `delete_records` call fails
+    async fn purge_topic(&self, topic: &str) -> anyhow::Result<()> {
+        
+        info!(
+            "[KafkaRepositoryImpl::purge_topic] Purging all records from topic: {}",
+            topic
+        );
+
+        // ──────────────────────────────────────────────────────────────
+        // [1단계] AdminClient 생성
+        // ──────────────────────────────────────────────────────────────
+        // delete_records 는 Kafka의 "Admin API" 를 통해서만 호출할 수 있다.
+        // Producer/Consumer 가 아닌 별도의 AdminClient 가 필요하므로,
+        // 기존 브로커·인증 설정을 그대로 복사해서 AdminClient 를 만든다.
+        let mut admin_config: ClientConfig = ClientConfig::new();
+        admin_config.set("bootstrap.servers", &self.kafka_brokers);
+
+        // SASL 인증이 설정되어 있으면 동일하게 적용
+        if let (Some(protocol), Some(mechanism), Some(username), Some(password)) = (
+            &self.security_protocol,
+            &self.sasl_mechanism,
+            &self.sasl_username,
+            &self.sasl_password,
+        ) {
+            admin_config
+                .set("security.protocol", protocol)
+                .set("sasl.mechanism", mechanism)
+                .set("sasl.username", username)
+                .set("sasl.password", password);
+        }
+
+        let admin_client: AdminClient<DefaultClientContext> =
+            admin_config.create().map_err(|e| {
+                anyhow!(
+                    "[KafkaRepositoryImpl::purge_topic] Failed to create admin client: {:?}",
+                    e
+                )
+            })?;
+
+        // ──────────────────────────────────────────────────────────────
+        // [2단계] 토픽의 메타데이터(파티션 정보) 조회
+        // ──────────────────────────────────────────────────────────────
+        // Kafka 토픽은 여러 개의 파티션으로 나뉘어져 있다.
+        // 각 파티션마다 독립적으로 offset 이 관리되므로,
+        // 먼저 이 토픽에 파티션이 몇 개 있는지 알아야 한다.
+        //
+        // 메타데이터/워터마크 조회 전용으로 임시 BaseConsumer 를 생성한다.
+        // StreamConsumer(get_or_create_consumer) 를 쓰지 않는 이유:
+        //   - subscribe + auto commit 부작용이 발생할 수 있음
+        //   - 기존 consumer group 의 offset 에 영향을 줄 수 있음
+        // BaseConsumer 는 subscribe 없이 메타데이터만 조회할 수 있어 안전하다.
+        let temp_consumer: BaseConsumer = admin_config.create().map_err(|e| {
+            anyhow!(
+                "[KafkaRepositoryImpl::purge_topic] Failed to create temp consumer: {:?}",
+                e
+            )
+        })?;
+
+        let metadata: rdkafka::metadata::Metadata = temp_consumer
+            .fetch_metadata(Some(topic), Duration::from_secs(10))
+            .map_err(|e| {
+                anyhow!(
+                    "[KafkaRepositoryImpl::purge_topic] Failed to fetch metadata for topic {}: {:?}",
+                    topic,
+                    e
+                )
+            })?;
+        
+        // 메타데이터에서 해당 토픽 정보를 찾는다
+        let topic_metadata: &rdkafka::metadata::MetadataTopic = metadata
+            .topics()
+            .iter()
+            .find(|t| t.name() == topic)
+            .ok_or_else(|| {
+                anyhow!(
+                    "[KafkaRepositoryImpl::purge_topic] Topic {} not found in metadata",
+                    topic
+                )
+            })?;
+
+        // 파티션이 하나도 없으면 비정상 상태
+        if topic_metadata.partitions().is_empty() {
+            return Err(anyhow!(
+                "[KafkaRepositoryImpl::purge_topic] Topic {} has no partitions",
+                topic
+            ));
+        }
+
+        // ──────────────────────────────────────────────────────────────
+        // [3단계] 각 파티션의 high watermark offset 조회
+        // ──────────────────────────────────────────────────────────────
+        // Kafka 파티션에는 두 가지 watermark 가 있다:
+        //   - low watermark  : 현재 남아있는 가장 오래된 메시지의 offset
+        //   - high watermark : 다음에 쓰여질 메시지의 offset (= 현재 마지막 메시지 + 1)
+        //
+        // 예) 파티션에 offset 0~99 까지 100개 메시지가 있으면:
+        //     low = 0, high = 100
+        //
+        // delete_records 에 high watermark 를 넘기면
+        // → "offset 100 이전의 모든 메시지를 삭제해라" = 전부 삭제
+        let mut tpl: TopicPartitionList = TopicPartitionList::new();
+
+        for partition in topic_metadata.partitions() {
+            // fetch_watermarks: (low_watermark, high_watermark) 반환
+            let (_low, high) = temp_consumer
+                .fetch_watermarks(topic, partition.id(), Duration::from_secs(10))
+                .map_err(|e| {
+                    anyhow!(
+                        "[KafkaRepositoryImpl::purge_topic] Failed to fetch watermarks for {}[{}]: {:?}",
+                        topic,
+                        partition.id(),
+                        e
+                    )
+                })?;
+
+            // high > 0 이면 해당 파티션에 데이터가 존재한다는 뜻
+            // → 삭제 대상 목록(TopicPartitionList)에 추가
+            if high > 0 {
+                info!(
+                    "[KafkaRepositoryImpl::purge_topic] Partition {}: deleting records up to offset {}",
+                    partition.id(),
+                    high
+                );
+                tpl.add_partition_offset(topic, partition.id(), Offset::Offset(high))
+                    .map_err(|e| {
+                        anyhow!(
+                            "[KafkaRepositoryImpl::purge_topic] Failed to set partition offset: {:?}",
+                            e
+                        )
+                    })?;
+            }
+        }
+
+        // 모든 파티션의 high watermark 가 0이면 이미 빈 토픽
+        if tpl.count() == 0 {
+            info!(
+                "[KafkaRepositoryImpl::purge_topic] Topic {} is already empty, nothing to purge",
+                topic
+            );
+            return Ok(());
+        }
+
+        // ──────────────────────────────────────────────────────────────
+        // [4단계] delete_records 호출 — 실제 데이터 삭제
+        // ──────────────────────────────────────────────────────────────
+        // Admin API 의 delete_records 는 각 파티션에서
+        // 지정한 offset 이전의 모든 레코드를 삭제한다.
+        // 토픽 자체는 그대로 유지되고, 데이터만 제거된다.
+        admin_client
+            .delete_records(&tpl, &AdminOptions::new())
+            .await
+            .map_err(|e| {
+                anyhow!(
+                    "[KafkaRepositoryImpl::purge_topic] Failed to delete records from topic {}: {:?}",
+                    topic,
+                    e
+                )
+            })?;
+
+        info!(
+            "[KafkaRepositoryImpl::purge_topic] Successfully purged all records from topic: {}",
+            topic
+        );
+
+        Ok(())
     }
 }

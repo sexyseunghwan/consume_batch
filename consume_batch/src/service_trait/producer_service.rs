@@ -66,4 +66,17 @@ pub trait ProducerService {
     where
         T: Serialize + Send + Sync,
         F: Fn(&T) -> String + Send + Sync + 'static;
+
+    /// Purge all records from a specific Kafka topic.
+    ///
+    /// Uses the Admin API's delete_records to remove all messages
+    /// up to each partition's high watermark offset.
+    /// The topic itself is preserved — only the data is deleted.
+    ///
+    /// # Arguments
+    /// * `topic` - Kafka topic name to purge
+    ///
+    /// # Returns
+    /// * `Result<(), anyhow::Error>` - Ok if records were successfully deleted
+    async fn purge_topic(&self, topic: &str) -> Result<(), anyhow::Error>;
 }

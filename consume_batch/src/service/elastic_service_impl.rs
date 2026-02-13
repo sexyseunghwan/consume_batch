@@ -133,7 +133,7 @@ where
 
         if results.len() == 0 {
             return Ok(ConsumingIndexProdtType::new(
-                0,
+                20,
                 String::from("etc"),
                 prodt_name.to_string(),
                 0,

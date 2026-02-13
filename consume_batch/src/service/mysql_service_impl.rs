@@ -181,7 +181,130 @@ where
         Ok(results)
     }
     
+    /// Bulk updates the `consume_keyword_type_id` column in the SPENT_DETAIL table.
+    ///
+    /// Splits the given `updates` list into chunks of `CHUNK_SIZE` (500 rows each)
+    /// and executes a single CASE WHEN query per chunk.
+    /// All chunks run within a single transaction;
+    /// if any chunk fails, the entire transaction is explicitly rolled back.
+    ///
+    /// ## Generated SQL (once per chunk)
+    ///
+    /// ```sql
+    /// UPDATE SPENT_DETAIL
+    /// SET consume_keyword_type_id = CASE
+    ///     WHEN spent_idx = 1 THEN 10
+    ///     WHEN spent_idx = 2 THEN 20
+    ///     WHEN spent_idx = 3 THEN 30
+    /// END
+    /// WHERE spent_idx IN (1, 2, 3)
+    /// ```
+    ///
+    /// ## Transaction flow
+    ///
+    /// ```text
+    /// BEGIN
+    ///   ├─ chunk[0] UPDATE ... (up to 500 rows)
+    ///   ├─ chunk[1] UPDATE ... (up to 500 rows)
+    ///   ├─ ...
+    ///   ├─ On failure → ROLLBACK → return Err
+    ///   └─ All success → COMMIT
+    /// ```
     async fn update_spent_detail_type_batch(
+        &self,
+        updates: Vec<(i64, i64)>,
+    ) -> anyhow::Result<u64> {
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+
+        if updates.is_empty() {
+            return Ok(0);
+        }
+
+        // Wrap all chunks in a single transaction.
+        let txn: DatabaseTransaction = db
+            .begin()
+            .await
+            .context("[MysqlServiceImpl::update_spent_detail_type_batch] Failed to begin transaction")?;
+
+        /// Max number of CASE WHEN clauses per chunk.
+        /// Limited to 500 to stay within MySQL's max_allowed_packet and reduce query parsing overhead.
+        const CHUNK_SIZE: usize = 500;
+        let mut total_affected: u64 = 0;
+
+        // Wrapped in an async block so that any error is captured in `result`,
+        // allowing explicit rollback in the branch below.
+        let result: std::result::Result<(), anyhow::Error> = async {
+            for chunk in updates.chunks(CHUNK_SIZE) {
+                // Dynamically build CASE WHEN spent_idx = ? THEN ? ... END expression
+                let mut case_stmt: CaseStatement = CaseStatement::new();
+                // Collect primary keys for WHERE spent_idx IN (...) clause
+                let mut ids: Vec<i64> = Vec::with_capacity(chunk.len());
+
+                for (spent_idx, new_type_id) in chunk {
+                    case_stmt = case_stmt.case(
+                        Expr::col(spent_detail::Column::SpentIdx).eq(*spent_idx),
+                        Expr::value(*new_type_id),
+                    );
+                    ids.push(*spent_idx);
+                }
+
+                // UPDATE SPENT_DETAIL
+                // SET consume_keyword_type_id = CASE WHEN ... END
+                // WHERE spent_idx IN (...)
+                let result: sea_orm::UpdateResult = spent_detail::Entity::update_many()
+                    // SET
+                    .col_expr(
+                        spent_detail::Column::ConsumeKeywordTypeId,
+                        case_stmt.into(),
+                    )
+                    // WHERE
+                    .filter(spent_detail::Column::SpentIdx.is_in(ids))
+                    .exec(&txn)
+                    .await
+                    .context(
+                        "[MysqlServiceImpl::update_spent_detail_type_batch] Failed to bulk update",
+                    )?;
+
+                total_affected += result.rows_affected;
+            }
+            
+            Ok::<(), anyhow::Error>(())
+        }
+        .await;
+
+        // Explicit ROLLBACK on failure
+        if let Err(e) = result {
+            error!(
+                "[MysqlServiceImpl::update_spent_detail_type_batch] Rolling back transaction: {}",
+                e
+            );
+            txn.rollback()
+                .await
+                .context("[MysqlServiceImpl::update_spent_detail_type_batch] Failed to rollback transaction")?;
+            return Err(e);
+        }
+        
+        // COMMIT when all chunks succeed
+        txn.commit()
+            .await
+            .context("[MysqlServiceImpl::update_spent_detail_type_batch] Failed to commit transaction")?;
+
+        Ok(total_affected)
+    }
+
+    /// Updates consume_keyword_type_id one row at a time.
+    ///
+    /// Executes individual UPDATE statements per row within a single transaction.
+    /// For performance comparison with `update_spent_detail_type_batch`.
+    ///
+    /// ## Generated SQL (per row)
+    ///
+    /// ```sql
+    /// UPDATE SPENT_DETAIL
+    /// SET consume_keyword_type_id = ?
+    /// WHERE spent_idx = ?
+    /// ```
+    async fn update_spent_detail_type_one_by_one(
         &self,
         updates: Vec<(i64, i64)>,
     ) -> anyhow::Result<u64> {
@@ -194,41 +317,45 @@ where
         let txn: DatabaseTransaction = db
             .begin()
             .await
-            .context("[MysqlServiceImpl::update_spent_detail_type_batch] Failed to begin transaction")?;
+            .context("[MysqlServiceImpl::update_spent_detail_type_one_by_one] Failed to begin transaction")?;
 
-        const CHUNK_SIZE: usize = 500;
         let mut total_affected: u64 = 0;
 
-        for chunk in updates.chunks(CHUNK_SIZE) {
-            let mut case_stmt: CaseStatement = CaseStatement::new();
-            let mut ids: Vec<i64> = Vec::with_capacity(chunk.len());
+        let result: std::result::Result<(), anyhow::Error> = async {
+            for (spent_idx, new_type_id) in &updates {
+                let result: sea_orm::UpdateResult = spent_detail::Entity::update_many()
+                    .col_expr(
+                        spent_detail::Column::ConsumeKeywordTypeId,
+                        Expr::value(*new_type_id),
+                    )
+                    .filter(spent_detail::Column::SpentIdx.eq(*spent_idx))
+                    .exec(&txn)
+                    .await
+                    .context(
+                        "[MysqlServiceImpl::update_spent_detail_type_one_by_one] Failed to update row",
+                    )?;
 
-            for (spent_idx, new_type_id) in chunk {
-                case_stmt = case_stmt.case(
-                    Expr::col(spent_detail::Column::SpentIdx).eq(*spent_idx),
-                    Expr::value(*new_type_id),
-                );
-                ids.push(*spent_idx);
+                total_affected += result.rows_affected;
             }
 
-            let result: sea_orm::UpdateResult = spent_detail::Entity::update_many()
-                .col_expr(
-                    spent_detail::Column::ConsumeKeywordTypeId,
-                    case_stmt.into(),
-                )
-                .filter(spent_detail::Column::SpentIdx.is_in(ids))
-                .exec(&txn)
-                .await
-                .context(
-                    "[MysqlServiceImpl::update_spent_detail_type_batch] Failed to bulk update, rolling back",
-                )?;
+            Ok::<(), anyhow::Error>(())
+        }
+        .await;
 
-            total_affected += result.rows_affected;
+        if let Err(e) = result {
+            error!(
+                "[MysqlServiceImpl::update_spent_detail_type_one_by_one] Rolling back transaction: {}",
+                e
+            );
+            txn.rollback()
+                .await
+                .context("[MysqlServiceImpl::update_spent_detail_type_one_by_one] Failed to rollback transaction")?;
+            return Err(e);
         }
 
         txn.commit()
             .await
-            .context("[MysqlServiceImpl::update_spent_detail_type_batch] Failed to commit transaction")?;
+            .context("[MysqlServiceImpl::update_spent_detail_type_one_by_one] Failed to commit transaction")?;
 
         Ok(total_affected)
     }

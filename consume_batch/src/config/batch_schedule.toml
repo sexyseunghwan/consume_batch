@@ -1,8 +1,8 @@
 [[batch_schedule]]
 batch_name = "spent_detail_full"
 index_name = "spent_detail_dev"
-enabled = false
-relation_topic = "dev_spent_detail"
+enabled = true
+relation_topic = "full_spent_detail_dev"
 batch_size = 100
 cron_schedule_apply = false
 cron_schedule = "0 5,10,15,20,25,30,35,40,45,50,55 1-23 * * *"
@@ -41,7 +41,7 @@ mapping_schema = "./src/config/elastic_schema/consume_index_prod_type.json"
 [[batch_schedule]]
 batch_name = "all_change_spent_detail_type"
 index_name = ""
-enabled = true
+enabled = false
 relation_topic = ""
 batch_size = 1000
 cron_schedule_apply = false

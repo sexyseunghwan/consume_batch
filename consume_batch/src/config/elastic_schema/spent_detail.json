@@ -46,21 +46,33 @@
   },
   "mappings" : {
     "properties" : {
-      "@timestamp" : {
+      "consume_keyword_type": {
+        "type" : "keyword"
+      },
+      "consume_keyword_type_id": {
+        "type" : "Integer"
+      },
+      "created_at": {
         "type" : "date"
       },
-      "cur_timestamp" : {
-        "type" : "date"
-      },
-      "prodt_money" : {
+      "room_seq": {
         "type" : "long"
       },
-      "prodt_name" : {
+      "spent_at": {
+        "type" : "date"
+      },
+      "spent_idx": {
+        "type" : "long"
+      },
+      "spent_money": {
+        "type" : "long"
+      },
+      "spent_name": {
         "type" : "text",
         "analyzer" : "korean"
       },
-      "prodt_type" : {
-        "type" : "keyword"
+      "user_seq": {
+        "type" : "long"
       }
     }
   }

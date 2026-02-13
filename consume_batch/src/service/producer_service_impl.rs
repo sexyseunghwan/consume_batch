@@ -60,10 +60,10 @@ where
                 )
             })?;
 
-        info!(
-            "[ProducerServiceImpl::produce_object_to_topic] Successfully sent message to topic: {}",
-            topic
-        );
+        // info!(
+        //     "[ProducerServiceImpl::produce_object_to_topic] Successfully sent message to topic: {}",
+        //     topic
+        // );
 
         Ok(())
     }
@@ -149,11 +149,28 @@ where
             }
         }
 
-        info!(
-            "[ProducerServiceImpl::produce_objects_to_topic] Completed producing {} objects to topic: {}",
-            success_count, topic
-        );
+        // info!(
+        //     "[ProducerServiceImpl::produce_objects_to_topic] Completed producing {} objects to topic: {}",
+        //     success_count, topic
+        // );
 
         Ok(())
+    }
+    
+    #[doc = "Purge all records from a specific Kafka topic"]
+    /// Delegates to KafkaRepository::purge_topic which uses the Admin API's
+    /// delete_records to remove all messages up to each partition's high watermark offset.
+    ///
+    /// # Arguments
+    /// * `topic` - Kafka topic name to purge
+    ///
+    /// # Returns
+    /// * `Result<(), anyhow::Error>` - Ok if records were successfully deleted
+    async fn purge_topic(&self, topic: &str) -> Result<(), anyhow::Error> {
+        info!(
+            "[ProducerServiceImpl::purge_topic] Requesting purge for topic: {}",
+            topic
+        );
+        self.kafka_conn.purge_topic(topic).await
     }
 }

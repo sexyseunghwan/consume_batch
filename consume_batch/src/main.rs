@@ -78,7 +78,7 @@ async fn main() {
             panic!("[main] kafka_repo: {:#}", e);
         }
     };
-
+    
     let shared_kafka_repo: Arc<KafkaRepositoryImpl> = Arc::new(kafka_repo);
 
     // Initialize services with dependency injection

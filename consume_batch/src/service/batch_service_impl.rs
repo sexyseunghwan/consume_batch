@@ -44,6 +44,7 @@ use crate::common::*;
 
 use crate::models::{
     ConsumingIndexProdtType, SpentDetail, batch_schedule::*, spent_type_keyword::*,
+    SpentDetailWithRelations
 };
 
 use crate::service_trait::{
@@ -204,20 +205,25 @@ where
     /// - Any cron expression is invalid
     /// - Jobs cannot be added to the scheduler
     async fn start_scheduler(&self) -> anyhow::Result<(JobScheduler, JoinSet<()>)> {
+        
+        // 스케쥴러
         let scheduler: JobScheduler = JobScheduler::new()
             .await
-            .context("[BatchServiceImpl::start_scheduler] scheduler: ")?;
-
+            .context("[BatchServiceImpl::start_scheduler] Failed to create JobScheduler")?;
+        
+        // 즉시 실행될 작업
         let mut immediate_jobs: JoinSet<()> = JoinSet::new();
-
+        
+        // 실행될 배치작업들 -> 스케쥴 + 즉시실행 작업 섞여있음. -> 실행 허용된 작업들만 가져옴
         let enabled_schedules: Vec<&BatchScheduleItem> = self.get_enabled_schedules();
-
+        
         if enabled_schedules.is_empty() {
             error!("[BatchServiceImpl::start_scheduler] No enabled batch schedules found");
             return Ok((scheduler, immediate_jobs));
         }
-
+        
         // Separate schedules by cron_schedule_apply
+        // 스케쥴 작업 | 즉시 실행 작업 -> 두개로 나눠진다.
         let (cron_schedules, immediate_schedules): (Vec<_>, Vec<_>) = enabled_schedules
             .into_iter()
             .partition(|item| *item.cron_schedule_apply());
@@ -241,22 +247,22 @@ where
         }
 
         // Spawn immediate (one-time) jobs
-        for schedule_item in immediate_schedules {
+        for immediate_item in immediate_schedules {
             let mysql: Arc<M> = Arc::clone(&self.mysql_service);
             let elastic: Arc<E> = Arc::clone(&self.elastic_service);
             let consume: Arc<C> = Arc::clone(&self.consume_service);
             let produce: Arc<P> = Arc::clone(&self.producer_service);
-            let item: BatchScheduleItem = schedule_item.clone();
+            let item: BatchScheduleItem = immediate_item.clone();
 
             info!(
                 "[BatchServiceImpl::start_scheduler] {} Spawning immediate job (one-time execution)",
-                schedule_item.index_name()
+                immediate_item.index_name()
             );
 
             immediate_jobs.spawn(async move {
                 info!("[{}] Immediate job started", item.index_name());
 
-                match Self::process_index_batch(&item, &mysql, &elastic, &consume, &produce).await {
+                match Self::process_batch(&item, &mysql, &elastic, &consume, &produce).await {
                     Ok(()) => {
                         info!(
                             "[{}] Immediate job completed successfully",
@@ -270,8 +276,9 @@ where
             });
         }
 
+        // 스케쥴러 작업은 여기서 실제적으로 시작해준다.
         scheduler.start().await?;
-
+        
         info!("[BatchServiceImpl::start_scheduler] Batch scheduler started successfully");
 
         Ok((scheduler, immediate_jobs))
@@ -310,6 +317,7 @@ where
             index_name, cron_expr
         );
 
+        // Process multiple tasks in parallel
         let job: Job = Job::new_async(cron_expr.as_str(), move |_uuid, _lock| {
             // Clone again for each job execution (closure is FnMut, called multiple times)
             let mysql: Arc<M> = Arc::clone(&mysql_service);
@@ -322,7 +330,7 @@ where
                 info!("[{}] Cron job triggered", schedule_item.index_name());
 
                 // Call the batch processing logic with schedule_item
-                match Self::process_index_batch(
+                match Self::process_batch(
                     &schedule_item,
                     &mysql,
                     &elastic,
@@ -378,7 +386,7 @@ where
     ///
     /// This is an associated function (not `&self` method) to allow calling
     /// from within `'static` closures used by the cron scheduler.
-    async fn process_index_batch(
+    async fn process_batch(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
         elastic_service: &Arc<E>,
@@ -399,7 +407,6 @@ where
             "spent_detail_full" => {
                 Self::process_spent_detail_full(
                     schedule_item,
-                    mysql_service,
                     elastic_service,
                     consume_service,
                 )
@@ -459,9 +466,6 @@ where
         mysql_service: &Arc<M>,
         elastic_service: &Arc<E>,
     ) -> anyhow::Result<()> {
-
-        //let start: Instant = Instant::now();
-        
         let batch_size: u64 = *schedule_item.batch_size() as u64;
 
         info!(
@@ -503,6 +507,7 @@ where
             if !updates.is_empty() {
                 let update_count: usize = updates.len();
                 let updated: u64 = mysql_service
+                    //.update_spent_detail_type_one_by_one(updates)
                     .update_spent_detail_type_batch(updates)
                     .await
                     .context("[process_update_all_check_type_detail] Failed to update batch")?;
@@ -518,15 +523,11 @@ where
             offset += batch_size;
         }
 
-        
-        //let elapsed: f64 = start.elapsed().as_secs_f64();
-
         info!(
             "[process_update_all_check_type_detail] Completed. processed={}, updated={}",
             total_processed, total_updated
         );
-
-
+        
         Ok(())
     }
 
@@ -535,8 +536,56 @@ where
         mysql_service: &Arc<M>,
         producer_service: &Arc<P>,
     ) -> anyhow::Result<()> {
+        
         let produce_topic: &str = schedule_item.relation_topic().as_str();
+        let batch_size: u64 = *schedule_item.batch_size() as u64;
+        
+        info!(
+            "[BatchServiceImpl::process_migration_spent_detail_to_kafka] Starting. batch_size={}",
+            batch_size
+        );
+        
+        let mut offset: u64 = 0;
+        let mut total_selected: usize = 0;
+        
+        producer_service
+            .purge_topic(produce_topic)
+            .await
+            .context("[BatchServiceImpl::process_migration_spent_detail_to_kafka] ")?;
 
+        info!("[BatchServiceImpl::process_migration_spent_detail_to_kafka] All data for the `{}` topic has been deleted.", produce_topic);
+
+        loop {
+            
+            let produce_spent_details: Vec<SpentDetailWithRelations> = mysql_service
+                .fetch_spent_details_for_indexing(offset, batch_size)
+                .await
+                .context("[BatchServiceImpl::process_migration_spent_detail_to_kafka] Failed to load vector for `produce_spent_details` from DB. ")?;
+
+            if produce_spent_details.is_empty() {
+                break;
+            }
+
+            for spent_detail in &produce_spent_details {
+                
+                let spent_detail_json: Value = serde_json::to_value(spent_detail)
+                    .context("[BatchServiceImpl::process_migration_spent_detail_to_kafka] Failed to convert `spent_detail` to JSON")?;
+
+                match producer_service.produce_object_to_topic(produce_topic, &spent_detail_json, None).await {
+                    Ok(_) => (),
+                    Err(e) => {
+                        error!("[BatchServiceImpl::process_migration_spent_detail_to_kafka] Failed to produce data to Kafka. {:#}", e);
+                        break;
+                    }
+                }
+            }
+
+            offset += batch_size;
+            total_selected += produce_spent_details.len();
+        }
+
+        info!("[BatchServiceImpl::process_migration_spent_detail_to_kafka] Successfully produced {} data points", total_selected);
+        
         Ok(())
     }
 
@@ -545,7 +594,6 @@ where
     // ============================================================================
     async fn process_spent_detail_full(
         schedule_item: &BatchScheduleItem,
-        mysql_service: &Arc<M>,
         elastic_service: &Arc<E>,
         consume_service: &Arc<C>,
     ) -> anyhow::Result<()> {
@@ -555,28 +603,134 @@ where
             schedule_item.index_name()
         );
 
-        let relation_topic: &str = schedule_item.relation_topic();
         let index_alias: &str = schedule_item.index_name();
-        let batch_size: usize = *schedule_item.batch_size();
-        // TODO: Implement spent_detail processing logic
-        // 1. Query data from MySQL using mysql_service
-        // 2. Transform data as needed
-        // 3. Index to Elasticsearch using elastic_service
-        // 4. Post-process using consume_service if needed
+        let mapping_schema_path: &str = schedule_item.mapping_schema().as_str();
 
-        //consume_service.consume_messages(topic, max_messages)
-        loop {
-            // let consume_datas: Vec<Value> = consume_service
-            //     .consume_messages(relation_topic, batch_size)
-            //     .await
-            //     .context("[BatchServiceImpl::process_spent_detail_full]")?;
-
-            //info!("consume_datas: {:?}", consume_datas);
-
-            tokio::time::sleep(tokio_duration::from_secs(10)).await;
+        // Step 1: Load mapping schema from file
+        let schema_content: String = tokio::fs::read_to_string(mapping_schema_path)
+            .await
+            .context(format!(
+                "[BatchServiceImpl::process_spent_detail_full] Failed to read mapping schema file: {}",
+                mapping_schema_path
+            ))?;
+        
+        let schema: Value = serde_json::from_str(&schema_content).context(
+            "[BatchServiceImpl::process_spent_detail_full] Failed to parse mapping schema",
+        )?;
+        
+        let mappings: Value = schema
+            .get("mappings")
+            .ok_or_else(|| {
+                anyhow!("[BatchServiceImpl::process_spent_detail_full] Missing 'mappings' in schema")
+            })?
+            .clone();
+        
+        // Get settings from schema file (includes analyzer definitions)
+        let mut schema_settings: Value =
+            schema.get("settings").cloned().unwrap_or_else(|| json!({}));
+        
+        // Merge initial indexing settings for fast bulk indexing
+        if let Some(index_obj) = schema_settings.get_mut("index") {
+            if let Some(obj) = index_obj.as_object_mut() {
+                obj.insert("number_of_shards".to_string(), json!(3));
+                obj.insert("number_of_replicas".to_string(), json!(0));
+                obj.insert("refresh_interval".to_string(), json!("-1"));
+            }
+        } else {
+            schema_settings["index"]["number_of_shards"] = json!(3);
+            schema_settings["index"]["number_of_replicas"] = json!(0);
+            schema_settings["index"]["refresh_interval"] = json!("-1");
         }
 
-        info!("[BatchServiceImpl::process_spent_detail] Completed");
+        // Step 2: Create new index with timestamp
+        let now: DateTime<Utc> = Utc::now();
+        let new_index_name: String = format!("{}_{}", index_alias, now.format("%Y%m%d%H%M%S"));
+
+        info!(
+            "[BatchServiceImpl::process_spent_detail_full] Creating new index: {}",
+            new_index_name
+        );
+
+        let initial_settings: Value = schema_settings;
+
+        elastic_service
+            .create_index(&new_index_name, &initial_settings, &mappings)
+            .await
+            .context("[BatchServiceImpl::process_spent_detail_full] Failed to create index")?;
+        
+        // Step 3: Kafka 토픽에서 데이터를 소비하여 ES에 색인
+        // 풀색인이므로 토픽의 모든 메시지를 소비하면 종료한다.
+        // consume_messages 는 5초 timeout 후 빈 벡터를 반환하므로,
+        // 빈 벡터가 오면 토픽을 전부 소비한 것으로 판단하고 루프를 종료한다.
+        let mut total_indexed: u64 = 0;
+        let relation_topic: &str = schedule_item.relation_topic();
+        let batch_size: usize = *schedule_item.batch_size();
+
+        loop {
+            let messages: Vec<Value> = consume_service
+                .consume_messages(relation_topic, batch_size)
+                .await
+                .context("[BatchServiceImpl::process_spent_detail_full] Failed to consume messages")?;
+
+            if messages.is_empty() {
+                info!(
+                    "[BatchServiceImpl::process_spent_detail_full] No more messages in topic '{}', finishing",
+                    relation_topic
+                );
+                break;
+            }
+
+            let batch_count: usize = messages.len();
+
+            info!(
+                "[BatchServiceImpl::process_spent_detail_full] Consumed {} messages, indexing to {}",
+                batch_count, new_index_name
+            );
+
+            elastic_service
+                .bulk_index(&new_index_name, messages)
+                .await
+                .context("[BatchServiceImpl::process_spent_detail_full] Failed to bulk index")?;
+
+            total_indexed += batch_count as u64;
+
+            info!(
+                "[BatchServiceImpl::process_spent_detail_full] Indexed {} documents so far",
+                total_indexed
+            );
+        }
+
+        // Step 4: 색인 완료 후 운영용 설정으로 변경
+        info!("[BatchServiceImpl::process_spent_detail_full] Updating index settings for production");
+
+        let production_settings: Value = json!({
+            "index": {
+                "number_of_replicas": 1,
+                "refresh_interval": "1s"
+            }
+        });
+
+        elastic_service
+            .update_index_settings(&new_index_name, &production_settings)
+            .await
+            .context("[BatchServiceImpl::process_spent_detail_full] Failed to update index settings")?;
+
+        // Step 5: alias를 새 인덱스로 교체
+        info!(
+            "[BatchServiceImpl::process_spent_detail_full] Swapping alias {} to new index {}",
+            index_alias, new_index_name
+        );
+
+        elastic_service
+            .swap_alias(index_alias, &new_index_name)
+            .await
+            .context("[BatchServiceImpl::process_spent_detail_full] Failed to swap alias")?;
+
+        info!(
+            "[BatchServiceImpl::process_spent_detail_full] Completed successfully. Total indexed: {}",
+            total_indexed
+        );
+
         Ok(())
     }
 
@@ -613,7 +767,7 @@ where
                 anyhow!("[BatchServiceImpl::process_spent_type_full] Missing 'mappings' in schema")
             })?
             .clone();
-
+        
         // Get settings from schema file (includes analyzer definitions)
         let mut schema_settings: Value =
             schema.get("settings").cloned().unwrap_or_else(|| json!({}));
@@ -893,7 +1047,7 @@ where
                 }
             } => {}
         }
-
+        
         // Gracefully shutdown the scheduler
         scheduler
             .shutdown()
