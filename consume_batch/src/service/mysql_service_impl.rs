@@ -7,7 +7,10 @@ use crate::entity::{
 };
 use crate::models::{SpentDetail, SpentDetailWithRelations, SpentTypeKeyword};
 
-use sea_orm::{ColumnTrait, JoinType, QueryFilter, RelationTrait, sea_query::{CaseStatement, Expr}};
+use sea_orm::{
+    ColumnTrait, JoinType, QueryFilter, QuerySelect, RelationTrait,
+    sea_query::{CaseStatement, Expr},
+};
 
 use crate::repository::mysql_repository::*;
 
@@ -137,6 +140,8 @@ where
             .column(common_consume_keyword_type::Column::ConsumeKeywordTypeId)
             .column(common_consume_keyword_type::Column::ConsumeKeywordType)
             .column(telegram_room::Column::RoomSeq)
+            // Add literal value for indexing_type
+            .expr_as(Expr::value("I"), "indexing_type")
             // WHERE conditions
             .filter(spent_detail::Column::ShouldIndex.eq(1))
             .filter(telegram_room::Column::IsRoomApproved.eq(true))
@@ -180,7 +185,7 @@ where
 
         Ok(results)
     }
-    
+
     /// Bulk updates the `consume_keyword_type_id` column in the SPENT_DETAIL table.
     ///
     /// Splits the given `updates` list into chunks of `CHUNK_SIZE` (500 rows each)
@@ -221,10 +226,9 @@ where
         }
 
         // Wrap all chunks in a single transaction.
-        let txn: DatabaseTransaction = db
-            .begin()
-            .await
-            .context("[MysqlServiceImpl::update_spent_detail_type_batch] Failed to begin transaction")?;
+        let txn: DatabaseTransaction = db.begin().await.context(
+            "[MysqlServiceImpl::update_spent_detail_type_batch] Failed to begin transaction",
+        )?;
 
         /// Max number of CASE WHEN clauses per chunk.
         /// Limited to 500 to stay within MySQL's max_allowed_packet and reduce query parsing overhead.
@@ -253,10 +257,7 @@ where
                 // WHERE spent_idx IN (...)
                 let result: sea_orm::UpdateResult = spent_detail::Entity::update_many()
                     // SET
-                    .col_expr(
-                        spent_detail::Column::ConsumeKeywordTypeId,
-                        case_stmt.into(),
-                    )
+                    .col_expr(spent_detail::Column::ConsumeKeywordTypeId, case_stmt.into())
                     // WHERE
                     .filter(spent_detail::Column::SpentIdx.is_in(ids))
                     .exec(&txn)
@@ -267,7 +268,7 @@ where
 
                 total_affected += result.rows_affected;
             }
-            
+
             Ok::<(), anyhow::Error>(())
         }
         .await;
@@ -278,16 +279,16 @@ where
                 "[MysqlServiceImpl::update_spent_detail_type_batch] Rolling back transaction: {}",
                 e
             );
-            txn.rollback()
-                .await
-                .context("[MysqlServiceImpl::update_spent_detail_type_batch] Failed to rollback transaction")?;
+            txn.rollback().await.context(
+                "[MysqlServiceImpl::update_spent_detail_type_batch] Failed to rollback transaction",
+            )?;
             return Err(e);
         }
-        
+
         // COMMIT when all chunks succeed
-        txn.commit()
-            .await
-            .context("[MysqlServiceImpl::update_spent_detail_type_batch] Failed to commit transaction")?;
+        txn.commit().await.context(
+            "[MysqlServiceImpl::update_spent_detail_type_batch] Failed to commit transaction",
+        )?;
 
         Ok(total_affected)
     }
@@ -314,10 +315,9 @@ where
             return Ok(0);
         }
 
-        let txn: DatabaseTransaction = db
-            .begin()
-            .await
-            .context("[MysqlServiceImpl::update_spent_detail_type_one_by_one] Failed to begin transaction")?;
+        let txn: DatabaseTransaction = db.begin().await.context(
+            "[MysqlServiceImpl::update_spent_detail_type_one_by_one] Failed to begin transaction",
+        )?;
 
         let mut total_affected: u64 = 0;
 
@@ -353,9 +353,9 @@ where
             return Err(e);
         }
 
-        txn.commit()
-            .await
-            .context("[MysqlServiceImpl::update_spent_detail_type_one_by_one] Failed to commit transaction")?;
+        txn.commit().await.context(
+            "[MysqlServiceImpl::update_spent_detail_type_one_by_one] Failed to commit transaction",
+        )?;
 
         Ok(total_affected)
     }

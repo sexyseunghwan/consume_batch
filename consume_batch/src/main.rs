@@ -38,6 +38,8 @@ use app_config::AppConfig;
 
 mod config;
 
+mod enums;
+
 // Type aliases asd
 type ElasticService = ElasticServiceImpl<EsRepositoryImpl>;
 type MysqlService = MysqlServiceImpl<MysqlRepositoryImpl>;
@@ -78,9 +80,9 @@ async fn main() {
             panic!("[main] kafka_repo: {:#}", e);
         }
     };
-    
-    let shared_kafka_repo: Arc<KafkaRepositoryImpl> = Arc::new(kafka_repo);
 
+    let shared_kafka_repo: Arc<KafkaRepositoryImpl> = Arc::new(kafka_repo);
+    
     // Initialize services with dependency injection
     let elastic_query_service: ElasticService = ElasticServiceImpl::new(elastic_repo);
     let mysql_query_service: MysqlService = MysqlServiceImpl::new(mysql_repo);

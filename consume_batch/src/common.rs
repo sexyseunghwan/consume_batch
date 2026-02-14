@@ -89,13 +89,13 @@ pub use rayon::prelude::*;
 
 pub use sea_orm::{
     ActiveModelBehavior, ActiveModelTrait, ActiveValue, ColumnTrait, Condition, Database,
-    DatabaseConnection, DatabaseTransaction, EntityTrait, FromQueryResult, InsertResult,
-    QueryFilter, QueryOrder, QuerySelect, Select, Set, TransactionTrait,
+    DatabaseConnection, DatabaseTransaction, DbErr, EntityTrait, FromQueryResult, InsertResult,
+    QueryFilter, QueryOrder, QueryResult, QuerySelect, Select, Set, TransactionTrait,
 };
 
 pub use tokio_cron_scheduler::{Job, JobScheduler};
 
 pub use tokio::{
     task::JoinSet,
-    time::{Duration as tokio_duration, sleep, Instant},
+    time::{Duration as tokio_duration, Instant, sleep},
 };

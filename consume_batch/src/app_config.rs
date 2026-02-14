@@ -26,7 +26,7 @@ pub struct AppConfig {
     pub batch_schedule: String,
 
     pub es_spent_detail: String,
-    pub es_spent_type: String
+    pub es_spent_type: String,
 }
 
 /// Global static instance of AppConfig
@@ -81,7 +81,7 @@ impl AppConfig {
             es_spent_detail: env::var("ES_SPENT_DETAIL")
                 .map_err(|_| "ES_SPENT_DETAIL not found in environment".to_string())?,
             es_spent_type: env::var("ES_SPENT_TYPE")
-                .map_err(|_| "ES_SPENT_TYPE not found in environment".to_string())?
+                .map_err(|_| "ES_SPENT_TYPE not found in environment".to_string())?,
         };
 
         APP_CONFIG

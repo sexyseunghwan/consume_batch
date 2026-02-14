@@ -156,7 +156,7 @@ where
 
         Ok(())
     }
-    
+
     #[doc = "Purge all records from a specific Kafka topic"]
     /// Delegates to KafkaRepository::purge_topic which uses the Admin API's
     /// delete_records to remove all messages up to each partition's high watermark offset.

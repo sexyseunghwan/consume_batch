@@ -10,7 +10,7 @@ mapping_schema = "./src/config/elastic_schema/consume_index_prod_type.json"
 
 [[batch_schedule]]
 batch_name = "spent_detail_incremental"
-index_name = "spent_detail_dev2"
+index_name = "spent_detail_dev"
 enabled = false
 relation_topic = "spent_detail_dev"
 batch_size = 100

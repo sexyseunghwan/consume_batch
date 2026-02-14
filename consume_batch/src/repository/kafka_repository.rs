@@ -139,6 +139,39 @@ pub trait KafkaRepository: Send + Sync {
         max_messages: usize,
     ) -> Result<Vec<Value>, anyhow::Error>;
 
+    /// Consumes messages from a Kafka topic with a custom consumer group.
+    ///
+    /// Similar to `consume_messages`, but allows specifying a custom group suffix
+    /// to enable multiple independent consumers for the same topic with different offsets.
+    ///
+    /// # Arguments
+    ///
+    /// * `topic` - The Kafka topic to consume from
+    /// * `max_messages` - Maximum number of messages to consume
+    /// * `group_suffix` - Additional suffix for group.id (e.g., "full-index", "incremental")
+    ///
+    /// # Group ID Format
+    ///
+    /// `{base_group_id}-{topic}-{group_suffix}`
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// // Two different consumers for the same topic with independent offsets
+    /// let full_msgs = repo.consume_messages_with_group("spent_topic", 100, "full-index").await?;
+    /// let incr_msgs = repo.consume_messages_with_group("spent_topic", 100, "incremental").await?;
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Vec<Value>)` containing the consumed messages as JSON values.
+    async fn consume_messages_with_group(
+        &self,
+        topic: &str,
+        max_messages: usize,
+        group_suffix: &str,
+    ) -> Result<Vec<Value>, anyhow::Error>;
+
     /// Consumes a single message from a Kafka topic.
     ///
     /// # Arguments
@@ -341,7 +374,7 @@ impl KafkaRepositoryImpl {
         })
     }
 
-    /// Gets or creates a consumer for a specific topic.
+    /// Gets or creates a consumer for a specific topic with optional group suffix.
     ///
     /// If a consumer for the topic already exists, returns the existing one.
     /// Otherwise, creates a new consumer with a topic-specific group.id.
@@ -349,6 +382,7 @@ impl KafkaRepositoryImpl {
     /// # Arguments
     ///
     /// * `topic` - The topic name to get/create a consumer for
+    /// * `group_suffix` - Optional suffix for group.id to create independent consumers
     ///
     /// # Returns
     ///
@@ -356,20 +390,31 @@ impl KafkaRepositoryImpl {
     ///
     /// # Consumer Configuration
     ///
-    /// | Setting                | Value                        | Description                |
-    /// |------------------------|------------------------------|----------------------------|
-    /// | `bootstrap.servers`    | from config                  | Kafka broker addresses     |
-    /// | `group.id`             | `{base_group_id}-{topic}`    | Topic-specific group       |
-    /// | `auto.offset.reset`    | earliest                     | Start from earliest        |
-    /// | `enable.auto.commit`   | true                         | Auto commit offsets        |
-    /// | `session.timeout.ms`   | 6000                         | 6 second session timeout   |
-    async fn get_or_create_consumer(&self, topic: &str) -> anyhow::Result<Arc<StreamConsumer>> {
+    /// | Setting                | Value                                    | Description                |
+    /// |------------------------|------------------------------------------|----------------------------|
+    /// | `bootstrap.servers`    | from config                              | Kafka broker addresses     |
+    /// | `group.id`             | `{base_group_id}-{topic}[-{suffix}]`     | Topic-specific group       |
+    /// | `auto.offset.reset`    | earliest                                 | Start from earliest        |
+    /// | `enable.auto.commit`   | true                                     | Auto commit offsets        |
+    /// | `session.timeout.ms`   | 6000                                     | 6 second session timeout   |
+    async fn get_or_create_consumer(
+        &self,
+        topic: &str,
+        group_suffix: Option<&str>,
+    ) -> anyhow::Result<Arc<StreamConsumer>> {
+        // Create a unique key for the consumer map
+        let consumer_key = if let Some(suffix) = group_suffix {
+            format!("{}-{}", topic, suffix)
+        } else {
+            topic.to_string()
+        };
+
         // First, try to get existing consumer with read lock
         {
             let consumers: tokio::sync::RwLockReadGuard<'_, HashMap<String, Arc<StreamConsumer>>> =
                 self.consumers.read().await;
 
-            if let Some(consumer) = consumers.get(topic) {
+            if let Some(consumer) = consumers.get(&consumer_key) {
                 return Ok(Arc::clone(consumer));
             }
         }
@@ -379,12 +424,16 @@ impl KafkaRepositoryImpl {
             self.consumers.write().await;
 
         // Double-check after acquiring write lock (another thread might have created it)
-        if let Some(consumer) = consumers.get(topic) {
+        if let Some(consumer) = consumers.get(&consumer_key) {
             return Ok(Arc::clone(consumer));
         }
 
-        // Create topic-specific group.id
-        let group_id: String = format!("{}-{}", self.base_group_id, topic);
+        // Create group.id with optional suffix
+        let group_id: String = if let Some(suffix) = group_suffix {
+            format!("{}-{}-{}", self.base_group_id, topic, suffix)
+        } else {
+            format!("{}-{}", self.base_group_id, topic)
+        };
 
         info!(
             "[KafkaRepositoryImpl::get_or_create_consumer] Creating new consumer for topic: {} (group.id: {})",
@@ -437,7 +486,7 @@ impl KafkaRepositoryImpl {
         })?;
 
         let consumer_arc: Arc<StreamConsumer> = Arc::new(consumer);
-        consumers.insert(topic.to_string(), Arc::clone(&consumer_arc));
+        consumers.insert(consumer_key.clone(), Arc::clone(&consumer_arc));
 
         info!(
             "[KafkaRepositoryImpl::get_or_create_consumer] Consumer created and subscribed to topic: {}",
@@ -468,8 +517,8 @@ impl KafkaRepository for KafkaRepositoryImpl {
         topic: &str,
         max_messages: usize,
     ) -> anyhow::Result<Vec<Value>> {
-        // Get or create topic-specific consumer
-        let consumer: Arc<StreamConsumer> = self.get_or_create_consumer(topic).await?;
+        // Get or create topic-specific consumer (without group suffix)
+        let consumer: Arc<StreamConsumer> = self.get_or_create_consumer(topic, None).await?;
 
         let mut messages: Vec<Value> = Vec::new();
         let mut stream: MessageStream<'_, rdkafka::consumer::DefaultConsumerContext> =
@@ -479,7 +528,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
         //     "[KafkaRepositoryImpl::consume_messages] Starting to consume from topic: {} (max: {})",
         //     topic, max_messages
         // );
-        
+
         // Consume messages up to the limit
         while messages.len() < max_messages {
             match tokio::time::timeout(Duration::from_secs(5), stream.next()).await {
@@ -547,6 +596,76 @@ impl KafkaRepository for KafkaRepositoryImpl {
         Ok(messages)
     }
 
+    async fn consume_messages_with_group(
+        &self,
+        topic: &str,
+        max_messages: usize,
+        group_suffix: &str,
+    ) -> anyhow::Result<Vec<Value>> {
+        // Get or create consumer with custom group suffix
+        let consumer: Arc<StreamConsumer> =
+            self.get_or_create_consumer(topic, Some(group_suffix)).await?;
+
+        let mut messages: Vec<Value> = Vec::new();
+        let mut stream: MessageStream<'_, rdkafka::consumer::DefaultConsumerContext> =
+            consumer.stream();
+
+        // Consume messages up to the limit
+        while messages.len() < max_messages {
+            match tokio::time::timeout(Duration::from_secs(5), stream.next()).await {
+                Ok(Some(result)) => match result {
+                    Ok(borrowed_message) => {
+                        if let Some(payload) = borrowed_message.payload() {
+                            let payload_str: &str = std::str::from_utf8(payload).map_err(|e| {
+                                anyhow!(
+                                    "[KafkaRepositoryImpl::consume_messages_with_group] Invalid UTF-8: {:?}",
+                                    e
+                                )
+                            })?;
+
+                            let json_value: Value =
+                                serde_json::from_str(payload_str).map_err(|e| {
+                                    anyhow!(
+                                        "[KafkaRepositoryImpl::consume_messages_with_group] JSON parse error: {:?}",
+                                        e
+                                    )
+                                })?;
+
+                            messages.push(json_value);
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            "[KafkaRepositoryImpl::consume_messages_with_group] Kafka error: {:?}",
+                            e
+                        );
+                    }
+                },
+                Ok(None) => {
+                    info!(
+                        "[KafkaRepositoryImpl::consume_messages_with_group] Stream ended for topic: {} (group: {})",
+                        topic, group_suffix
+                    );
+                    break;
+                }
+                Err(_) => {
+                    info!(
+                        "[KafkaRepositoryImpl::consume_messages_with_group] Timeout reached for topic: {} (group: {}), consumed {} messages",
+                        topic, group_suffix, messages.len()
+                    );
+                    break;
+                }
+            }
+        }
+
+        info!(
+            "[KafkaRepositoryImpl::consume_messages_with_group] Finished consuming {} messages from topic: {} (group: {})",
+            messages.len(), topic, group_suffix
+        );
+
+        Ok(messages)
+    }
+
     /// Consumes a single message from a Kafka topic.
     ///
     /// Convenience method for consuming just one message.
@@ -602,7 +721,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
         if let Some(k) = key {
             record = record.key(k);
         }
-        
+
         match self.producer.send(record, Duration::from_secs(30)).await {
             Ok(delivery) => {
                 // info!(
@@ -643,7 +762,6 @@ impl KafkaRepository for KafkaRepositoryImpl {
     /// - Topic metadata or watermark fetching fails
     /// - `delete_records` call fails
     async fn purge_topic(&self, topic: &str) -> anyhow::Result<()> {
-        
         info!(
             "[KafkaRepositoryImpl::purge_topic] Purging all records from topic: {}",
             topic
@@ -708,7 +826,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
                     e
                 )
             })?;
-        
+
         // 메타데이터에서 해당 토픽 정보를 찾는다
         let topic_metadata: &rdkafka::metadata::MetadataTopic = metadata
             .topics()

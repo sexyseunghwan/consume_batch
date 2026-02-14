@@ -77,6 +77,8 @@ pub trait MysqlService {
     -> anyhow::Result<u64>;
 
     /// Updates consume_keyword_type_id one row at a time (for performance comparison).
-    async fn update_spent_detail_type_one_by_one(&self, updates: Vec<(i64, i64)>)
-    -> anyhow::Result<u64>;
+    async fn update_spent_detail_type_one_by_one(
+        &self,
+        updates: Vec<(i64, i64)>,
+    ) -> anyhow::Result<u64>;
 }

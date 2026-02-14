@@ -145,4 +145,159 @@ where
 
         Ok(message)
     }
+
+    async fn consume_messages_with_group(
+        &self,
+        topic: &str,
+        max_messages: usize,
+        group_suffix: &str,
+    ) -> Result<Vec<Value>, anyhow::Error> {
+        info!(
+            "[ConsumeServiceImpl::consume_messages_with_group] Consuming from topic: {}, max: {}, group_suffix: {}",
+            topic, max_messages, group_suffix
+        );
+
+        let messages: Vec<Value> = self
+            .kafka_conn
+            .consume_messages_with_group(topic, max_messages, group_suffix)
+            .await?;
+
+        info!(
+            "[ConsumeServiceImpl::consume_messages_with_group] Consumed {} messages from topic: {} (group: {})",
+            messages.len(),
+            topic,
+            group_suffix
+        );
+
+        Ok(messages)
+    }
+
+    async fn consume_messages_as_with_group<T>(
+        &self,
+        topic: &str,
+        max_messages: usize,
+        group_suffix: &str,
+    ) -> Result<Vec<T>, anyhow::Error>
+    where
+        T: DeserializeOwned,
+    {
+        info!(
+            "[ConsumeServiceImpl::consume_messages_as_with_group] Consuming from topic: {}, max: {}, group_suffix: {}",
+            topic, max_messages, group_suffix
+        );
+
+        let messages: Vec<Value> = self
+            .kafka_conn
+            .consume_messages_with_group(topic, max_messages, group_suffix)
+            .await?;
+
+        info!(
+            "[ConsumeServiceImpl::consume_messages_as_with_group] Consumed {} messages from topic: {} (group: {}), deserializing...",
+            messages.len(),
+            topic,
+            group_suffix
+        );
+
+        let mut results: Vec<T> = Vec::with_capacity(messages.len());
+
+        for (index, msg) in messages.into_iter().enumerate() {
+            let deserialized: T = serde_json::from_value(msg).context(format!(
+                "[ConsumeServiceImpl::consume_messages_as_with_group] Failed to deserialize message at index {} from topic: {} (group: {})",
+                index, topic, group_suffix
+            ))?;
+            results.push(deserialized);
+        }
+
+        info!(
+            "[ConsumeServiceImpl::consume_messages_as_with_group] Successfully deserialized {} messages from topic: {} (group: {})",
+            results.len(),
+            topic,
+            group_suffix
+        );
+
+        Ok(results)
+    }
+
+    /// Consumes messages from a Kafka topic and deserializes them into type T.
+    ///
+    /// This is a generic version of `consume_messages` that automatically
+    /// deserializes JSON messages into the specified type.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - Target type for deserialization (must implement `DeserializeOwned`)
+    ///
+    /// # Arguments
+    ///
+    /// * `topic` - The Kafka topic to consume from
+    /// * `max_messages` - Maximum number of messages to retrieve
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of deserialized messages of type `T`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Kafka consumption fails
+    /// - JSON deserialization fails for any message
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// #[derive(Deserialize)]
+    /// struct OrderMessage {
+    ///     order_id: i64,
+    ///     amount: f64,
+    /// }
+    ///
+    /// let orders: Vec<OrderMessage> = service
+    ///     .consume_messages_as("orders_topic", 50)
+    ///     .await?;
+    /// ```
+    async fn consume_messages_as<T>(
+        &self,
+        topic: &str,
+        max_messages: usize,
+    ) -> Result<Vec<T>, anyhow::Error>
+    where
+        T: DeserializeOwned,
+    {
+        info!(
+            "[ConsumeServiceImpl::consume_messages_as] Consuming from topic: {}, max: {}",
+            topic, max_messages
+        );
+
+        let messages: Vec<Value> = self
+            .kafka_conn
+            .consume_messages(topic, max_messages)
+            .await?;
+
+        info!(
+            "[ConsumeServiceImpl::consume_messages_as] Consumed {} messages from topic: {}, deserializing...",
+            messages.len(),
+            topic
+        );
+
+        let mut results: Vec<T> = Vec::with_capacity(messages.len());
+
+        for (index, msg) in messages.into_iter().enumerate() {
+            let deserialized: T = serde_json::from_value(msg)
+                .context(format!(
+                    "[ConsumeServiceImpl::consume_messages_as] Failed to deserialize message at index {} from topic: {}",
+                    index, topic
+                ))?;
+            results.push(deserialized);
+        }
+
+        info!(
+            "[ConsumeServiceImpl::consume_messages_as] Successfully deserialized {} messages from topic: {}",
+            results.len(),
+            topic
+        );
+
+        Ok(results)
+    }
 }
+
+impl<K> ConsumeServiceImpl<K> where K: KafkaRepository + Sync + Send {}
