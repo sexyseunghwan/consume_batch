@@ -47,6 +47,22 @@ where
         self.elastic_conn.bulk_index(index_name, documents).await
     }
 
+    async fn bulk_update<T: Serialize + Send + Sync>(
+        &self,
+        index_name: &str,
+        documents: Vec<T>,
+    ) -> anyhow::Result<()> {
+        self.elastic_conn.bulk_update(index_name, documents).await
+    }
+
+    async fn bulk_delete(
+        &self,
+        index_name: &str,
+        doc_ids: Vec<i64>,
+    ) -> anyhow::Result<()> {
+        self.elastic_conn.bulk_delete(index_name, doc_ids).await
+    }
+
     async fn swap_alias(&self, alias_name: &str, new_index_name: &str) -> anyhow::Result<()> {
         self.elastic_conn
             .swap_alias(alias_name, new_index_name)

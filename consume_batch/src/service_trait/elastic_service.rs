@@ -76,6 +76,54 @@ pub trait ElasticService {
         documents: Vec<T>,
     ) -> anyhow::Result<()>;
 
+    /// Performs bulk update of documents.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - Any type that implements `Serialize`
+    ///
+    /// # Arguments
+    ///
+    /// * `index_name` - The target index name
+    /// * `documents` - Vector of documents to update
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful bulk update.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Any document fails to update
+    /// - Network/connection failure
+    async fn bulk_update<T: Serialize + Send + Sync>(
+        &self,
+        index_name: &str,
+        documents: Vec<T>,
+    ) -> anyhow::Result<()>;
+
+    /// Performs bulk delete of documents by IDs.
+    ///
+    /// # Arguments
+    ///
+    /// * `index_name` - The target index name
+    /// * `doc_ids` - Vector of document IDs to delete
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful bulk delete.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Any document fails to delete
+    /// - Network/connection failure
+    async fn bulk_delete(
+        &self,
+        index_name: &str,
+        doc_ids: Vec<i64>,
+    ) -> anyhow::Result<()>;
+
     /// Swaps index alias from old index to new index atomically.
     ///
     /// This operation:

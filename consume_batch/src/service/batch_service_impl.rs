@@ -42,6 +42,8 @@
 use crate::app_config::*;
 use crate::common::*;
 
+use crate::enums::IndexingType;
+
 use crate::models::{
     ConsumingIndexProdtType, SpentDetail, SpentDetailWithRelations, SpentDetailWithRelationsEs,
     batch_schedule::*, spent_type_keyword::*,
@@ -795,7 +797,7 @@ where
         let batch_size: usize = *schedule_item.batch_size();
         let consumer_group: &str = schedule_item.consumer_group();
 
-        let mut total_indexed: u64 = 0;
+        let mut total_processed: u64 = 0;
 
         info!(
             "[BatchServiceImpl::process_spent_detail_dynamic] Starting incremental indexing from topic '{}' to index '{}'",
@@ -821,40 +823,79 @@ where
             let batch_count: usize = messages.len();
 
             info!(
-                "[BatchServiceImpl::process_spent_detail_dynamic] Consumed {} incremental messages, converting for ES indexing",
+                "[BatchServiceImpl::process_spent_detail_dynamic] Consumed {} incremental messages, processing by indexing_type",
                 batch_count
             );
 
-            // Convert to ES-specific structure (excludes indexing_type field)
-            let es_messages: Vec<SpentDetailWithRelationsEs> = messages
-                .into_iter()
-                .map(|msg| msg.into())
-                .collect();
+            // Separate messages by indexing_type
+            let mut to_insert: Vec<SpentDetailWithRelationsEs> = Vec::new();
+            let mut to_update: Vec<SpentDetailWithRelationsEs> = Vec::new();
+            let mut to_delete: Vec<i64> = Vec::new();
+
+            for msg in messages {
+                match msg.indexing_type {
+                    IndexingType::Insert => {
+                        to_insert.push(msg.into());
+                    }
+                    IndexingType::Update => {
+                        to_update.push(msg.into());
+                    }
+                    IndexingType::Delete => {
+                        to_delete.push(msg.spent_idx);
+                    }
+                }
+            }
+
+            // Process inserts
+            if !to_insert.is_empty() {
+                info!(
+                    "[BatchServiceImpl::process_spent_detail_dynamic] Inserting {} documents to {}",
+                    to_insert.len(), new_index_name
+                );
+                elastic_service
+                    .bulk_index(&new_index_name, to_insert)
+                    .await
+                    .context("[BatchServiceImpl::process_spent_detail_dynamic] Failed to bulk insert")?;
+            }
+
+            // Process updates
+            if !to_update.is_empty() {
+                info!(
+                    "[BatchServiceImpl::process_spent_detail_dynamic] Updating {} documents in {}",
+                    to_update.len(), new_index_name
+                );
+                elastic_service
+                    .bulk_update(&new_index_name, to_update)
+                    .await
+                    .context("[BatchServiceImpl::process_spent_detail_dynamic] Failed to bulk update")?;
+            }
+
+            // Process deletes
+            if !to_delete.is_empty() {
+                info!(
+                    "[BatchServiceImpl::process_spent_detail_dynamic] Deleting {} documents from {}",
+                    to_delete.len(), new_index_name
+                );
+                elastic_service
+                    .bulk_delete(&new_index_name, to_delete)
+                    .await
+                    .context("[BatchServiceImpl::process_spent_detail_dynamic] Failed to bulk delete")?;
+            }
+
+            total_processed += batch_count as u64;
 
             info!(
-                "[BatchServiceImpl::process_spent_detail_dynamic] Indexing {} incremental documents to {}",
-                batch_count, new_index_name
-            );
-
-            elastic_service
-                .bulk_index(&new_index_name, es_messages)
-                .await
-                .context("[BatchServiceImpl::process_spent_detail_dynamic] Failed to bulk index")?;
-
-            total_indexed += batch_count as u64;
-
-            info!(
-                "[BatchServiceImpl::process_spent_detail_dynamic] Indexed {} incremental documents so far",
-                total_indexed
+                "[BatchServiceImpl::process_spent_detail_dynamic] Processed {} incremental messages so far",
+                total_processed
             );
         }
 
         info!(
             "[BatchServiceImpl::process_spent_detail_dynamic] Completed incremental indexing. Total: {}",
-            total_indexed
+            total_processed
         );
 
-        Ok(total_indexed)
+        Ok(total_processed)
     }
 
     // ============================================================================
@@ -902,7 +943,7 @@ where
         let read_index_alias: String = format!("read_{}", index_alias);
         let write_index_alias: String = format!("write_{}", index_alias);
         let traffic_weight: f32 = *schedule_item.traffic_weight();
-
+        
         info!(
             "[BatchServiceImpl::process_spent_detail_full] Starting full indexing for '{}'",
             index_alias
@@ -1064,7 +1105,7 @@ where
             relation_topic, write_index_alias
         );
 
-        let mut total_indexed: u64 = 0;
+        let mut total_processed: u64 = 0;
 
         loop {
             let messages: Vec<SpentDetailWithRelations> = consume_service
@@ -1083,31 +1124,70 @@ where
             let batch_count: usize = messages.len();
 
             info!(
-                "[BatchServiceImpl::process_spent_detail_incremental] Consumed {} messages from '{}'",
+                "[BatchServiceImpl::process_spent_detail_incremental] Consumed {} messages from '{}', processing by indexing_type",
                 batch_count, relation_topic
             );
 
-            // Convert to ES-specific structure (excludes indexing_type field)
-            let es_messages: Vec<SpentDetailWithRelationsEs> = messages
-                .into_iter()
-                .map(|msg| msg.into())
-                .collect();
+            // Separate messages by indexing_type
+            let mut to_insert: Vec<SpentDetailWithRelationsEs> = Vec::new();
+            let mut to_update: Vec<SpentDetailWithRelationsEs> = Vec::new();
+            let mut to_delete: Vec<i64> = Vec::new();
+
+            for msg in messages {
+                match msg.indexing_type {
+                    IndexingType::Insert => {
+                        to_insert.push(msg.into());
+                    }
+                    IndexingType::Update => {
+                        to_update.push(msg.into());
+                    }
+                    IndexingType::Delete => {
+                        to_delete.push(msg.spent_idx);
+                    }
+                }
+            }
+
+            // Process inserts
+            if !to_insert.is_empty() {
+                info!(
+                    "[BatchServiceImpl::process_spent_detail_incremental] Inserting {} documents to write alias '{}'",
+                    to_insert.len(), write_index_alias
+                );
+                elastic_service
+                    .bulk_index(&write_index_alias, to_insert)
+                    .await
+                    .context("[BatchServiceImpl::process_spent_detail_incremental] Failed to bulk insert")?;
+            }
+
+            // Process updates
+            if !to_update.is_empty() {
+                info!(
+                    "[BatchServiceImpl::process_spent_detail_incremental] Updating {} documents in write alias '{}'",
+                    to_update.len(), write_index_alias
+                );
+                elastic_service
+                    .bulk_update(&write_index_alias, to_update)
+                    .await
+                    .context("[BatchServiceImpl::process_spent_detail_incremental] Failed to bulk update")?;
+            }
+
+            // Process deletes
+            if !to_delete.is_empty() {
+                info!(
+                    "[BatchServiceImpl::process_spent_detail_incremental] Deleting {} documents from write alias '{}'",
+                    to_delete.len(), write_index_alias
+                );
+                elastic_service
+                    .bulk_delete(&write_index_alias, to_delete)
+                    .await
+                    .context("[BatchServiceImpl::process_spent_detail_incremental] Failed to bulk delete")?;
+            }
+
+            total_processed += batch_count as u64;
 
             info!(
-                "[BatchServiceImpl::process_spent_detail_incremental] Indexing {} documents to write alias '{}'",
-                batch_count, write_index_alias
-            );
-
-            elastic_service
-                .bulk_index(&write_index_alias, es_messages)
-                .await
-                .context("[BatchServiceImpl::process_spent_detail_incremental] Failed to bulk index")?;
-
-            total_indexed += batch_count as u64;
-
-            info!(
-                "[BatchServiceImpl::process_spent_detail_incremental] Successfully indexed {} documents (total: {})",
-                batch_count, total_indexed
+                "[BatchServiceImpl::process_spent_detail_incremental] Successfully processed {} messages (total: {})",
+                batch_count, total_processed
             );
 
             // Small delay to prevent tight loop when continuously processing

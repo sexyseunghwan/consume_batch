@@ -169,6 +169,38 @@ pub trait EsRepository {
         documents: Vec<T>,
     ) -> Result<(), anyhow::Error>;
 
+    /// Performs bulk update of documents.
+    ///
+    /// # Arguments
+    ///
+    /// * `index_name` - The target index name
+    /// * `documents` - Vector of documents to update (must have spent_idx field)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful bulk update.
+    async fn bulk_update<T: Serialize + Send + Sync>(
+        &self,
+        index_name: &str,
+        documents: Vec<T>,
+    ) -> Result<(), anyhow::Error>;
+
+    /// Performs bulk delete of documents by IDs.
+    ///
+    /// # Arguments
+    ///
+    /// * `index_name` - The target index name
+    /// * `doc_ids` - Vector of document IDs to delete
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful bulk delete.
+    async fn bulk_delete(
+        &self,
+        index_name: &str,
+        doc_ids: Vec<i64>,
+    ) -> Result<(), anyhow::Error>;
+
     /// Atomically swaps an alias from old index to new index.
     ///
     /// # Arguments
@@ -577,6 +609,142 @@ impl EsRepository for EsRepositoryImpl {
             let error_body: String = response.text().await?;
             Err(anyhow!(
                 "[EsRepositoryImpl::bulk_index] Failed to bulk index to {}: {}",
+                index_name,
+                error_body
+            ))
+        }
+    }
+
+    async fn bulk_update<T: Serialize + Send + Sync>(
+        &self,
+        index_name: &str,
+        documents: Vec<T>,
+    ) -> anyhow::Result<()> {
+        if documents.is_empty() {
+            return Ok(());
+        }
+
+        let mut body: Vec<JsonBody<_>> = Vec::with_capacity(documents.len() * 2);
+        let mut debug_body: Vec<Value> = Vec::with_capacity(documents.len() * 2);
+
+        for doc in documents {
+            let doc_json: Value = json!(doc);
+
+            // Extract spent_idx as document ID
+            let doc_id: i64 = doc_json
+                .get("spent_idx")
+                .and_then(|v| v.as_i64())
+                .ok_or_else(|| anyhow!("[EsRepositoryImpl::bulk_update] Missing spent_idx in document"))?;
+
+            let update_action: Value = json!({
+                "update": {
+                    "_index": index_name,
+                    "_id": doc_id.to_string()
+                }
+            });
+
+            let update_doc: Value = json!({
+                "doc": doc_json,
+                "doc_as_upsert": true
+            });
+
+            debug_body.push(update_action.clone());
+            debug_body.push(update_doc.clone());
+
+            body.push(update_action.into());
+            body.push(update_doc.into());
+        }
+
+        info!("{:?}", debug_body);
+
+        let response: Response = self
+            .es_client
+            .bulk(BulkParts::None)
+            .body(body)
+            .send()
+            .await?;
+
+        if response.status_code().is_success() {
+            let response_body: Value = response.json().await?;
+
+            if let Some(errors) = response_body.get("errors") {
+                if errors.as_bool() == Some(true) {
+                    warn!(
+                        "[EsRepositoryImpl::bulk_update] Some documents failed to update: {:?}",
+                        response_body.get("items")
+                    );
+                }
+            }
+
+            info!(
+                "[EsRepositoryImpl::bulk_update] Successfully bulk updated documents in: {}",
+                index_name
+            );
+            Ok(())
+        } else {
+            let error_body: String = response.text().await?;
+            Err(anyhow!(
+                "[EsRepositoryImpl::bulk_update] Failed to bulk update to {}: {}",
+                index_name,
+                error_body
+            ))
+        }
+    }
+
+    async fn bulk_delete(
+        &self,
+        index_name: &str,
+        doc_ids: Vec<i64>,
+    ) -> anyhow::Result<()> {
+        if doc_ids.is_empty() {
+            return Ok(());
+        }
+
+        let mut body: Vec<JsonBody<_>> = Vec::with_capacity(doc_ids.len());
+        let mut debug_body: Vec<Value> = Vec::with_capacity(doc_ids.len());
+
+        for doc_id in doc_ids {
+            let delete_action: Value = json!({
+                "delete": {
+                    "_index": index_name,
+                    "_id": doc_id.to_string()
+                }
+            });
+
+            debug_body.push(delete_action.clone());
+            body.push(delete_action.into());
+        }
+
+        info!("{:?}", debug_body);
+
+        let response: Response = self
+            .es_client
+            .bulk(BulkParts::None)
+            .body(body)
+            .send()
+            .await?;
+
+        if response.status_code().is_success() {
+            let response_body: Value = response.json().await?;
+
+            if let Some(errors) = response_body.get("errors") {
+                if errors.as_bool() == Some(true) {
+                    warn!(
+                        "[EsRepositoryImpl::bulk_delete] Some documents failed to delete: {:?}",
+                        response_body.get("items")
+                    );
+                }
+            }
+
+            info!(
+                "[EsRepositoryImpl::bulk_delete] Successfully bulk deleted documents from: {}",
+                index_name
+            );
+            Ok(())
+        } else {
+            let error_body: String = response.text().await?;
+            Err(anyhow!(
+                "[EsRepositoryImpl::bulk_delete] Failed to bulk delete from {}: {}",
                 index_name,
                 error_body
             ))
