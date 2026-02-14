@@ -101,6 +101,45 @@ pub trait ElasticService {
     /// - Network/connection failure
     async fn swap_alias(&self, alias_name: &str, new_index_name: &str) -> anyhow::Result<()>;
 
+    /// Updates write alias to point to a specific index.
+    ///
+    /// This is used for Blue/Green deployment to control which index receives writes.
+    /// Unlike read aliases (which can be split for traffic testing), write aliases
+    /// should point to a single index at a time.
+    ///
+    /// # Arguments
+    ///
+    /// * `write_alias` - The write alias name (e.g., "write_spent_detail_dev")
+    /// * `target_index` - The index to point the write alias to
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful alias update.
+    async fn update_write_alias(&self, write_alias: &str, target_index: &str) -> anyhow::Result<()>;
+
+    /// Updates read alias with optional traffic weight for Blue/Green deployment.
+    ///
+    /// Enables gradual traffic shifting between old (Blue) and new (Green) indices:
+    /// - weight = 0.0: All traffic to old index
+    /// - weight = 0.5: 50/50 split
+    /// - weight = 1.0: All traffic to new index
+    ///
+    /// # Arguments
+    ///
+    /// * `read_alias` - The read alias name (e.g., "read_spent_detail_dev")
+    /// * `new_index` - The new index name
+    /// * `traffic_weight` - Percentage of traffic to route to new index (0.0 ~ 1.0)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful alias update.
+    async fn update_read_alias_with_weight(
+        &self,
+        read_alias: &str,
+        new_index: &str,
+        traffic_weight: f32,
+    ) -> anyhow::Result<()>;
+
     async fn get_consume_type_judgement(
         &self,
         prodt_name: &str,

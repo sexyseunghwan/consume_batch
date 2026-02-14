@@ -394,11 +394,15 @@ where
             "[BatchServiceImpl::process_index_batch] {} Starting batch indexing job",
             index_name
         );
-
+        
         // Route to specific handler based on batch_name
         match batch_name {
             "spent_detail_full" => {
                 Self::process_spent_detail_full(schedule_item, elastic_service, consume_service)
+                    .await?;
+            }
+            "spent_detail_incremental" => {
+                Self::process_spent_detail_incremental(schedule_item, elastic_service, consume_service)
                     .await?;
             }
             "spent_type_dev" | "spent_type_full" => {
@@ -648,7 +652,7 @@ where
             "[BatchServiceImpl::prepare_full_index] Creating new index: {}",
             new_index_name
         );
-
+        
         elastic_service
             .create_index(&new_index_name, &schema_settings, &mappings)
             .await
@@ -696,47 +700,35 @@ where
         Ok(())
     }
 
-    // ============================================================================
-    // Index-specific handler functions
-    // ============================================================================
-    async fn process_spent_detail_full(
+
+    /* ============================================================================ */
+    /* ============================================================================ */
+    /* ============================================================================ */
+    /* ============================================================================ */
+    
+    async fn process_spent_detail_static(
         schedule_item: &BatchScheduleItem,
         elastic_service: &Arc<E>,
         consume_service: &Arc<C>,
-    ) -> anyhow::Result<()> {
-        let index_alias: &str = schedule_item.index_name();
+        new_index_name: &str
+    ) -> anyhow::Result<u64> {
         let relation_topic: &str = schedule_item.relation_topic();
         let batch_size: usize = *schedule_item.batch_size();
+        let consumer_group: &str = schedule_item.consumer_group();
 
-        info!(
-            "[BatchServiceImpl::process_spent_detail_full] Processing {} (index: {})",
-            schedule_item.batch_name(),
-            index_alias
-        );
-        
-        // Step 1~2: 스키마 로드 + 벌크 인덱스 생성
-        let new_index_name: String =
-            Self::prepare_full_index(elastic_service, index_alias, schedule_item.mapping_schema())
-                .await
-                .context("[BatchServiceImpl::process_spent_detail_full] prepare_full_index")?;
-
-        // Step 3: Kafka 토픽에서 데이터를 소비하여 ES에 색인
-        // 풀색인이므로 토픽의 모든 메시지를 소비하면 종료한다.
-        // consume_messages 는 5초 timeout 후 빈 벡터를 반환하므로,
-        // 빈 벡터가 오면 토픽을 전부 소비한 것으로 판단하고 루프를 종료한다.
         let mut total_indexed: u64 = 0;
 
         loop {
             let messages: Vec<SpentDetailWithRelations> = consume_service
-                .consume_messages_as(relation_topic, batch_size)
+                .consume_messages_as_with_group(relation_topic, batch_size, consumer_group)
                 .await
                 .context(
-                    "[BatchServiceImpl::process_spent_detail_full] Failed to consume messages",
+                    "[BatchServiceImpl::process_spent_detail_static] Failed to consume messages",
                 )?;
             
             if messages.is_empty() {
                 info!(
-                    "[BatchServiceImpl::process_spent_detail_full] No more messages in topic '{}', finishing",
+                    "[BatchServiceImpl::process_spent_detail_static] No more messages in topic '{}', finishing",
                     relation_topic
                 );
                 break;
@@ -745,7 +737,7 @@ where
             let batch_count: usize = messages.len();
             
             info!(
-                "[BatchServiceImpl::process_spent_detail_full] Consumed {} messages, converting for ES indexing",
+                "[BatchServiceImpl::process_spent_detail_static] Consumed {} messages, converting for ES indexing",
                 batch_count
             );
             
@@ -756,36 +748,373 @@ where
                 .collect();
 
             info!(
-                "[BatchServiceImpl::process_spent_detail_full] Indexing {} documents to {}",
+                "[BatchServiceImpl::process_spent_detail_static] Indexing {} documents to {}",
+                batch_count, new_index_name
+            );
+            
+            elastic_service
+                .bulk_index(&new_index_name, es_messages)
+                .await
+                .context("[BatchServiceImpl::process_spent_detail_static] Failed to bulk index")?;
+
+            total_indexed += batch_count as u64;
+
+            info!(
+                "[BatchServiceImpl::process_spent_detail_static] Indexed {} documents so far",
+                total_indexed
+            );
+        }   
+
+        Ok(total_indexed)
+    }
+
+
+    /// Processes dynamic (incremental) messages from the incremental topic and indexes them.
+    ///
+    /// This handles real-time incremental updates that occur while full indexing is in progress.
+    /// It ensures that changes made during the full indexing window are not lost.
+    ///
+    /// # Arguments
+    ///
+    /// * `schedule_item` - The batch schedule configuration
+    /// * `elastic_service` - Elasticsearch service for indexing
+    /// * `consume_service` - Kafka consumer service
+    /// * `new_index_name` - The new index being built
+    ///
+    /// # Returns
+    ///
+    /// Returns the total number of documents indexed from the incremental topic.
+    async fn process_spent_detail_dynamic(
+        schedule_item: &BatchScheduleItem,
+        elastic_service: &Arc<E>,
+        consume_service: &Arc<C>,
+        new_index_name: &str
+    ) -> anyhow::Result<u64> {
+
+        let relation_topic: &str = schedule_item.relation_topic_sub();
+        let batch_size: usize = *schedule_item.batch_size();
+        let consumer_group: &str = schedule_item.consumer_group();
+
+        let mut total_indexed: u64 = 0;
+
+        info!(
+            "[BatchServiceImpl::process_spent_detail_dynamic] Starting incremental indexing from topic '{}' to index '{}'",
+            relation_topic, new_index_name
+        );
+
+        loop {
+            let messages: Vec<SpentDetailWithRelations> = consume_service
+                .consume_messages_as_with_group(relation_topic, batch_size, consumer_group)
+                .await
+                .context(
+                    "[BatchServiceImpl::process_spent_detail_dynamic] Failed to consume messages",
+                )?;
+
+            if messages.is_empty() {
+                info!(
+                    "[BatchServiceImpl::process_spent_detail_dynamic] No more incremental messages in topic '{}', finishing",
+                    relation_topic
+                );
+                break;
+            }
+
+            let batch_count: usize = messages.len();
+
+            info!(
+                "[BatchServiceImpl::process_spent_detail_dynamic] Consumed {} incremental messages, converting for ES indexing",
+                batch_count
+            );
+
+            // Convert to ES-specific structure (excludes indexing_type field)
+            let es_messages: Vec<SpentDetailWithRelationsEs> = messages
+                .into_iter()
+                .map(|msg| msg.into())
+                .collect();
+
+            info!(
+                "[BatchServiceImpl::process_spent_detail_dynamic] Indexing {} incremental documents to {}",
                 batch_count, new_index_name
             );
 
             elastic_service
                 .bulk_index(&new_index_name, es_messages)
                 .await
-                .context("[BatchServiceImpl::process_spent_detail_full] Failed to bulk index")?;
+                .context("[BatchServiceImpl::process_spent_detail_dynamic] Failed to bulk index")?;
 
             total_indexed += batch_count as u64;
 
             info!(
-                "[BatchServiceImpl::process_spent_detail_full] Indexed {} documents so far",
+                "[BatchServiceImpl::process_spent_detail_dynamic] Indexed {} incremental documents so far",
                 total_indexed
             );
         }
 
-        // Step 4~5: 운영 설정 적용 + alias 스왑
-        Self::finalize_full_index(elastic_service, index_alias, &new_index_name)
-            .await
-            .context("[BatchServiceImpl::process_spent_detail_full] finalize_full_index")?;
+        info!(
+            "[BatchServiceImpl::process_spent_detail_dynamic] Completed incremental indexing. Total: {}",
+            total_indexed
+        );
+
+        Ok(total_indexed)
+    }
+
+    // ============================================================================
+    // Index-specific handler functions
+    // ============================================================================
+
+    /// Performs full indexing with Blue/Green deployment strategy.
+    ///
+    /// This function implements a zero-downtime full reindex with the following strategy:
+    ///
+    /// # Blue/Green Strategy
+    ///
+    /// 1. **Read/Write Separation**:
+    ///    - `read_{alias}`: Points to the current production index (Blue)
+    ///    - `write_{alias}`: Points to the current production index (Blue)
+    ///    - During full indexing, writes continue to Blue via write_alias
+    ///
+    /// 2. **Full Indexing Process**:
+    ///    - Create new index (Green)
+    ///    - Index full data from Kafka topic (`relation_topic`)
+    ///    - Index incremental data from incremental topic (`relation_topic_sub`)
+    ///    - This ensures changes during indexing are captured
+    ///
+    /// 3. **Traffic Switching**:
+    ///    - Update `read_{alias}` to point to new index (Green)
+    ///    - Optionally use `traffic_weight` for gradual rollout
+    ///    - `write_{alias}` remains on Blue (controlled separately)
+    ///
+    /// 4. **Final Switchover** (Manual):
+    ///    - After validation, update `write_{alias}` to Green
+    ///    - Old Blue index can be deleted after monitoring period
+    ///
+    /// # Arguments
+    ///
+    /// * `schedule_item` - Configuration including topics, batch size, and traffic weight
+    /// * `elastic_service` - Elasticsearch service for indexing operations
+    /// * `consume_service` - Kafka consumer service
+    async fn process_spent_detail_full(
+        schedule_item: &BatchScheduleItem,
+        elastic_service: &Arc<E>,
+        consume_service: &Arc<C>,
+    ) -> anyhow::Result<()> {
+
+        let index_alias: &str = schedule_item.index_name();
+        let read_index_alias: String = format!("read_{}", index_alias);
+        let write_index_alias: String = format!("write_{}", index_alias);
+        let traffic_weight: f32 = *schedule_item.traffic_weight();
 
         info!(
-            "[BatchServiceImpl::process_spent_detail_full] Completed successfully. Total indexed: {}",
-            total_indexed
+            "[BatchServiceImpl::process_spent_detail_full] Starting full indexing for '{}'",
+            index_alias
+        );
+        info!(
+            "[BatchServiceImpl::process_spent_detail_full] Read alias: {}, Write alias: {} (unchanged)",
+            read_index_alias, write_index_alias
+        );
+        info!(
+            "[BatchServiceImpl::process_spent_detail_full] Traffic weight: {:.1}% to new index",
+            traffic_weight * 100.0
+        );
+
+        // Step 1: Create new index (Green) with optimized bulk indexing settings
+        let new_index_name: String =
+            Self::prepare_full_index(elastic_service, index_alias, schedule_item.mapping_schema())
+                .await
+                .context("[BatchServiceImpl::process_spent_detail_full] prepare_full_index")?;
+
+        info!(
+            "[BatchServiceImpl::process_spent_detail_full] Created new index: {}",
+            new_index_name
+        );
+
+        // Step 2: Index full dataset from primary topic (full_spent_detail_dev)
+        let static_indexed: u64 = Self::process_spent_detail_static(
+            schedule_item,
+            elastic_service,
+            consume_service,
+            &new_index_name
+        )
+        .await
+        .context("[BatchServiceImpl::process_spent_detail_full] Failed during full indexing from primary topic")?;
+
+        info!(
+            "[BatchServiceImpl::process_spent_detail_full] Full indexing completed: {} documents",
+            static_indexed
+        );
+
+        // Step 3: Index incremental changes from incremental topic (spent_detail_dev)
+        // This ensures changes that occurred during full indexing are captured
+        let dynamic_indexed: u64 = Self::process_spent_detail_dynamic(
+            schedule_item,
+            elastic_service,
+            consume_service,
+            &new_index_name
+        )
+        .await
+        .context("[BatchServiceImpl::process_spent_detail_full] Failed during incremental catch-up indexing")?;
+
+        info!(
+            "[BatchServiceImpl::process_spent_detail_full] Incremental catch-up completed: {} documents",
+            dynamic_indexed
+        );
+
+        let total_indexed: u64 = static_indexed + dynamic_indexed;
+
+        // Step 4: Update index settings to production values (replicas, refresh_interval)
+        info!(
+            "[BatchServiceImpl::process_spent_detail_full] Finalizing index settings for: {}",
+            new_index_name
+        );
+
+        let production_settings: Value = json!({
+            "index": {
+                "number_of_replicas": 1,
+                "refresh_interval": "1s"
+            }
+        });
+
+        elastic_service
+            .update_index_settings(&new_index_name, &production_settings)
+            .await
+            .context("[BatchServiceImpl::process_spent_detail_full] Failed to update index settings")?;
+
+        // Step 5: Update READ alias only (Blue/Green deployment)
+        // Write alias remains unchanged - will be updated in a controlled manner later
+        info!(
+            "[BatchServiceImpl::process_spent_detail_full] Updating read alias '{}' with traffic weight {:.1}%",
+            read_index_alias, traffic_weight * 100.0
+        );
+
+        elastic_service
+            .update_read_alias_with_weight(&read_index_alias, &new_index_name, traffic_weight)
+            .await
+            .context("[BatchServiceImpl::process_spent_detail_full] Failed to update read alias")?;
+
+        info!(
+            "[BatchServiceImpl::process_spent_detail_full] ✓ Full indexing completed successfully"
+        );
+        info!(
+            "[BatchServiceImpl::process_spent_detail_full]   - New index: {}",
+            new_index_name
+        );
+        info!(
+            "[BatchServiceImpl::process_spent_detail_full]   - Total indexed: {} documents ({} full + {} incremental)",
+            total_indexed, static_indexed, dynamic_indexed
+        );
+        info!(
+            "[BatchServiceImpl::process_spent_detail_full]   - Read alias '{}' updated with {:.1}% traffic",
+            read_index_alias, traffic_weight * 100.0
+        );
+        info!(
+            "[BatchServiceImpl::process_spent_detail_full]   - Write alias '{}' unchanged (still on old index)",
+            write_index_alias
+        );
+        info!(
+            "[BatchServiceImpl::process_spent_detail_full] NOTE: Update write alias manually after validation"
         );
 
         Ok(())
     }
     
+    /// Performs continuous incremental indexing to the write alias.
+    ///
+    /// This function runs continuously, consuming from the incremental topic and
+    /// indexing to the **write alias** only. This ensures:
+    ///
+    /// # Write Alias Strategy
+    ///
+    /// 1. **Separation of Concerns**:
+    ///    - Incremental updates go to `write_{alias}` (current production index)
+    ///    - Reads come from `read_{alias}` (may point to old or new index during rollout)
+    ///    - This allows full reindexing without affecting incremental updates
+    ///
+    /// 2. **During Full Indexing**:
+    ///    - Full indexing creates a new Green index
+    ///    - Incremental updates continue to Blue index via `write_{alias}`
+    ///    - Full indexing catches up by consuming incremental topic
+    ///
+    /// 3. **After Full Indexing**:
+    ///    - `read_{alias}` points to Green (new full index)
+    ///    - `write_{alias}` still points to Blue (old index)
+    ///    - Manual switchover updates `write_{alias}` to Green after validation
+    ///
+    /// # Arguments
+    ///
+    /// * `schedule_item` - Configuration including topic and batch size
+    /// * `elastic_service` - Elasticsearch service
+    /// * `consume_service` - Kafka consumer service
+    async fn process_spent_detail_incremental(
+        schedule_item: &BatchScheduleItem,
+        elastic_service: &Arc<E>,
+        consume_service: &Arc<C>,
+    ) -> anyhow::Result<()> {
+
+        let index_alias: &str = schedule_item.index_name();
+        let write_index_alias: String = format!("write_{}", index_alias);
+
+        let relation_topic: &str = schedule_item.relation_topic();
+        let batch_size: usize = *schedule_item.batch_size();
+        let consumer_group: &str = schedule_item.consumer_group();
+
+        info!(
+            "[BatchServiceImpl::process_spent_detail_incremental] Starting continuous incremental indexing"
+        );
+        info!(
+            "[BatchServiceImpl::process_spent_detail_incremental] Topic: {}, Write alias: {}",
+            relation_topic, write_index_alias
+        );
+
+        let mut total_indexed: u64 = 0;
+
+        loop {
+            let messages: Vec<SpentDetailWithRelations> = consume_service
+                .consume_messages_as_with_group(relation_topic, batch_size, consumer_group)
+                .await
+                .context(
+                    "[BatchServiceImpl::process_spent_detail_incremental] Failed to consume messages",
+                )?;
+
+            if messages.is_empty() {
+                // No messages available, wait before next poll
+                tokio::time::sleep(Duration::from_secs(3)).await;
+                continue;
+            }
+
+            let batch_count: usize = messages.len();
+
+            info!(
+                "[BatchServiceImpl::process_spent_detail_incremental] Consumed {} messages from '{}'",
+                batch_count, relation_topic
+            );
+
+            // Convert to ES-specific structure (excludes indexing_type field)
+            let es_messages: Vec<SpentDetailWithRelationsEs> = messages
+                .into_iter()
+                .map(|msg| msg.into())
+                .collect();
+
+            info!(
+                "[BatchServiceImpl::process_spent_detail_incremental] Indexing {} documents to write alias '{}'",
+                batch_count, write_index_alias
+            );
+
+            elastic_service
+                .bulk_index(&write_index_alias, es_messages)
+                .await
+                .context("[BatchServiceImpl::process_spent_detail_incremental] Failed to bulk index")?;
+
+            total_indexed += batch_count as u64;
+
+            info!(
+                "[BatchServiceImpl::process_spent_detail_incremental] Successfully indexed {} documents (total: {})",
+                batch_count, total_indexed
+            );
+
+            // Small delay to prevent tight loop when continuously processing
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+    }
+
     async fn process_spent_type_full(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,

@@ -53,6 +53,71 @@ where
             .await
     }
 
+    async fn update_write_alias(&self, write_alias: &str, target_index: &str) -> anyhow::Result<()> {
+        info!(
+            "[ElasticServiceImpl::update_write_alias] Updating write alias '{}' to point to '{}'",
+            write_alias, target_index
+        );
+
+        // Write alias should point to exactly one index (no traffic splitting)
+        self.elastic_conn
+            .swap_alias(write_alias, target_index)
+            .await
+            .context(format!(
+                "[ElasticServiceImpl::update_write_alias] Failed to update write alias '{}' to '{}'",
+                write_alias, target_index
+            ))
+    }
+
+    async fn update_read_alias_with_weight(
+        &self,
+        read_alias: &str,
+        new_index: &str,
+        traffic_weight: f32,
+    ) -> anyhow::Result<()> {
+        info!(
+            "[ElasticServiceImpl::update_read_alias_with_weight] Updating read alias '{}' with {}% traffic to '{}'",
+            read_alias, traffic_weight * 100.0, new_index
+        );
+
+        // Validate traffic_weight range
+        if !(0.0..=1.0).contains(&traffic_weight) {
+            return Err(anyhow!(
+                "[ElasticServiceImpl::update_read_alias_with_weight] Invalid traffic_weight: {}. Must be between 0.0 and 1.0",
+                traffic_weight
+            ));
+        }
+
+        // If traffic_weight is 1.0, simply swap the alias completely
+        if traffic_weight >= 0.99 {
+            info!("[ElasticServiceImpl::update_read_alias_with_weight] Full traffic (100%), performing complete swap");
+            return self.swap_alias(read_alias, new_index).await;
+        }
+
+        // If traffic_weight is 0.0, do nothing (keep old index)
+        if traffic_weight <= 0.01 {
+            info!("[ElasticServiceImpl::update_read_alias_with_weight] Zero traffic (0%), skipping update");
+            return Ok(());
+        }
+
+        // For partial traffic (0 < weight < 1), use routing-based traffic splitting
+        // This requires Elasticsearch routing support
+        warn!(
+            "[ElasticServiceImpl::update_read_alias_with_weight] Partial traffic split ({:.1}%) is not fully implemented yet. Defaulting to full swap.",
+            traffic_weight * 100.0
+        );
+
+        // TODO: Implement actual weighted routing via:
+        // - Index-level routing configuration
+        // - Application-level client-side routing based on weight
+        // For now, fallback to complete swap when weight > 0.5
+        if traffic_weight > 0.5 {
+            self.swap_alias(read_alias, new_index).await
+        } else {
+            Ok(())
+        }
+    }
+
     async fn get_query_result_vec<T: DeserializeOwned>(
         &self,
         response_body: &Value,
