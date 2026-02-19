@@ -399,8 +399,37 @@ where
         // Route to specific handler based on batch_name
         match batch_name {
             "spent_detail_full" => {
-                Self::process_spent_detail_full(schedule_item, elastic_service, consume_service)
-                    .await?;
+                match Self::process_migration_spent_detail_to_kafka(
+                    schedule_item,
+                    mysql_service,
+                    producer_service,
+                )
+                .await
+                {
+                    Ok(_) => {
+                        match Self::process_spent_detail_full(
+                            schedule_item,
+                            elastic_service,
+                            consume_service,
+                        )
+                        .await
+                        {
+                            Ok(_) => (),
+                            Err(e) => {
+                                error!(
+                                    "[BatchServiceImpl::process_index_batch] spent_detail_full: full indexing failed: {:#}",
+                                    e
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            "[BatchServiceImpl::process_index_batch] spent_detail_full: migration to kafka failed: {:#}",
+                            e
+                        );
+                    }
+                }
             }
             "spent_detail_incremental" => {
                 Self::process_spent_detail_incremental(
@@ -500,7 +529,7 @@ where
 
                 updates.push((*detail.spent_idx(), *spent_type.consume_keyword_type_id()));
             }
-
+            
             if !updates.is_empty() {
                 let update_count: usize = updates.len();
                 let updated: u64 = mysql_service
@@ -519,7 +548,7 @@ where
 
             offset += batch_size;
         }
-
+        
         info!(
             "[process_update_all_check_type_detail] Completed. processed={}, updated={}",
             total_processed, total_updated
@@ -556,7 +585,7 @@ where
         );
 
         loop {
-            
+
             let produce_spent_details: Vec<SpentDetailWithRelations> = match mysql_service
                 .fetch_spent_details_for_indexing(offset, batch_size)
                 .await
@@ -945,6 +974,7 @@ where
         elastic_service: &Arc<E>,
         consume_service: &Arc<C>,
     ) -> anyhow::Result<()> {
+        
         let index_name: &str = schedule_item.index_name();
         let read_index_alias: String = format!("read_{}", index_name);
         let write_index_alias: String = format!("write_{}", index_name);
@@ -957,7 +987,7 @@ where
             "[BatchServiceImpl::process_spent_detail_full] Read alias: {}, Write alias: {} (unchanged)",
             read_index_alias, write_index_alias
         );
-
+        
         // Step 1: Create new index with optimized bulk indexing settings
         let new_index_name: String = elastic_service
             .prepare_full_index(index_name, schedule_item.mapping_schema())
