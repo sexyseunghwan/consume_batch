@@ -36,6 +36,9 @@ mod models;
 mod app_config;
 use app_config::AppConfig;
 
+mod global_state;
+use global_state::*;
+
 mod config;
 
 mod enums;
@@ -82,7 +85,7 @@ async fn main() {
     };
 
     let shared_kafka_repo: Arc<KafkaRepositoryImpl> = Arc::new(kafka_repo);
-    
+
     // Initialize services with dependency injection
     let elastic_query_service: ElasticService = ElasticServiceImpl::new(elastic_repo);
     let mysql_query_service: MysqlService = MysqlServiceImpl::new(mysql_repo);

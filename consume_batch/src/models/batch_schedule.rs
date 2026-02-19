@@ -84,7 +84,7 @@ pub struct BatchScheduleItem {
     relation_topic: String,
 
     relation_topic_sub: String,
-    
+
     consumer_group: String,
 
     batch_size: usize,
@@ -96,15 +96,14 @@ pub struct BatchScheduleItem {
     cron_schedule_apply: bool,
 
     mapping_schema: String,
-
-    /// Traffic weight for Blue/Green deployment (0.0 ~ 1.0)
-    ///
-    /// Determines what percentage of read traffic goes to the new index:
-    /// - `0.0`: All traffic to old index (Blue)
-    /// - `0.5`: 50% traffic split
-    /// - `1.0`: All traffic to new index (Green)
-    #[serde(default)]
-    traffic_weight: f32,
+    // /// Traffic weight for Blue/Green deployment (0.0 ~ 1.0)
+    // ///
+    // /// Determines what percentage of read traffic goes to the new index:
+    // /// - `0.0`: All traffic to old index (Blue)
+    // /// - `0.5`: 50% traffic split
+    // /// - `1.0`: All traffic to new index (Green)
+    // #[serde(default)]
+    // traffic_weight: f32,
 }
 
 impl BatchScheduleConfig {

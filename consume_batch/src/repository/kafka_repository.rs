@@ -603,8 +603,9 @@ impl KafkaRepository for KafkaRepositoryImpl {
         group_suffix: &str,
     ) -> anyhow::Result<Vec<Value>> {
         // Get or create consumer with custom group suffix
-        let consumer: Arc<StreamConsumer> =
-            self.get_or_create_consumer(topic, Some(group_suffix)).await?;
+        let consumer: Arc<StreamConsumer> = self
+            .get_or_create_consumer(topic, Some(group_suffix))
+            .await?;
 
         let mut messages: Vec<Value> = Vec::new();
         let mut stream: MessageStream<'_, rdkafka::consumer::DefaultConsumerContext> =
@@ -651,7 +652,9 @@ impl KafkaRepository for KafkaRepositoryImpl {
                 Err(_) => {
                     info!(
                         "[KafkaRepositoryImpl::consume_messages_with_group] Timeout reached for topic: {} (group: {}), consumed {} messages",
-                        topic, group_suffix, messages.len()
+                        topic,
+                        group_suffix,
+                        messages.len()
                     );
                     break;
                 }
@@ -660,7 +663,9 @@ impl KafkaRepository for KafkaRepositoryImpl {
 
         info!(
             "[KafkaRepositoryImpl::consume_messages_with_group] Finished consuming {} messages from topic: {} (group: {})",
-            messages.len(), topic, group_suffix
+            messages.len(),
+            topic,
+            group_suffix
         );
 
         Ok(messages)

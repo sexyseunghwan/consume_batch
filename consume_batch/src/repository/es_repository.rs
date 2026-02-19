@@ -46,7 +46,7 @@ use elasticsearch::{
     BulkParts,
     http::request::JsonBody,
     indices::{
-        IndicesCreateParts, IndicesGetAliasParts, IndicesPutSettingsParts,
+        IndicesCreateParts, IndicesGetAliasParts, IndicesPutSettingsParts, IndicesRefreshParts,
         IndicesUpdateAliasesParts,
     },
 };
@@ -174,7 +174,8 @@ pub trait EsRepository {
     /// # Arguments
     ///
     /// * `index_name` - The target index name
-    /// * `documents` - Vector of documents to update (must have spent_idx field)
+    /// * `documents` - Vector of documents to update
+    /// * `doc_id_field` - The field name to use as document ID (e.g., "spent_idx", "id")
     ///
     /// # Returns
     ///
@@ -183,6 +184,7 @@ pub trait EsRepository {
         &self,
         index_name: &str,
         documents: Vec<T>,
+        doc_id_field: &str,
     ) -> Result<(), anyhow::Error>;
 
     /// Performs bulk delete of documents by IDs.
@@ -195,11 +197,18 @@ pub trait EsRepository {
     /// # Returns
     ///
     /// Returns `Ok(())` on successful bulk delete.
-    async fn bulk_delete(
-        &self,
-        index_name: &str,
-        doc_ids: Vec<i64>,
-    ) -> Result<(), anyhow::Error>;
+    async fn bulk_delete(&self, index_name: &str, doc_ids: Vec<i64>) -> Result<(), anyhow::Error>;
+
+    /// Forces a refresh on the specified index, making all buffered documents searchable.
+    ///
+    /// # Arguments
+    ///
+    /// * `index_name` - The index to refresh
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful refresh.
+    async fn refresh_index(&self, index_name: &str) -> Result<(), anyhow::Error>;
 
     /// Atomically swaps an alias from old index to new index.
     ///
@@ -619,6 +628,7 @@ impl EsRepository for EsRepositoryImpl {
         &self,
         index_name: &str,
         documents: Vec<T>,
+        doc_id_field: &str,
     ) -> anyhow::Result<()> {
         if documents.is_empty() {
             return Ok(());
@@ -630,11 +640,16 @@ impl EsRepository for EsRepositoryImpl {
         for doc in documents {
             let doc_json: Value = json!(doc);
 
-            // Extract spent_idx as document ID
+            // Extract document ID from the specified field
             let doc_id: i64 = doc_json
-                .get("spent_idx")
+                .get(doc_id_field)
                 .and_then(|v| v.as_i64())
-                .ok_or_else(|| anyhow!("[EsRepositoryImpl::bulk_update] Missing spent_idx in document"))?;
+                .ok_or_else(|| {
+                    anyhow!(
+                        "[EsRepositoryImpl::bulk_update] Missing '{}' field in document",
+                        doc_id_field
+                    )
+                })?;
 
             let update_action: Value = json!({
                 "update": {
@@ -691,11 +706,7 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
-    async fn bulk_delete(
-        &self,
-        index_name: &str,
-        doc_ids: Vec<i64>,
-    ) -> anyhow::Result<()> {
+    async fn bulk_delete(&self, index_name: &str, doc_ids: Vec<i64>) -> anyhow::Result<()> {
         if doc_ids.is_empty() {
             return Ok(());
         }
@@ -745,6 +756,30 @@ impl EsRepository for EsRepositoryImpl {
             let error_body: String = response.text().await?;
             Err(anyhow!(
                 "[EsRepositoryImpl::bulk_delete] Failed to bulk delete from {}: {}",
+                index_name,
+                error_body
+            ))
+        }
+    }
+
+    async fn refresh_index(&self, index_name: &str) -> anyhow::Result<()> {
+        let response: Response = self
+            .es_client
+            .indices()
+            .refresh(IndicesRefreshParts::Index(&[index_name]))
+            .send()
+            .await?;
+
+        if response.status_code().is_success() {
+            info!(
+                "[EsRepositoryImpl::refresh_index] Successfully refreshed index: {}",
+                index_name
+            );
+            Ok(())
+        } else {
+            let error_body: String = response.text().await?;
+            Err(anyhow!(
+                "[EsRepositoryImpl::refresh_index] Failed to refresh index {}: {}",
                 index_name,
                 error_body
             ))

@@ -22,6 +22,8 @@ pub struct SpentDetailWithRelationsRaw {
     consume_keyword_type: String,
     room_seq: i64,
     indexing_type: String,
+    updated_at: DateTime<Utc>,
+    produced_at: DateTime<Utc>,
 }
 
 /// Represents a spent detail with all related information for indexing.
@@ -73,8 +75,13 @@ pub struct SpentDetailWithRelations {
 
     /// Indexing Type - I,U,D
     pub indexing_type: IndexingType,
-}
 
+    /// Record updated timestamp
+    pub updated_at: DateTime<Utc>,
+
+    /// Current UTC timestamp when indexing was triggered
+    pub produced_at: DateTime<Utc>,
+}
 
 /// Elasticsearch-specific version of SpentDetailWithRelations.
 ///
@@ -108,6 +115,12 @@ pub struct SpentDetailWithRelationsEs {
 
     /// Telegram room identifier
     pub room_seq: i64,
+
+    /// Record updated timestamp
+    pub updated_at: DateTime<Utc>,
+
+    /// Record indexing timestamp
+    pub produced_at: DateTime<Utc>,
 }
 
 impl From<SpentDetailWithRelations> for SpentDetailWithRelationsEs {
@@ -122,6 +135,8 @@ impl From<SpentDetailWithRelations> for SpentDetailWithRelationsEs {
             consume_keyword_type_id: src.consume_keyword_type_id,
             consume_keyword_type: src.consume_keyword_type,
             room_seq: src.room_seq,
+            updated_at: src.updated_at,
+            produced_at: src.produced_at,
         }
     }
 }
@@ -140,6 +155,8 @@ impl From<SpentDetailWithRelationsRaw> for SpentDetailWithRelations {
             room_seq: raw.room_seq,
             indexing_type: IndexingType::from_str(&raw.indexing_type)
                 .unwrap_or(IndexingType::Insert),
+            updated_at: raw.updated_at,
+            produced_at: raw.produced_at,
         }
     }
 }

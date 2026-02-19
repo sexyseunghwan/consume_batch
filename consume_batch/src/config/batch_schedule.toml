@@ -9,7 +9,6 @@ batch_size = 100
 cron_schedule_apply = false
 cron_schedule = "0 5,10,15,20,25,30,35,40,45,50,55 1-23 * * *"
 mapping_schema = "./src/config/elastic_schema/consume_index_prod_type.json"
-traffic_weight = 1.0  # 0.0 = all traffic to old index, 1.0 = all traffic to new index
 
 [[batch_schedule]]
 batch_name = "spent_detail_incremental"
@@ -22,7 +21,6 @@ batch_size = 100
 cron_schedule_apply = false
 cron_schedule = "0 0 23 * * *"
 mapping_schema = "./src/config/elastic_schema/consume_index_prod_type.json"
-traffic_weight = 0.0  # Not used for incremental indexing
 
 [[batch_schedule]]
 batch_name = "spent_type_dev"

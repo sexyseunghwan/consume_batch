@@ -39,8 +39,7 @@
 //! - Each job triggers `process_index_batch` for its specific index
 //! - Multiple indices can be processed concurrently without blocking each other
 
-use crate::app_config::*;
-use crate::common::*;
+use crate::{app_config::*, common::*, global_state::*};
 
 use crate::enums::IndexingType;
 
@@ -207,15 +206,15 @@ where
     /// - Any cron expression is invalid
     /// - Jobs cannot be added to the scheduler
     async fn start_scheduler(&self) -> anyhow::Result<(JobScheduler, JoinSet<()>)> {
-        // 스케쥴러
+        // Scheduler
         let scheduler: JobScheduler = JobScheduler::new()
             .await
             .context("[BatchServiceImpl::start_scheduler] Failed to create JobScheduler")?;
 
-        // 즉시 실행될 작업
+        // Tasks to be executed immediately.
         let mut immediate_jobs: JoinSet<()> = JoinSet::new();
 
-        // 실행될 배치작업들 -> 스케쥴 + 즉시실행 작업 섞여있음. -> 실행 허용된 작업들만 가져옴
+        // Scheduled tasks -> Mix of scheduled and immediate-execution tasks. -> Only fetches tasks permitted for execution.
         let enabled_schedules: Vec<&BatchScheduleItem> = self.get_enabled_schedules();
 
         if enabled_schedules.is_empty() {
@@ -396,7 +395,7 @@ where
             "[BatchServiceImpl::process_index_batch] {} Starting batch indexing job",
             index_name
         );
-        
+
         // Route to specific handler based on batch_name
         match batch_name {
             "spent_detail_full" => {
@@ -404,8 +403,12 @@ where
                     .await?;
             }
             "spent_detail_incremental" => {
-                Self::process_spent_detail_incremental(schedule_item, elastic_service, consume_service)
-                    .await?;
+                Self::process_spent_detail_incremental(
+                    schedule_item,
+                    elastic_service,
+                    consume_service,
+                )
+                .await?;
             }
             "spent_type_dev" | "spent_type_full" => {
                 Self::process_spent_type_full(schedule_item, mysql_service, elastic_service)
@@ -455,7 +458,6 @@ where
     /* ====================================================================================================== */
     /* ====================================================================================================== */
     /* ====================================================================================================== */
-
     async fn process_update_all_check_type_detail(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
@@ -555,10 +557,19 @@ where
 
         loop {
             
-            let produce_spent_details: Vec<SpentDetailWithRelations> = mysql_service
+            let produce_spent_details: Vec<SpentDetailWithRelations> = match mysql_service
                 .fetch_spent_details_for_indexing(offset, batch_size)
                 .await
-                .context("[BatchServiceImpl::process_migration_spent_detail_to_kafka] Failed to load vector for `produce_spent_details` from DB. ")?;
+            {
+                Ok(produce_spent_details) => produce_spent_details,
+                Err(e) => {
+                    error!(
+                        "[BatchServiceImpl::process_migration_spent_detail_to_kafka] Failed to load vector for `produce_spent_details` from DB.: {:?}",
+                        e
+                    );
+                    continue;
+                }
+            };
 
             if produce_spent_details.is_empty() {
                 break;
@@ -599,120 +610,15 @@ where
     // Common helper functions for full indexing
     // ============================================================================
 
-    /// Prepares a new ES index for full indexing.
-    ///
-    /// 1. Loads mapping schema from file
-    /// 2. Merges bulk indexing settings (shards=3, replicas=0, refresh=-1)
-    /// 3. Creates a new timestamped index (e.g. "spent_detail_dev_20260213120000")
-    ///
-    /// Returns the created index name.
-    async fn prepare_full_index(
-        elastic_service: &Arc<E>,
-        index_alias: &str,
-        mapping_schema_path: &str,
-    ) -> anyhow::Result<String> {
-        // Load mapping schema from file
-        let schema_content: String = tokio::fs::read_to_string(mapping_schema_path)
-            .await
-            .context(format!(
-                "[BatchServiceImpl::prepare_full_index] Failed to read mapping schema file: {}",
-                mapping_schema_path
-            ))?;
-
-        let schema: Value = serde_json::from_str(&schema_content)
-            .context("[BatchServiceImpl::prepare_full_index] Failed to parse mapping schema")?;
-
-        let mappings: Value = schema
-            .get("mappings")
-            .ok_or_else(|| {
-                anyhow!("[BatchServiceImpl::prepare_full_index] Missing 'mappings' in schema")
-            })?
-            .clone();
-
-        // Get settings from schema file (includes analyzer definitions)
-        let mut schema_settings: Value =
-            schema.get("settings").cloned().unwrap_or_else(|| json!({}));
-
-        // Merge initial indexing settings for fast bulk indexing
-        if let Some(index_obj) = schema_settings.get_mut("index") {
-            if let Some(obj) = index_obj.as_object_mut() {
-                obj.insert("number_of_shards".to_string(), json!(3));
-                obj.insert("number_of_replicas".to_string(), json!(0));
-                obj.insert("refresh_interval".to_string(), json!("-1"));
-            }
-        } else {
-            schema_settings["index"]["number_of_shards"] = json!(3);
-            schema_settings["index"]["number_of_replicas"] = json!(0);
-            schema_settings["index"]["refresh_interval"] = json!("-1");
-        }
-
-        // Create new index with timestamp
-        let now: DateTime<Utc> = Utc::now();
-        let new_index_name: String = format!("{}_{}", index_alias, now.format("%Y%m%d%H%M%S"));
-
-        info!(
-            "[BatchServiceImpl::prepare_full_index] Creating new index: {}",
-            new_index_name
-        );
-        
-        elastic_service
-            .create_index(&new_index_name, &schema_settings, &mappings)
-            .await
-            .context("[BatchServiceImpl::prepare_full_index] Failed to create index")?;
-
-        Ok(new_index_name)
-    }
-
-    /// Finalizes a full index after bulk indexing is complete.
-    ///
-    /// 1. Updates index settings to production values (replicas=1, refresh=1s)
-    /// 2. Swaps alias from old index to the new index
-    async fn finalize_full_index(
-        elastic_service: &Arc<E>,
-        index_alias: &str,
-        new_index_name: &str,
-    ) -> anyhow::Result<()> {
-        info!(
-            "[BatchServiceImpl::finalize_full_index] Updating index settings for production: {}",
-            new_index_name
-        );
-
-        let production_settings: Value = json!({
-            "index": {
-                "number_of_replicas": 1,
-                "refresh_interval": "1s"
-            }
-        });
-
-        elastic_service
-            .update_index_settings(new_index_name, &production_settings)
-            .await
-            .context("[BatchServiceImpl::finalize_full_index] Failed to update index settings")?;
-
-        info!(
-            "[BatchServiceImpl::finalize_full_index] Swapping alias {} to new index {}",
-            index_alias, new_index_name
-        );
-
-        elastic_service
-            .swap_alias(index_alias, new_index_name)
-            .await
-            .context("[BatchServiceImpl::finalize_full_index] Failed to swap alias")?;
-
-        Ok(())
-    }
-
-
     /* ============================================================================ */
     /* ============================================================================ */
     /* ============================================================================ */
     /* ============================================================================ */
-    
     async fn process_spent_detail_static(
         schedule_item: &BatchScheduleItem,
         elastic_service: &Arc<E>,
         consume_service: &Arc<C>,
-        new_index_name: &str
+        new_index_name: &str,
     ) -> anyhow::Result<u64> {
         let relation_topic: &str = schedule_item.relation_topic();
         let batch_size: usize = *schedule_item.batch_size();
@@ -727,7 +633,7 @@ where
                 .context(
                     "[BatchServiceImpl::process_spent_detail_static] Failed to consume messages",
                 )?;
-            
+
             if messages.is_empty() {
                 info!(
                     "[BatchServiceImpl::process_spent_detail_static] No more messages in topic '{}', finishing",
@@ -735,25 +641,28 @@ where
                 );
                 break;
             }
-            
+
             let batch_count: usize = messages.len();
-            
+
             info!(
                 "[BatchServiceImpl::process_spent_detail_static] Consumed {} messages, converting for ES indexing",
                 batch_count
             );
-            
+
+            // To synchronize with incremental indexing.
+            let max_produced_at: Option<DateTime<Utc>> =
+                messages.iter().map(|m| m.produced_at).max();
+            set_max_static_spent_detail_index_timestamp(max_produced_at).await;
+
             // Convert to ES-specific structure (excludes indexing_type field)
-            let es_messages: Vec<SpentDetailWithRelationsEs> = messages
-                .into_iter()
-                .map(|msg| msg.into())
-                .collect();
+            let es_messages: Vec<SpentDetailWithRelationsEs> =
+                messages.into_iter().map(|msg| msg.into()).collect();
 
             info!(
                 "[BatchServiceImpl::process_spent_detail_static] Indexing {} documents to {}",
                 batch_count, new_index_name
             );
-            
+
             elastic_service
                 .bulk_index(&new_index_name, es_messages)
                 .await
@@ -765,11 +674,44 @@ where
                 "[BatchServiceImpl::process_spent_detail_static] Indexed {} documents so far",
                 total_indexed
             );
-        }   
+        }
 
         Ok(total_indexed)
     }
 
+    async fn check_catch_up_status(
+        max_dynamic_produced_at: DateTime<Utc>,
+        cur_max_produced_at: DateTime<Utc>,
+    ) -> bool {
+        if cur_max_produced_at > max_dynamic_produced_at {
+            info!(
+                "[BatchServiceImpl::check_catch_up_status] \
+                Catch-up surpassed dynamic incremental progress. \
+                cur_max_produced_at={}, max_dynamic_produced_at={}. \
+                Finishing catch-up phase after this batch.",
+                cur_max_produced_at, max_dynamic_produced_at
+            );
+            true
+        } else {
+            let produced_diff_secs: i64 = cur_max_produced_at
+                .signed_duration_since(max_dynamic_produced_at)
+                .num_seconds()
+                .abs();
+
+            let ok: bool = produced_diff_secs <= 5;
+
+            if ok {
+                info!(
+                    "[BatchServiceImpl::check_catch_up_status] \
+                    Within 5s of dynamic incremental progress. \
+                    produced_diff={}s.",
+                    produced_diff_secs
+                );
+            }
+
+            ok
+        }
+    }
 
     /// Processes dynamic (incremental) messages from the incremental topic and indexes them.
     ///
@@ -790,19 +732,19 @@ where
         schedule_item: &BatchScheduleItem,
         elastic_service: &Arc<E>,
         consume_service: &Arc<C>,
-        new_index_name: &str
+        new_index_name: &str,
     ) -> anyhow::Result<u64> {
-
         let relation_topic: &str = schedule_item.relation_topic_sub();
         let batch_size: usize = *schedule_item.batch_size();
         let consumer_group: &str = schedule_item.consumer_group();
 
-        let mut total_processed: u64 = 0;
-
         info!(
-            "[BatchServiceImpl::process_spent_detail_dynamic] Starting incremental indexing from topic '{}' to index '{}'",
+            "[BatchServiceImpl::process_spent_detail_dynamic] Starting. topic='{}', index='{}'",
             relation_topic, new_index_name
         );
+
+        let mut total_processed: u64 = 0;
+        let mut empty_count: i32 = 0;
 
         loop {
             let messages: Vec<SpentDetailWithRelations> = consume_service
@@ -812,90 +754,155 @@ where
                     "[BatchServiceImpl::process_spent_detail_dynamic] Failed to consume messages",
                 )?;
 
-            if messages.is_empty() {
+            let max_static_produced_at: DateTime<Utc> =
+                get_max_static_spent_detail_index_timestamp().await;
+            let filtered: Vec<SpentDetailWithRelations> = messages
+                .into_iter()
+                .filter(|msg| msg.produced_at > max_static_produced_at)
+                .collect();
+
+            if filtered.is_empty() {
+                empty_count += 1;
                 info!(
-                    "[BatchServiceImpl::process_spent_detail_dynamic] No more incremental messages in topic '{}', finishing",
-                    relation_topic
+                    "[BatchServiceImpl::process_spent_detail_dynamic] No new messages ({}/3 empty batches)",
+                    empty_count
+                );
+                if empty_count > 3 {
+                    info!(
+                        "[BatchServiceImpl::process_spent_detail_dynamic] Terminating after {} consecutive empty batches",
+                        empty_count
+                    );
+                    break;
+                }
+                tokio::time::sleep(Duration::from_secs(3)).await;
+                continue;
+            }
+
+            empty_count = 0;
+            let batch_count: usize = filtered.len();
+
+            let max_dynamic_produced_at: DateTime<Utc> =
+                get_max_dynamic_spent_detail_index_timestamp().await;
+
+            let cur_max_produced_at: DateTime<Utc> = filtered
+                .iter()
+                .map(|m| m.produced_at)
+                .max()
+                .unwrap_or_else(Utc::now);
+
+            let catch_up_complete: bool =
+                Self::check_catch_up_status(max_dynamic_produced_at, cur_max_produced_at).await;
+
+            info!(
+                "[BatchServiceImpl::process_spent_detail_dynamic] Processing {} messages (catch_up_complete={})",
+                batch_count, catch_up_complete
+            );
+
+            let (to_insert, to_update, to_delete) = Self::partition_by_indexing_type(filtered);
+
+            Self::apply_es_operations(
+                elastic_service,
+                new_index_name,
+                to_insert,
+                to_update,
+                to_delete,
+            )
+            .await?;
+
+            total_processed += batch_count as u64;
+
+            if catch_up_complete {
+                info!(
+                    "[BatchServiceImpl::process_spent_detail_dynamic] Catch-up complete. total_processed={}",
+                    total_processed
                 );
                 break;
             }
 
-            let batch_count: usize = messages.len();
-
             info!(
-                "[BatchServiceImpl::process_spent_detail_dynamic] Consumed {} incremental messages, processing by indexing_type",
-                batch_count
-            );
-
-            // Separate messages by indexing_type
-            let mut to_insert: Vec<SpentDetailWithRelationsEs> = Vec::new();
-            let mut to_update: Vec<SpentDetailWithRelationsEs> = Vec::new();
-            let mut to_delete: Vec<i64> = Vec::new();
-
-            for msg in messages {
-                match msg.indexing_type {
-                    IndexingType::Insert => {
-                        to_insert.push(msg.into());
-                    }
-                    IndexingType::Update => {
-                        to_update.push(msg.into());
-                    }
-                    IndexingType::Delete => {
-                        to_delete.push(msg.spent_idx);
-                    }
-                }
-            }
-
-            // Process inserts
-            if !to_insert.is_empty() {
-                info!(
-                    "[BatchServiceImpl::process_spent_detail_dynamic] Inserting {} documents to {}",
-                    to_insert.len(), new_index_name
-                );
-                elastic_service
-                    .bulk_index(&new_index_name, to_insert)
-                    .await
-                    .context("[BatchServiceImpl::process_spent_detail_dynamic] Failed to bulk insert")?;
-            }
-
-            // Process updates
-            if !to_update.is_empty() {
-                info!(
-                    "[BatchServiceImpl::process_spent_detail_dynamic] Updating {} documents in {}",
-                    to_update.len(), new_index_name
-                );
-                elastic_service
-                    .bulk_update(&new_index_name, to_update)
-                    .await
-                    .context("[BatchServiceImpl::process_spent_detail_dynamic] Failed to bulk update")?;
-            }
-
-            // Process deletes
-            if !to_delete.is_empty() {
-                info!(
-                    "[BatchServiceImpl::process_spent_detail_dynamic] Deleting {} documents from {}",
-                    to_delete.len(), new_index_name
-                );
-                elastic_service
-                    .bulk_delete(&new_index_name, to_delete)
-                    .await
-                    .context("[BatchServiceImpl::process_spent_detail_dynamic] Failed to bulk delete")?;
-            }
-
-            total_processed += batch_count as u64;
-
-            info!(
-                "[BatchServiceImpl::process_spent_detail_dynamic] Processed {} incremental messages so far",
+                "[BatchServiceImpl::process_spent_detail_dynamic] total_processed={} so far",
                 total_processed
             );
+
+            tokio::time::sleep(Duration::from_secs(10)).await;
         }
 
         info!(
-            "[BatchServiceImpl::process_spent_detail_dynamic] Completed incremental indexing. Total: {}",
+            "[BatchServiceImpl::process_spent_detail_dynamic] Done. total_processed={}",
             total_processed
         );
 
         Ok(total_processed)
+    }
+
+    /// Partitions messages into insert / update / delete buckets by `indexing_type`.
+    fn partition_by_indexing_type(
+        messages: Vec<SpentDetailWithRelations>,
+    ) -> (
+        Vec<SpentDetailWithRelationsEs>,
+        Vec<SpentDetailWithRelationsEs>,
+        Vec<i64>,
+    ) {
+        let mut to_insert: Vec<SpentDetailWithRelationsEs> = Vec::new();
+        let mut to_update: Vec<SpentDetailWithRelationsEs> = Vec::new();
+        let mut to_delete: Vec<i64> = Vec::new();
+
+        for msg in messages {
+            match msg.indexing_type {
+                IndexingType::Insert => to_insert.push(msg.into()),
+                IndexingType::Update => to_update.push(msg.into()),
+                IndexingType::Delete => to_delete.push(msg.spent_idx),
+            }
+        }
+
+        (to_insert, to_update, to_delete)
+    }
+
+    /// Applies bulk insert / update / delete operations to the given ES index.
+    async fn apply_es_operations(
+        elastic_service: &Arc<E>,
+        index_name: &str,
+        to_insert: Vec<SpentDetailWithRelationsEs>,
+        to_update: Vec<SpentDetailWithRelationsEs>,
+        to_delete: Vec<i64>,
+    ) -> anyhow::Result<()> {
+        if !to_insert.is_empty() {
+            info!(
+                "[BatchServiceImpl::apply_es_operations] Inserting {} docs into '{}'",
+                to_insert.len(),
+                index_name
+            );
+            elastic_service
+                .bulk_index(index_name, to_insert)
+                .await
+                .context("[BatchServiceImpl::apply_es_operations] bulk_index failed")?;
+        }
+
+        if !to_update.is_empty() {
+            info!(
+                "[BatchServiceImpl::apply_es_operations] Updating {} docs in '{}'",
+                to_update.len(),
+                index_name
+            );
+            elastic_service
+                .bulk_update(index_name, to_update, "spent_idx")
+                .await
+                .context("[BatchServiceImpl::apply_es_operations] bulk_update failed")?;
+        }
+
+        if !to_delete.is_empty() {
+            info!(
+                "[BatchServiceImpl::apply_es_operations] Deleting {} docs from '{}'",
+                to_delete.len(),
+                index_name
+            );
+            elastic_service
+                .bulk_delete(index_name, to_delete)
+                .await
+                .context("[BatchServiceImpl::apply_es_operations] bulk_delete failed")?;
+        }
+
+        Ok(())
     }
 
     // ============================================================================
@@ -938,37 +945,31 @@ where
         elastic_service: &Arc<E>,
         consume_service: &Arc<C>,
     ) -> anyhow::Result<()> {
+        let index_name: &str = schedule_item.index_name();
+        let read_index_alias: String = format!("read_{}", index_name);
+        let write_index_alias: String = format!("write_{}", index_name);
 
-        let index_alias: &str = schedule_item.index_name();
-        let read_index_alias: String = format!("read_{}", index_alias);
-        let write_index_alias: String = format!("write_{}", index_alias);
-        let traffic_weight: f32 = *schedule_item.traffic_weight();
-        
         info!(
             "[BatchServiceImpl::process_spent_detail_full] Starting full indexing for '{}'",
-            index_alias
+            index_name
         );
         info!(
             "[BatchServiceImpl::process_spent_detail_full] Read alias: {}, Write alias: {} (unchanged)",
             read_index_alias, write_index_alias
         );
-        info!(
-            "[BatchServiceImpl::process_spent_detail_full] Traffic weight: {:.1}% to new index",
-            traffic_weight * 100.0
-        );
 
-        // Step 1: Create new index (Green) with optimized bulk indexing settings
-        let new_index_name: String =
-            Self::prepare_full_index(elastic_service, index_alias, schedule_item.mapping_schema())
-                .await
-                .context("[BatchServiceImpl::process_spent_detail_full] prepare_full_index")?;
+        // Step 1: Create new index with optimized bulk indexing settings
+        let new_index_name: String = elastic_service
+            .prepare_full_index(index_name, schedule_item.mapping_schema())
+            .await
+            .context("[BatchServiceImpl::process_spent_detail_full] prepare_full_index")?;
 
         info!(
             "[BatchServiceImpl::process_spent_detail_full] Created new index: {}",
             new_index_name
         );
 
-        // Step 2: Index full dataset from primary topic (full_spent_detail_dev)
+        // Step 2: Index full dataset from primary topic
         let static_indexed: u64 = Self::process_spent_detail_static(
             schedule_item,
             elastic_service,
@@ -983,7 +984,18 @@ where
             static_indexed
         );
 
-        // Step 3: Index incremental changes from incremental topic (spent_detail_dev)
+        /*
+            Step 3: Revert the index settings to the initial configuration.
+                    and Reassign the READ alias to the newly indexed index.
+        */
+        elastic_service
+            .finalize_full_index(&read_index_alias, &new_index_name)
+            .await
+            .context(
+                "[BatchServiceImpl::process_spent_detail_full] Failed to apply index settings.",
+            )?;
+
+        // Step 4: Index incremental changes from incremental topic (spent_detail_dev)
         // This ensures changes that occurred during full indexing are captured
         let dynamic_indexed: u64 = Self::process_spent_detail_dynamic(
             schedule_item,
@@ -1001,62 +1013,28 @@ where
 
         let total_indexed: u64 = static_indexed + dynamic_indexed;
 
-        // Step 4: Update index settings to production values (replicas, refresh_interval)
         info!(
             "[BatchServiceImpl::process_spent_detail_full] Finalizing index settings for: {}",
             new_index_name
         );
 
-        let production_settings: Value = json!({
-            "index": {
-                "number_of_replicas": 1,
-                "refresh_interval": "1s"
-            }
-        });
-
-        elastic_service
-            .update_index_settings(&new_index_name, &production_settings)
-            .await
-            .context("[BatchServiceImpl::process_spent_detail_full] Failed to update index settings")?;
-
-        // Step 5: Update READ alias only (Blue/Green deployment)
-        // Write alias remains unchanged - will be updated in a controlled manner later
-        info!(
-            "[BatchServiceImpl::process_spent_detail_full] Updating read alias '{}' with traffic weight {:.1}%",
-            read_index_alias, traffic_weight * 100.0
-        );
-
-        elastic_service
-            .update_read_alias_with_weight(&read_index_alias, &new_index_name, traffic_weight)
-            .await
-            .context("[BatchServiceImpl::process_spent_detail_full] Failed to update read alias")?;
-
-        info!(
-            "[BatchServiceImpl::process_spent_detail_full] ✓ Full indexing completed successfully"
-        );
-        info!(
-            "[BatchServiceImpl::process_spent_detail_full]   - New index: {}",
-            new_index_name
-        );
         info!(
             "[BatchServiceImpl::process_spent_detail_full]   - Total indexed: {} documents ({} full + {} incremental)",
             total_indexed, static_indexed, dynamic_indexed
         );
-        info!(
-            "[BatchServiceImpl::process_spent_detail_full]   - Read alias '{}' updated with {:.1}% traffic",
-            read_index_alias, traffic_weight * 100.0
-        );
-        info!(
-            "[BatchServiceImpl::process_spent_detail_full]   - Write alias '{}' unchanged (still on old index)",
-            write_index_alias
-        );
-        info!(
-            "[BatchServiceImpl::process_spent_detail_full] NOTE: Update write alias manually after validation"
-        );
+
+        // Step 5: Set the new index as the write index for the alias.
+        elastic_service
+            .update_write_alias(&write_index_alias, &new_index_name)
+            .await
+            .context("[BatchServiceImpl::process_spent_detail_full] Failed to write alias")?;
+
+        // Step 6: Resume the incremental indexing process after alias reassignment.
+        set_spent_detail_indexing(true).await;
 
         Ok(())
     }
-    
+
     /// Performs continuous incremental indexing to the write alias.
     ///
     /// This function runs continuously, consuming from the incremental topic and
@@ -1089,7 +1067,6 @@ where
         elastic_service: &Arc<E>,
         consume_service: &Arc<C>,
     ) -> anyhow::Result<()> {
-
         let index_alias: &str = schedule_item.index_name();
         let write_index_alias: String = format!("write_{}", index_alias);
 
@@ -1108,6 +1085,13 @@ where
         let mut total_processed: u64 = 0;
 
         loop {
+            // To synchronise the incremental index with the full index.
+            let indexing_check: bool = get_spent_detail_indexing().await;
+            if indexing_check {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                continue;
+            }
+
             let messages: Vec<SpentDetailWithRelations> = consume_service
                 .consume_messages_as_with_group(relation_topic, batch_size, consumer_group)
                 .await
@@ -1117,9 +1101,13 @@ where
 
             if messages.is_empty() {
                 // No messages available, wait before next poll
-                tokio::time::sleep(Duration::from_secs(3)).await;
+                tokio::time::sleep(Duration::from_secs(10)).await;
                 continue;
             }
+
+            let max_produced_at: Option<DateTime<Utc>> =
+                messages.iter().map(|m| m.produced_at).max();
+            set_max_dynamic_spent_detail_index_timestamp(max_produced_at).await;
 
             let batch_count: usize = messages.len();
 
@@ -1151,7 +1139,8 @@ where
             if !to_insert.is_empty() {
                 info!(
                     "[BatchServiceImpl::process_spent_detail_incremental] Inserting {} documents to write alias '{}'",
-                    to_insert.len(), write_index_alias
+                    to_insert.len(),
+                    write_index_alias
                 );
                 elastic_service
                     .bulk_index(&write_index_alias, to_insert)
@@ -1163,10 +1152,11 @@ where
             if !to_update.is_empty() {
                 info!(
                     "[BatchServiceImpl::process_spent_detail_incremental] Updating {} documents in write alias '{}'",
-                    to_update.len(), write_index_alias
+                    to_update.len(),
+                    write_index_alias
                 );
                 elastic_service
-                    .bulk_update(&write_index_alias, to_update)
+                    .bulk_update(&write_index_alias, to_update, "spent_idx")
                     .await
                     .context("[BatchServiceImpl::process_spent_detail_incremental] Failed to bulk update")?;
             }
@@ -1175,7 +1165,8 @@ where
             if !to_delete.is_empty() {
                 info!(
                     "[BatchServiceImpl::process_spent_detail_incremental] Deleting {} documents from write alias '{}'",
-                    to_delete.len(), write_index_alias
+                    to_delete.len(),
+                    write_index_alias
                 );
                 elastic_service
                     .bulk_delete(&write_index_alias, to_delete)
@@ -1191,7 +1182,7 @@ where
             );
 
             // Small delay to prevent tight loop when continuously processing
-            tokio::time::sleep(Duration::from_secs(1)).await;
+            tokio::time::sleep(Duration::from_secs(5)).await;
         }
     }
 
@@ -1210,10 +1201,10 @@ where
         );
 
         // Step 1~2: 스키마 로드 + 벌크 인덱스 생성
-        let new_index_name: String =
-            Self::prepare_full_index(elastic_service, index_alias, schedule_item.mapping_schema())
-                .await
-                .context("[BatchServiceImpl::process_spent_type_full] prepare_full_index")?;
+        let new_index_name: String = elastic_service
+            .prepare_full_index(index_alias, schedule_item.mapping_schema())
+            .await
+            .context("[BatchServiceImpl::process_spent_type_full] prepare_full_index")?;
 
         // Step 3: MySQL에서 배치 단위로 조회하여 ES에 색인
         let mut offset: u64 = 0;
@@ -1258,7 +1249,8 @@ where
         }
 
         // Step 4~5: 운영 설정 적용 + alias 스왑
-        Self::finalize_full_index(elastic_service, index_alias, &new_index_name)
+        elastic_service
+            .finalize_full_index(index_alias, &new_index_name)
             .await
             .context("[BatchServiceImpl::process_spent_type_full] finalize_full_index")?;
 

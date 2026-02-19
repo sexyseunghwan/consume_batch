@@ -119,6 +119,7 @@ where
         limit: u64,
     ) -> anyhow::Result<Vec<SpentDetailWithRelations>> {
         let db: &DatabaseConnection = self.db_conn.get_connection();
+        let produced_at: DateTime<Utc> = Utc::now();
 
         let results: Vec<SpentDetailWithRelations> = spent_detail::Entity::find()
             .join(
@@ -142,6 +143,9 @@ where
             .column(telegram_room::Column::RoomSeq)
             // Add literal value for indexing_type
             .expr_as(Expr::value("I"), "indexing_type")
+            .column(spent_detail::Column::UpdatedAt)
+            // Add current timestamp for produced_at
+            .expr_as(Expr::value(produced_at), "produced_at")
             // WHERE conditions
             .filter(spent_detail::Column::ShouldIndex.eq(1))
             .filter(telegram_room::Column::IsRoomApproved.eq(true))
@@ -154,7 +158,7 @@ where
             .context(
                 "[MysqlServiceImpl::fetch_spent_details_for_indexing] Failed to execute query",
             )?;
-
+            
         Ok(results)
     }
 

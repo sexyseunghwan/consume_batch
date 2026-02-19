@@ -86,6 +86,7 @@ pub trait ElasticService {
     ///
     /// * `index_name` - The target index name
     /// * `documents` - Vector of documents to update
+    /// * `doc_id_field` - The field name to use as document ID (e.g., "spent_idx", "id")
     ///
     /// # Returns
     ///
@@ -100,6 +101,7 @@ pub trait ElasticService {
         &self,
         index_name: &str,
         documents: Vec<T>,
+        doc_id_field: &str,
     ) -> anyhow::Result<()>;
 
     /// Performs bulk delete of documents by IDs.
@@ -118,11 +120,7 @@ pub trait ElasticService {
     /// Returns an error if:
     /// - Any document fails to delete
     /// - Network/connection failure
-    async fn bulk_delete(
-        &self,
-        index_name: &str,
-        doc_ids: Vec<i64>,
-    ) -> anyhow::Result<()>;
+    async fn bulk_delete(&self, index_name: &str, doc_ids: Vec<i64>) -> anyhow::Result<()>;
 
     /// Swaps index alias from old index to new index atomically.
     ///
@@ -163,30 +161,43 @@ pub trait ElasticService {
     /// # Returns
     ///
     /// Returns `Ok(())` on successful alias update.
-    async fn update_write_alias(&self, write_alias: &str, target_index: &str) -> anyhow::Result<()>;
+    async fn update_write_alias(&self, write_alias: &str, target_index: &str)
+    -> anyhow::Result<()>;
 
-    /// Updates read alias with optional traffic weight for Blue/Green deployment.
-    ///
-    /// Enables gradual traffic shifting between old (Blue) and new (Green) indices:
-    /// - weight = 0.0: All traffic to old index
-    /// - weight = 0.5: 50/50 split
-    /// - weight = 1.0: All traffic to new index
+    /// Updates read alias.
     ///
     /// # Arguments
     ///
     /// * `read_alias` - The read alias name (e.g., "read_spent_detail_dev")
     /// * `new_index` - The new index name
-    /// * `traffic_weight` - Percentage of traffic to route to new index (0.0 ~ 1.0)
     ///
     /// # Returns
     ///
     /// Returns `Ok(())` on successful alias update.
-    async fn update_read_alias_with_weight(
+    async fn update_read_alias(&self, read_alias: &str, new_index: &str) -> anyhow::Result<()>;
+
+    /// Finalizes a full index after bulk indexing is complete.
+    ///
+    /// 1. Updates index settings to production values (replicas=1, refresh=1s)
+    /// 2. Swaps alias from old index to the new index
+    async fn finalize_full_index(
         &self,
-        read_alias: &str,
-        new_index: &str,
-        traffic_weight: f32,
+        index_alias: &str,
+        new_index_name: &str,
     ) -> anyhow::Result<()>;
+
+    /// Prepares a new Elasticsearch index for full indexing.
+    ///
+    /// 1. Reads the mapping schema from `mapping_schema_path`
+    /// 2. Merges bulk indexing settings (shards=3, replicas=0, refresh=-1)
+    /// 3. Creates a new timestamped index (e.g. `{index_alias}_20260213120000`)
+    ///
+    /// Returns the created index name.
+    async fn prepare_full_index(
+        &self,
+        index_name: &str,
+        mapping_schema_path: &str,
+    ) -> anyhow::Result<String>;
 
     async fn get_consume_type_judgement(
         &self,

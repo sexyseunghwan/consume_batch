@@ -51,15 +51,14 @@ where
         &self,
         index_name: &str,
         documents: Vec<T>,
+        doc_id_field: &str,
     ) -> anyhow::Result<()> {
-        self.elastic_conn.bulk_update(index_name, documents).await
+        self.elastic_conn
+            .bulk_update(index_name, documents, doc_id_field)
+            .await
     }
 
-    async fn bulk_delete(
-        &self,
-        index_name: &str,
-        doc_ids: Vec<i64>,
-    ) -> anyhow::Result<()> {
+    async fn bulk_delete(&self, index_name: &str, doc_ids: Vec<i64>) -> anyhow::Result<()> {
         self.elastic_conn.bulk_delete(index_name, doc_ids).await
     }
 
@@ -69,7 +68,11 @@ where
             .await
     }
 
-    async fn update_write_alias(&self, write_alias: &str, target_index: &str) -> anyhow::Result<()> {
+    async fn update_write_alias(
+        &self,
+        write_alias: &str,
+        target_index: &str,
+    ) -> anyhow::Result<()> {
         info!(
             "[ElasticServiceImpl::update_write_alias] Updating write alias '{}' to point to '{}'",
             write_alias, target_index
@@ -85,53 +88,20 @@ where
             ))
     }
 
-    async fn update_read_alias_with_weight(
-        &self,
-        read_alias: &str,
-        new_index: &str,
-        traffic_weight: f32,
-    ) -> anyhow::Result<()> {
+    async fn update_read_alias(&self, read_alias: &str, target_index: &str) -> anyhow::Result<()> {
         info!(
-            "[ElasticServiceImpl::update_read_alias_with_weight] Updating read alias '{}' with {}% traffic to '{}'",
-            read_alias, traffic_weight * 100.0, new_index
+            "[ElasticServiceImpl::update_read_alias] Updating read alias '{}' to point to '{}'",
+            read_alias, target_index
         );
 
-        // Validate traffic_weight range
-        if !(0.0..=1.0).contains(&traffic_weight) {
-            return Err(anyhow!(
-                "[ElasticServiceImpl::update_read_alias_with_weight] Invalid traffic_weight: {}. Must be between 0.0 and 1.0",
-                traffic_weight
-            ));
-        }
-
-        // If traffic_weight is 1.0, simply swap the alias completely
-        if traffic_weight >= 0.99 {
-            info!("[ElasticServiceImpl::update_read_alias_with_weight] Full traffic (100%), performing complete swap");
-            return self.swap_alias(read_alias, new_index).await;
-        }
-
-        // If traffic_weight is 0.0, do nothing (keep old index)
-        if traffic_weight <= 0.01 {
-            info!("[ElasticServiceImpl::update_read_alias_with_weight] Zero traffic (0%), skipping update");
-            return Ok(());
-        }
-
-        // For partial traffic (0 < weight < 1), use routing-based traffic splitting
-        // This requires Elasticsearch routing support
-        warn!(
-            "[ElasticServiceImpl::update_read_alias_with_weight] Partial traffic split ({:.1}%) is not fully implemented yet. Defaulting to full swap.",
-            traffic_weight * 100.0
-        );
-
-        // TODO: Implement actual weighted routing via:
-        // - Index-level routing configuration
-        // - Application-level client-side routing based on weight
-        // For now, fallback to complete swap when weight > 0.5
-        if traffic_weight > 0.5 {
-            self.swap_alias(read_alias, new_index).await
-        } else {
-            Ok(())
-        }
+        // Write alias should point to exactly one index (no traffic splitting)
+        self.elastic_conn
+            .swap_alias(read_alias, target_index)
+            .await
+            .context(format!(
+                "[ElasticServiceImpl::update_read_alias] Failed to update read alias '{}' to '{}'",
+                read_alias, target_index
+            ))
     }
 
     async fn get_query_result_vec<T: DeserializeOwned>(
@@ -174,6 +144,101 @@ where
             .collect::<Result<Vec<_>, _>>()?;
 
         Ok(results)
+    }
+
+    async fn finalize_full_index(
+        &self,
+        index_alias: &str,
+        new_index_name: &str,
+    ) -> anyhow::Result<()> {
+        info!(
+            "[ElasticServiceImpl::finalize_full_index] Updating index settings for production: {}",
+            new_index_name
+        );
+
+        let production_settings: Value = json!({
+            "index": {
+                "number_of_replicas": 1,
+                "refresh_interval": "1s"
+            }
+        });
+
+        self.update_index_settings(new_index_name, &production_settings)
+            .await
+            .context("[ElasticServiceImpl::finalize_full_index] Failed to update index settings")?;
+
+        self.elastic_conn
+            .refresh_index(new_index_name)
+            .await
+            .context("[ElasticServiceImpl::finalize_full_index] Failed to refresh index")?;
+
+        info!(
+            "[ElasticServiceImpl::finalize_full_index] Refreshing index '{}' before alias swap",
+            new_index_name
+        );
+
+        self.swap_alias(index_alias, new_index_name)
+            .await
+            .context("[ElasticServiceImpl::finalize_full_index] Failed to swap alias")?;
+
+        info!(
+            "[ElasticServiceImpl::finalize_full_index] Swapping alias '{}' to '{}'",
+            index_alias, new_index_name
+        );
+
+        Ok(())
+    }
+
+    async fn prepare_full_index(
+        &self,
+        index_name: &str,
+        mapping_schema_path: &str,
+    ) -> anyhow::Result<String> {
+        let schema_content: String = tokio::fs::read_to_string(mapping_schema_path)
+            .await
+            .context(format!(
+                "[ElasticServiceImpl::prepare_full_index] Failed to read mapping schema file: {}",
+                mapping_schema_path
+            ))?;
+
+        let schema: Value = serde_json::from_str(&schema_content)
+            .context("[ElasticServiceImpl::prepare_full_index] Failed to parse mapping schema")?;
+
+        let mappings: Value = schema
+            .get("mappings")
+            .ok_or_else(|| {
+                anyhow!("[ElasticServiceImpl::prepare_full_index] Missing 'mappings' in schema")
+            })?
+            .clone();
+
+        let mut settings: Value = schema.get("settings").cloned().unwrap_or_else(|| json!({}));
+
+        // Merge bulk indexing settings for fast initial load
+        if let Some(index_obj) = settings.get_mut("index") {
+            if let Some(obj) = index_obj.as_object_mut() {
+                obj.insert("number_of_shards".to_string(), json!(3));
+                obj.insert("number_of_replicas".to_string(), json!(0));
+                obj.insert("refresh_interval".to_string(), json!("-1"));
+            }
+        } else {
+            settings["index"]["number_of_shards"] = json!(3);
+            settings["index"]["number_of_replicas"] = json!(0);
+            settings["index"]["refresh_interval"] = json!("-1");
+        }
+
+        let new_index_name: String =
+            format!("{}_{}", index_name, Utc::now().format("%Y%m%d%H%M%S"));
+
+        info!(
+            "[ElasticServiceImpl::prepare_full_index] Creating new index: {}",
+            new_index_name
+        );
+
+        self.create_index(&new_index_name, &settings, &mappings)
+            .await
+            .context("[ElasticServiceImpl::prepare_full_index] Failed to create index")?;
+
+        Ok(new_index_name)
     }
 
     async fn get_consume_type_judgement(
