@@ -158,7 +158,7 @@ where
             .context(
                 "[MysqlServiceImpl::fetch_spent_details_for_indexing] Failed to execute query",
             )?;
-            
+
         Ok(results)
     }
 

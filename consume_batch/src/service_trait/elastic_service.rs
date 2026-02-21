@@ -184,7 +184,7 @@ pub trait ElasticService {
         &self,
         index_alias: &str,
         new_index_name: &str,
-    ) -> anyhow::Result<()>;
+    ) -> anyhow::Result<Vec<String>>;
 
     /// Prepares a new Elasticsearch index for full indexing.
     ///
@@ -198,6 +198,26 @@ pub trait ElasticService {
         index_name: &str,
         mapping_schema_path: &str,
     ) -> anyhow::Result<String>;
+
+    /// Deletes multiple Elasticsearch indices.
+    ///
+    /// Intended for cleanup after a Blue/Green index swap — the old index
+    /// that is no longer aliased can be removed by passing its name here.
+    /// Silently succeeds if the provided slice is empty.
+    ///
+    /// # Arguments
+    ///
+    /// * `index_names` - Slice of index names to delete
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if all indices were deleted successfully.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any deletion fails (e.g. index does not exist,
+    /// network failure, or insufficient permissions).
+    async fn delete_indices(&self, index_names: &[String]) -> anyhow::Result<()>;
 
     async fn get_consume_type_judgement(
         &self,

@@ -96,6 +96,7 @@ pub use sea_orm::{
 pub use tokio_cron_scheduler::{Job, JobScheduler};
 
 pub use tokio::{
+    net::UnixStream,
     task::JoinSet,
     time::{Duration as tokio_duration, Instant, sleep},
 };

@@ -150,7 +150,7 @@ where
         &self,
         index_alias: &str,
         new_index_name: &str,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<Vec<String>> {
         info!(
             "[ElasticServiceImpl::finalize_full_index] Updating index settings for production: {}",
             new_index_name
@@ -177,16 +177,29 @@ where
             new_index_name
         );
 
+        let old_indices: Vec<String> = self
+            .elastic_conn
+            .get_index_by_alias(index_alias)
+            .await
+            .context(
+                "[ElasticServiceImpl::finalize_full_index] Failed to resolve alias to index",
+            )?;
+
+        info!(
+            "[ElasticServiceImpl::finalize_full_index] Current indices for alias '{}': {:?}",
+            index_alias, old_indices
+        );
+
         self.swap_alias(index_alias, new_index_name)
             .await
             .context("[ElasticServiceImpl::finalize_full_index] Failed to swap alias")?;
 
         info!(
-            "[ElasticServiceImpl::finalize_full_index] Swapping alias '{}' to '{}'",
-            index_alias, new_index_name
+            "[ElasticServiceImpl::finalize_full_index] Swapping alias '{}': {:?} -> '{}'",
+            index_alias, old_indices, new_index_name
         );
 
-        Ok(())
+        Ok(old_indices)
     }
 
     async fn prepare_full_index(
@@ -239,6 +252,10 @@ where
             .context("[ElasticServiceImpl::prepare_full_index] Failed to create index")?;
 
         Ok(new_index_name)
+    }
+
+    async fn delete_indices(&self, index_names: &[String]) -> anyhow::Result<()> {
+        self.elastic_conn.delete_indices(index_names).await
     }
 
     async fn get_consume_type_judgement(

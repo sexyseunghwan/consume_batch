@@ -43,6 +43,8 @@ mod config;
 
 mod enums;
 
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
 // Type aliases asd
 type ElasticService = ElasticServiceImpl<EsRepositoryImpl>;
 type MysqlService = MysqlServiceImpl<MysqlRepositoryImpl>;
@@ -53,6 +55,15 @@ type Controller = BatchController<BatchService>;
 
 #[tokio::main]
 async fn main() {
+    let args: Vec<String> = std::env::args().collect();
+
+    if args.get(1).map(|s| s == "--cli").unwrap_or(false) {
+        dotenv().ok();
+        AppConfig::init().expect("Failed to initialize AppConfig");
+        run_cli_mode().await;
+        return;
+    }
+
     dotenv().ok();
     set_global_logger();
 
@@ -118,4 +129,73 @@ async fn main() {
             error!("{:#}", e);
         }
     }
+}
+
+/// `--cli` mode: 실행 중인 서비스에 Unix Socket으로 연결하고
+/// 서버에서 보내는 메뉴를 그대로 출력하며 사용자 입력을 전달합니다.
+async fn run_cli_mode() {
+    let socket_path: String = AppConfig::global().socket_path().clone();
+
+    let stream: UnixStream = match UnixStream::connect(&socket_path).await {
+        Ok(s) => s,
+        Err(_) => {
+            eprintln!(
+                "[ERROR] Unable to connect to the service. ({})",
+                socket_path
+            );
+            eprintln!("The service must be running before connecting.");
+            return;
+        }
+    };
+
+    let (mut sock_reader, mut sock_writer) = stream.into_split();
+
+    // Print text recrived from the socket to stdout (display prompts immediately, even without a newline).
+    let read_task = tokio::spawn(async move {
+        let mut buf: Vec<u8> = vec![0u8; 4096];
+
+        loop {
+            match sock_reader.read(&mut buf).await {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    use std::io::Write;
+                    print!("{}", String::from_utf8_lossy(&buf[..n]));
+                    std::io::stdout().flush().unwrap();
+                }
+            }
+        }
+    });
+
+    // Read input from stdin and forward it to the socket.
+    loop {
+        let input: Option<String> = tokio::task::spawn_blocking(|| {
+            let mut s: String = String::new();
+            match std::io::stdin().read_line(&mut s) {
+                Ok(0) | Err(_) => None,
+                Ok(_) => Some(s),
+            }
+        })
+        .await
+        .unwrap();
+
+        match input {
+            None => break,
+            Some(line) => {
+                let trimmed = line.trim();
+                let should_exit = trimmed == "0" || trimmed.eq_ignore_ascii_case("q");
+
+                if sock_writer.write_all(line.as_bytes()).await.is_err() {
+                    break;
+                }
+
+                if should_exit {
+                    // 서버가 "종료합니다." 메시지를 출력할 시간을 줌
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                    break;
+                }
+            }
+        }
+    }
+
+    read_task.abort();
 }

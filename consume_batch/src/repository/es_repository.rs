@@ -46,8 +46,8 @@ use elasticsearch::{
     BulkParts,
     http::request::JsonBody,
     indices::{
-        IndicesCreateParts, IndicesGetAliasParts, IndicesPutSettingsParts, IndicesRefreshParts,
-        IndicesUpdateAliasesParts,
+        IndicesCreateParts, IndicesDeleteParts, IndicesGetAliasParts, IndicesPutSettingsParts,
+        IndicesRefreshParts, IndicesUpdateAliasesParts,
     },
 };
 /// Trait defining Elasticsearch repository operations.
@@ -222,6 +222,33 @@ pub trait EsRepository {
     /// Returns `Ok(())` on successful alias swap.
     async fn swap_alias(&self, alias_name: &str, new_index_name: &str)
     -> Result<(), anyhow::Error>;
+
+    /// Returns the list of index names currently pointed to by the given alias.
+    ///
+    /// # Arguments
+    ///
+    /// * `alias_name` - The alias name to resolve
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Vec<String>` of index names on success, or an empty vector if
+    /// the alias does not exist.
+    async fn get_index_by_alias(&self, alias_name: &str) -> Result<Vec<String>, anyhow::Error>;
+
+    /// Deletes multiple Elasticsearch indices.
+    ///
+    /// # Arguments
+    ///
+    /// * `index_names` - Slice of index name strings to delete
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if all indices were deleted successfully.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any index deletion fails.
+    async fn delete_indices(&self, index_names: &[String]) -> Result<(), anyhow::Error>;
 }
 
 /// Concrete implementation of the Elasticsearch repository.
@@ -848,6 +875,66 @@ impl EsRepository for EsRepositoryImpl {
                 "[EsRepositoryImpl::swap_alias] Failed to swap alias {} to {}: {}",
                 alias_name,
                 new_index_name,
+                error_body
+            ))
+        }
+    }
+
+    async fn get_index_by_alias(&self, alias_name: &str) -> anyhow::Result<Vec<String>> {
+        let response: Response = self
+            .es_client
+            .indices()
+            .get_alias(IndicesGetAliasParts::Name(&[alias_name]))
+            .send()
+            .await
+            .context(format!(
+                "[EsRepositoryImpl::get_index_by_alias] Failed to send request for alias '{}'",
+                alias_name
+            ))?;
+
+        if response.status_code() == 404 {
+            return Ok(vec![]);
+        }
+
+        let body: Value = response
+            .json()
+            .await
+            .context("[EsRepositoryImpl::get_index_by_alias] Failed to parse response body")?;
+
+        let indices: Vec<String> = body
+            .as_object()
+            .map(|obj| obj.keys().cloned().collect())
+            .unwrap_or_default();
+
+        Ok(indices)
+    }
+
+    async fn delete_indices(&self, index_names: &[String]) -> anyhow::Result<()> {
+        if index_names.is_empty() {
+            return Ok(());
+        }
+
+        let index_refs: Vec<&str> = index_names.iter().map(|s| s.as_str()).collect();
+
+        let response: Response = self
+            .es_client
+            .indices()
+            .delete(IndicesDeleteParts::Index(&index_refs))
+            .send()
+            .await
+            .context("[EsRepositoryImpl::delete_indices] Failed to send delete request")?;
+
+        if response.status_code().is_success() {
+            info!(
+                "[EsRepositoryImpl::delete_indices] Successfully deleted indices: {:?}",
+                index_names
+            );
+            Ok(())
+        } else {
+            let error_body: String = response.text().await?;
+            Err(anyhow!(
+                "[EsRepositoryImpl::delete_indices] Failed to delete indices {:?}: {}",
+                index_names,
                 error_body
             ))
         }
