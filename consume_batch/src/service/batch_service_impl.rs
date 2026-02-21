@@ -531,11 +531,10 @@ where
         }
     }
 
-    /// 소켓 연결 1건을 처리합니다.
+    /// Handles a single socket connection from a CLI client.
     ///
-    /// 연결 시 설정된 배치 목록을 번호와 함께 출력하고,
-    /// 사용자 입력(번호)에 따라 해당 배치를 즉시 실행합니다.
-    /// `0` 또는 `q` 입력 시 종료됩니다.
+    /// Displays a numbered menu of available batch jobs and executes the
+    /// selected job based on user input. Exits when user enters `0` or `q`.
     async fn handle_socket_connection(
         stream: tokio::net::UnixStream,
         mysql_service: Arc<M>,
@@ -550,14 +549,14 @@ where
         let batch_items: Vec<BatchScheduleItem> = schedule_config.batch_schedule().to_vec();
 
         loop {
-            // 번호가 매겨진 배치 목록 메뉴 전송
+            // Send numbered batch menu to client
             let mut menu: String =
-                String::from("\n==============================\n실행할 배치를 선택하세요:\n");
+                String::from("\n==============================\nSelect a batch to execute:\n");
             for (i, item) in batch_items.iter().enumerate() {
                 menu.push_str(&format!("  {}. {}\n", i + 1, item.batch_name()));
             }
-            menu.push_str("  0. 종료\n");
-            menu.push_str("==============================\n입력: ");
+            menu.push_str("  0. Exit\n");
+            menu.push_str("==============================\nInput: ");
 
             writer.write_all(menu.as_bytes()).await?;
 
@@ -572,7 +571,7 @@ where
             let input: &str = line.trim();
 
             if input == "0" || input.eq_ignore_ascii_case("q") {
-                writer.write_all("\n종료합니다.\n".as_bytes()).await?;
+                writer.write_all("\nExiting.\n".as_bytes()).await?;
                 break;
             }
 
@@ -1658,7 +1657,7 @@ where
             let produce: Arc<P> = Arc::clone(&self.producer_service);
 
             let schedule_config: BatchScheduleConfig = self.schedule_config.clone();
-
+            
             tokio::spawn(async move {
                 if let Err(e) =
                     Self::start_socket_server(mysql, elastic, consume, produce, schedule_config)

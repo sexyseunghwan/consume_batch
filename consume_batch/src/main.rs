@@ -43,7 +43,7 @@ mod config;
 
 mod enums;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
 // Type aliases asd
 type ElasticService = ElasticServiceImpl<EsRepositoryImpl>;
@@ -55,21 +55,18 @@ type Controller = BatchController<BatchService>;
 
 #[tokio::main]
 async fn main() {
+    dotenv().ok();
+    AppConfig::init().expect("Failed to initialize AppConfig");
+    set_global_logger();
+
     let args: Vec<String> = std::env::args().collect();
 
     if args.get(1).map(|s| s == "--cli").unwrap_or(false) {
-        dotenv().ok();
-        AppConfig::init().expect("Failed to initialize AppConfig");
         run_cli_mode().await;
         return;
     }
 
-    dotenv().ok();
-    set_global_logger();
-
     info!("Indexing Batch Program Start.");
-
-    AppConfig::init().expect("Failed to initialize AppConfig");
 
     let elastic_repo: EsRepositoryImpl = match EsRepositoryImpl::new() {
         Ok(es_repo) => es_repo,
@@ -131,71 +128,111 @@ async fn main() {
     }
 }
 
-/// `--cli` mode: 실행 중인 서비스에 Unix Socket으로 연결하고
-/// 서버에서 보내는 메뉴를 그대로 출력하며 사용자 입력을 전달합니다.
+/// CLI Mode: Interactive client for executing batches on a running service
+///
+/// Workflow:
+/// 1. Connect to the running service via Unix Socket
+/// 2. Display menu and read user input
+/// 3. Send command to server and display response
+/// 4. Repeat until user exits with "0" or "q"
 async fn run_cli_mode() {
-    let socket_path: String = AppConfig::global().socket_path().clone();
+    info!("Indexing Batch Program Start. [CLI mode]");
 
-    let stream: UnixStream = match UnixStream::connect(&socket_path).await {
-        Ok(s) => s,
+    // Connect to server
+    let socket_path: &str = AppConfig::global().socket_path();
+    let stream: UnixStream = match UnixStream::connect(socket_path).await {
+        Ok(stream) => stream,
         Err(_) => {
-            eprintln!(
-                "[ERROR] Unable to connect to the service. ({})",
-                socket_path
-            );
+            eprintln!("[ERROR] Unable to connect to the service. ({})", socket_path);
             eprintln!("The service must be running before connecting.");
             return;
         }
     };
 
-    let (mut sock_reader, mut sock_writer) = stream.into_split();
+    let (read_half, write_half) = tokio::io::split(stream);
+    let mut reader: tokio::io::BufReader<tokio::io::ReadHalf<UnixStream>> =
+        tokio::io::BufReader::new(read_half);
+    let mut writer: tokio::io::WriteHalf<UnixStream> = write_half;
 
-    // Print text recrived from the socket to stdout (display prompts immediately, even without a newline).
-    let read_task = tokio::spawn(async move {
-        let mut buf: Vec<u8> = vec![0u8; 4096];
-
-        loop {
-            match sock_reader.read(&mut buf).await {
-                Ok(0) | Err(_) => break,
-                Ok(n) => {
-                    use std::io::Write;
-                    print!("{}", String::from_utf8_lossy(&buf[..n]));
-                    std::io::stdout().flush().unwrap();
-                }
-            }
-        }
-    });
-
-    // Read input from stdin and forward it to the socket.
     loop {
-        let input: Option<String> = tokio::task::spawn_blocking(|| {
-            let mut s: String = String::new();
-            match std::io::stdin().read_line(&mut s) {
-                Ok(0) | Err(_) => None,
-                Ok(_) => Some(s),
-            }
-        })
-        .await
-        .unwrap();
+        // Read and display server messages (menu, prompts, results)
+        if let Err(e) = read_until_prompt(&mut reader).await {
+            eprintln!("[ERROR] Failed to read from server: {}", e);
+            break;
+        }
 
-        match input {
-            None => break,
-            Some(line) => {
-                let trimmed = line.trim();
-                let should_exit = trimmed == "0" || trimmed.eq_ignore_ascii_case("q");
+        // Read user input
+        let user_input: String = match read_user_input().await {
+            Some(input) => input,
+            None => break, // EOF or error
+        };
 
-                if sock_writer.write_all(line.as_bytes()).await.is_err() {
-                    break;
-                }
+        // Send user input to server
+        if let Err(e) = writer.write_all(user_input.as_bytes()).await {
+            eprintln!("[ERROR] Failed to send to server: {}", e);
+            break;
+        }
 
-                if should_exit {
-                    // 서버가 "종료합니다." 메시지를 출력할 시간을 줌
-                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-                    break;
-                }
-            }
+        // Exit if user entered quit command
+        if is_exit_command(&user_input) {
+            // Read final "Exiting" message from server
+            let _ = read_until_prompt(&mut reader).await;
+            break;
         }
     }
+}
 
-    read_task.abort();
+/// Reads and prints server messages until we encounter a prompt (ends with "Input: ")
+async fn read_until_prompt(
+    reader: &mut tokio::io::BufReader<tokio::io::ReadHalf<UnixStream>>,
+) -> std::io::Result<()> {
+    let mut buffer: String = String::new();
+
+    loop {
+        buffer.clear();
+        let bytes_read: usize = reader.read_line(&mut buffer).await?;
+
+        if bytes_read == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "Server closed connection",
+            ));
+        }
+
+        print!("{}", buffer);
+
+        if let Err(e) = std::io::stdout().flush() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to flush stdout: {}", e),
+            ));
+        }
+
+        // Stop when we encounter the input prompt
+        if buffer.trim_end().ends_with("Input:") {
+            break;
+        }
+    }
+    
+    Ok(())
+}
+
+/// Reads a line of input from the user (blocking operation in separate thread)
+async fn read_user_input() -> Option<String> {
+    tokio::task::spawn_blocking(|| {
+        let mut line: String = String::new();
+        match std::io::stdin().read_line(&mut line) {
+            Ok(0) | Err(_) => None,
+            Ok(_) => Some(line),
+        }
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// Checks if the input is an exit command
+fn is_exit_command(input: &str) -> bool {
+    let trimmed: &str = input.trim();
+    trimmed == "0" || trimmed.eq_ignore_ascii_case("q")
 }
