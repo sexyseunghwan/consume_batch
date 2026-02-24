@@ -7,7 +7,7 @@ History     : 2025-01-01 Seunghwan Shin       # [v.1.0.0] first create
               2025-03-22 Seunghwan Shin       # [v.1.1.0] Change the RDB-related crate (Diesel -> Sear-orm)
               2025-05-28 Seunghwan Shin       # [v.1.1.1] Correct duplicate index problem
               2025-06-09 Seunghwan Shin       # [v.1.1.2] Unindexable issues exist when duplicate documents exist
-              2026-02-00 Seunghwan Shin       # [v.2.0.0]
+              2026-00-00 Seunghwan Shin       # [v.2.0.0]
 */
 
 mod common;
@@ -58,6 +58,8 @@ async fn main() {
     dotenv().ok();
     AppConfig::init().expect("Failed to initialize AppConfig");
     set_global_logger();
+
+    //run_cli_mode().await;
 
     let args: Vec<String> = std::env::args().collect();
 
@@ -143,7 +145,10 @@ async fn run_cli_mode() {
     let stream: UnixStream = match UnixStream::connect(socket_path).await {
         Ok(stream) => stream,
         Err(_) => {
-            eprintln!("[ERROR] Unable to connect to the service. ({})", socket_path);
+            eprintln!(
+                "[ERROR] Unable to connect to the service. ({})",
+                socket_path
+            );
             eprintln!("The service must be running before connecting.");
             return;
         }
@@ -213,7 +218,7 @@ async fn read_until_prompt(
             break;
         }
     }
-    
+
     Ok(())
 }
 

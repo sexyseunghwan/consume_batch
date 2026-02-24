@@ -230,9 +230,17 @@ where
 
         // Separate schedules by cron_schedule_apply
         // 스케쥴 작업 | 즉시 실행 작업 -> 두개로 나눠진다.
-        let (cron_schedules, immediate_schedules): (Vec<_>, Vec<_>) = enabled_schedules
-            .into_iter()
-            .partition(|item| *item.cron_schedule_apply());
+        let cron_schedules: Vec<&BatchScheduleItem> = enabled_schedules
+            .iter()
+            .filter(|item| *item.cron_schedule_apply())
+            .copied()
+            .collect();
+
+        let immediate_schedules: Vec<&BatchScheduleItem> = enabled_schedules
+            .iter()
+            .filter(|item| *item.immediate_apply())
+            .copied()
+            .collect();
 
         info!(
             "[BatchServiceImpl::start_scheduler] Found {} cron jobs, {} immediate jobs",
@@ -544,19 +552,22 @@ where
         schedule_config: BatchScheduleConfig,
     ) -> anyhow::Result<()> {
         let (reader, mut writer) = stream.into_split();
-        let mut reader = tokio::io::BufReader::new(reader);
+        let mut reader: tokio::io::BufReader<tokio::net::unix::OwnedReadHalf> =
+            tokio::io::BufReader::new(reader);
 
-        let batch_items: Vec<BatchScheduleItem> = schedule_config.batch_schedule().to_vec();
+        let batch_items: Vec<&BatchScheduleItem> = schedule_config.get_enabled_schedules();
 
         loop {
             // Send numbered batch menu to client
             let mut menu: String =
                 String::from("\n==============================\nSelect a batch to execute:\n");
+
             for (i, item) in batch_items.iter().enumerate() {
                 menu.push_str(&format!("  {}. {}\n", i + 1, item.batch_name()));
             }
             menu.push_str("  0. Exit\n");
-            menu.push_str("==============================\nInput: ");
+            menu.push_str("==============================\n");
+            menu.push_str("Input:");
 
             writer.write_all(menu.as_bytes()).await?;
 
@@ -567,7 +578,7 @@ where
             if n == 0 {
                 break; // Terminate the client connection.
             }
-
+            
             let input: &str = line.trim();
 
             if input == "0" || input.eq_ignore_ascii_case("q") {
@@ -592,6 +603,7 @@ where
                         )
                         .await?;
 
+                    // The section where each batch program is executed.
                     match Self::process_batch(
                         schedule_item,
                         &mysql_service,
@@ -1657,7 +1669,7 @@ where
             let produce: Arc<P> = Arc::clone(&self.producer_service);
 
             let schedule_config: BatchScheduleConfig = self.schedule_config.clone();
-            
+
             tokio::spawn(async move {
                 if let Err(e) =
                     Self::start_socket_server(mysql, elastic, consume, produce, schedule_config)
@@ -1674,7 +1686,7 @@ where
 
         // Wait for either:
         // 1. Shutdown signal (Ctrl+C)
-        // 2. All immediate jobs complete (if no cron jobs are registered)
+        // 2. All immediate jobs complete -> then keep alive until Ctrl+C
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 info!(
@@ -1688,13 +1700,9 @@ where
                         error!("[BatchServiceImpl::main_batch_task] Immediate job panicked: {:?}", e);
                     }
                 }
-                // If there are no cron jobs, we can exit after immediate jobs complete
-                if self.get_enabled_schedules().iter().all(|s| !s.cron_schedule_apply()) {
-                    info!("[BatchServiceImpl::main_batch_task] All immediate jobs completed, no cron jobs to run");
-                } else {
-                    // Keep running if there are cron jobs
-                    std::future::pending::<()>().await;
-                }
+                info!("[BatchServiceImpl::main_batch_task] All immediate jobs completed, keeping service alive until Ctrl+C...");
+                // Always keep running until Ctrl+C (socket server + cron jobs may still be active)
+                std::future::pending::<()>().await;
             } => {}
         }
 

@@ -95,6 +95,8 @@ pub struct BatchScheduleItem {
     /// - `false`: Run once immediately at startup, then skip scheduling
     cron_schedule_apply: bool,
 
+    immediate_apply: bool,
+
     mapping_schema: String,
     // /// Traffic weight for Blue/Green deployment (0.0 ~ 1.0)
     // ///
