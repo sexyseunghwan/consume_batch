@@ -41,9 +41,6 @@
 
 use crate::{app_config::*, common::*, global_state::*};
 
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
-use tokio::net::UnixListener;
-
 use crate::enums::IndexingType;
 
 use crate::models::{
@@ -89,7 +86,7 @@ use crate::service_trait::{
 /// batch_service.main_batch_task().await?;
 /// # Ok::<(), anyhow::Error>(())
 /// ```
-#[derive(Debug, Clone, Getters)]
+#[derive(Debug, Getters)]
 #[getset(get = "pub")]
 pub struct BatchServiceImpl<M, E, C, P>
 where
@@ -111,6 +108,25 @@ where
     schedule_config: BatchScheduleConfig,
 
     producer_service: Arc<P>,
+}
+
+// Manual Clone impl: Arc<T> is always Clone regardless of T: Clone
+impl<M, E, C, P> Clone for BatchServiceImpl<M, E, C, P>
+where
+    M: MysqlService,
+    E: ElasticService,
+    C: ConsumeService,
+    P: ProducerService,
+{
+    fn clone(&self) -> Self {
+        Self {
+            mysql_service: Arc::clone(&self.mysql_service),
+            elastic_service: Arc::clone(&self.elastic_service),
+            consume_service: Arc::clone(&self.consume_service),
+            schedule_config: self.schedule_config.clone(),
+            producer_service: Arc::clone(&self.producer_service),
+        }
+    }
 }
 
 impl<M, E, C, P> BatchServiceImpl<M, E, C, P>
@@ -482,166 +498,6 @@ where
         Ok(())
     }
 
-    /* ====================================================================================================== */
-    /* ====================================================================================================== */
-    /* ====================================================================================================== */
-    /* ====================================================================================================== */
-    /* ====================================================================================================== */
-
-    /// CLI 즉시실행을 위한 Unix Domain Socket 서버를 시작합니다.
-    ///
-    /// `/tmp/consume_batch.sock` 에서 연결을 수신하며,
-    /// 각 연결마다 별도의 tokio 태스크로 처리합니다.
-    /// 서비스 모드 실행 시 기존 스케쥴 작업과 병렬로 동작합니다.
-    async fn start_socket_server(
-        mysql_service: Arc<M>,
-        elastic_service: Arc<E>,
-        consume_service: Arc<C>,
-        producer_service: Arc<P>,
-        schedule_config: BatchScheduleConfig,
-    ) -> anyhow::Result<()> {
-        let socket_path: &str = AppConfig::global().socket_path();
-
-        // Remove existing socket file to handle unclean shutdowns
-        let _ = std::fs::remove_file(socket_path);
-
-        let listener: UnixListener = UnixListener::bind(socket_path)
-            .context("[BatchServiceImpl::start_socket_server] Failed to bind socket")?;
-
-        info!(
-            "[BatchServiceImpl::start_socket_server] CLI socket server listening on {}",
-            socket_path
-        );
-
-        loop {
-            let (stream, _) = listener
-                .accept()
-                .await
-                .context("[BatchServiceImpl::start_socket_server] Failed to accept connection")?;
-
-            let mysql: Arc<M> = Arc::clone(&mysql_service);
-            let elastic: Arc<E> = Arc::clone(&elastic_service);
-            let consume: Arc<C> = Arc::clone(&consume_service);
-            let produce: Arc<P> = Arc::clone(&producer_service);
-            let config: BatchScheduleConfig = schedule_config.clone();
-
-            tokio::spawn(async move {
-                if let Err(e) =
-                    Self::handle_socket_connection(stream, mysql, elastic, consume, produce, config)
-                        .await
-                {
-                    error!(
-                        "[BatchServiceImpl::handle_socket_connection] Connection error: {:#}",
-                        e
-                    );
-                }
-            });
-        }
-    }
-
-    /// Handles a single socket connection from a CLI client.
-    ///
-    /// Displays a numbered menu of available batch jobs and executes the
-    /// selected job based on user input. Exits when user enters `0` or `q`.
-    async fn handle_socket_connection(
-        stream: tokio::net::UnixStream,
-        mysql_service: Arc<M>,
-        elastic_service: Arc<E>,
-        consume_service: Arc<C>,
-        producer_service: Arc<P>,
-        schedule_config: BatchScheduleConfig,
-    ) -> anyhow::Result<()> {
-        let (reader, mut writer) = stream.into_split();
-        let mut reader: tokio::io::BufReader<tokio::net::unix::OwnedReadHalf> =
-            tokio::io::BufReader::new(reader);
-
-        let batch_items: Vec<&BatchScheduleItem> = schedule_config.get_enabled_schedules();
-
-        loop {
-            // Send numbered batch menu to client
-            let mut menu: String =
-                String::from("\n==============================\nSelect a batch to execute:\n");
-
-            for (i, item) in batch_items.iter().enumerate() {
-                menu.push_str(&format!("  {}. {}\n", i + 1, item.batch_name()));
-            }
-            menu.push_str("  0. Exit\n");
-            menu.push_str("==============================\n");
-            menu.push_str("Input:");
-
-            writer.write_all(menu.as_bytes()).await?;
-
-            // Receiving user input (including line breaks)
-            let mut line: String = String::new();
-            let n: usize = reader.read_line(&mut line).await?;
-
-            if n == 0 {
-                break; // Terminate the client connection.
-            }
-            
-            let input: &str = line.trim();
-
-            if input == "0" || input.eq_ignore_ascii_case("q") {
-                writer.write_all("\nExiting.\n".as_bytes()).await?;
-                break;
-            }
-
-            match input.parse::<usize>() {
-                Ok(num) if num >= 1 && num <= batch_items.len() => {
-                    let schedule_item: &BatchScheduleItem = &batch_items[num - 1];
-                    let batch_name: &str = schedule_item.batch_name();
-
-                    info!(
-                        "[BatchServiceImpl::handle_socket_connection] CLI triggered: {}",
-                        batch_name
-                    );
-
-                    writer
-                        .write_all(
-                            format!("\n[{}] Batch execution in progress...\n", batch_name)
-                                .as_bytes(),
-                        )
-                        .await?;
-
-                    // The section where each batch program is executed.
-                    match Self::process_batch(
-                        schedule_item,
-                        &mysql_service,
-                        &elastic_service,
-                        &consume_service,
-                        &producer_service,
-                    )
-                    .await
-                    {
-                        Ok(()) => {
-                            writer
-                                .write_all(format!("[{}] Complete.\n", batch_name).as_bytes())
-                                .await?;
-                        }
-                        Err(e) => {
-                            writer
-                                .write_all(format!("[{}] Failed: {}\n", batch_name, e).as_bytes())
-                                .await?;
-                        }
-                    }
-                }
-                _ => {
-                    writer
-                        .write_all(
-                            format!(
-                                "Please enter the correct number. (1-{})\n",
-                                batch_items.len()
-                            )
-                            .as_bytes(),
-                        )
-                        .await?;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     /// Re-evaluates and updates the `consume_keyword_type_id` for all spent details.
     ///
     /// Fetches all records from MySQL in batches, queries Elasticsearch to determine
@@ -715,7 +571,7 @@ where
                     .context("[process_update_all_check_type_detail] Failed to update batch")?;
 
                 total_updated += updated;
-
+                
                 info!(
                     "[process_update_all_check_type_detail] Batch offset={}, updated {}/{} records",
                     offset, update_count, batch_count
@@ -795,7 +651,7 @@ where
                     continue;
                 }
             };
-
+            
             if produce_spent_details.is_empty() {
                 break;
             }
@@ -973,7 +829,7 @@ where
                     produced_diff_secs
                 );
             }
-
+            
             ok
         }
     }
@@ -1018,7 +874,8 @@ where
                 .context(
                     "[BatchServiceImpl::process_spent_detail_dynamic] Failed to consume messages",
                 )?;
-
+            
+            // *** Incremental indexing starts based on the timestamp of the last full indexing. ***
             let max_static_produced_at: DateTime<Utc> =
                 get_max_static_spent_detail_index_timestamp().await;
             let filtered: Vec<SpentDetailWithRelations> = messages
@@ -1042,7 +899,7 @@ where
                 tokio::time::sleep(Duration::from_secs(3)).await;
                 continue;
             }
-
+            
             empty_count = 0;
             let batch_count: usize = filtered.len();
 
@@ -1077,6 +934,7 @@ where
             total_processed += batch_count as u64;
 
             if catch_up_complete {
+                set_spent_detail_indexing(false).await;
                 info!(
                     "[BatchServiceImpl::process_spent_detail_dynamic] Catch-up complete. total_processed={}",
                     total_processed
@@ -1372,7 +1230,7 @@ where
     ) -> anyhow::Result<()> {
         let index_alias: &str = schedule_item.index_name();
         let write_index_alias: String = format!("write_{}", index_alias);
-
+        
         let relation_topic: &str = schedule_item.relation_topic();
         let batch_size: usize = *schedule_item.batch_size();
         let consumer_group: &str = schedule_item.consumer_group();
@@ -1390,20 +1248,21 @@ where
         loop {
             // To synchronise the incremental index with the full index.
             let indexing_check: bool = get_spent_detail_indexing().await;
-            if indexing_check {
+
+            if !indexing_check {
                 tokio::time::sleep(Duration::from_secs(10)).await;
                 continue;
             }
-
+             
             let messages: Vec<SpentDetailWithRelations> = consume_service
                 .consume_messages_as_with_group(relation_topic, batch_size, consumer_group)
                 .await
                 .context(
                     "[BatchServiceImpl::process_spent_detail_incremental] Failed to consume messages",
                 )?;
-
+            
             if messages.is_empty() {
-                // No messages available, wait before next poll
+                info!("[BatchServiceImpl::process_spent_detail_incremental] No messages available, wait before next poll...");
                 tokio::time::sleep(Duration::from_secs(10)).await;
                 continue;
             }
@@ -1437,7 +1296,7 @@ where
                     }
                 }
             }
-
+            
             // Process inserts
             if !to_insert.is_empty() {
                 info!(
@@ -1463,7 +1322,7 @@ where
                     .await
                     .context("[BatchServiceImpl::process_spent_detail_incremental] Failed to bulk update")?;
             }
-
+            
             // Process deletes
             if !to_delete.is_empty() {
                 info!(
@@ -1661,25 +1520,6 @@ where
 
         let (mut scheduler, mut immediate_jobs) = self.start_scheduler().await?;
 
-        // Starting the Unix Socket Server For CLI immediate Execution.
-        {
-            let mysql: Arc<M> = Arc::clone(&self.mysql_service);
-            let elastic: Arc<E> = Arc::clone(&self.elastic_service);
-            let consume: Arc<C> = Arc::clone(&self.consume_service);
-            let produce: Arc<P> = Arc::clone(&self.producer_service);
-
-            let schedule_config: BatchScheduleConfig = self.schedule_config.clone();
-
-            tokio::spawn(async move {
-                if let Err(e) =
-                    Self::start_socket_server(mysql, elastic, consume, produce, schedule_config)
-                        .await
-                {
-                    error!("[BatchServiceImpl] Socket server error: {:#}", e);
-                }
-            });
-        }
-
         info!(
             "[BatchServiceImpl::main_batch_task] Scheduler is running. Press Ctrl+C to shutdown gracefully."
         );
@@ -1715,5 +1555,16 @@ where
         info!("[BatchServiceImpl::main_batch_task] Scheduler stopped gracefully. Goodbye!");
 
         Ok(())
+    }
+
+    async fn run_batch(&self, schedule_item: &BatchScheduleItem) -> anyhow::Result<()> {
+        Self::process_batch(
+            schedule_item,
+            &self.mysql_service,
+            &self.elastic_service,
+            &self.consume_service,
+            &self.producer_service,
+        )
+        .await
     }
 }

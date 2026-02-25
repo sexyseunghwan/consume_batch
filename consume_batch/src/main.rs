@@ -16,14 +16,15 @@ use common::*;
 mod utils_module;
 
 mod controller;
-use controller::batch_controller::*;
+use controller::cli_client_controller::CliClientController;
+use controller::main_controller::*;
 
 mod entity;
 
 mod service;
 use service::{
-    batch_service_impl::*, consume_service_impl::*, elastic_service_impl::*, mysql_service_impl::*,
-    producer_service_impl::*,
+    batch_service_impl::*, cli_service_impl::CliServiceImpl, consume_service_impl::*,
+    elastic_service_impl::*, mysql_service_impl::*, producer_service_impl::*,
 };
 
 mod service_trait;
@@ -43,28 +44,57 @@ mod config;
 
 mod enums;
 
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
-
-// Type aliases asd
+// Type aliases
 type ElasticService = ElasticServiceImpl<EsRepositoryImpl>;
 type MysqlService = MysqlServiceImpl<MysqlRepositoryImpl>;
 type ConsumeService = ConsumeServiceImpl<KafkaRepositoryImpl>;
 type ProducerService = ProducerServiceImpl<KafkaRepositoryImpl>;
-type BatchService = BatchServiceImpl<MysqlService, ElasticService, ConsumeService, ProducerService>;
-type Controller = BatchController<BatchService>;
+type BatchSvc = BatchServiceImpl<MysqlService, ElasticService, ConsumeService, ProducerService>;
+type CliSvc = CliServiceImpl<BatchSvc>;
+type Controller = MainController<BatchSvc, CliSvc>;
 
+/// Application entry point.
+///
+/// Initializes global configuration, logger, and all service dependencies,
+/// then routes execution to either service mode or CLI client mode based on
+/// the command-line arguments passed at startup.
+///
+/// # Execution Modes
+///
+/// ```text
+/// ./consume_batch_v1           → Service mode (cron scheduler + CLI socket server)
+/// ./consume_batch_v1 --cli     → CLI client mode (connects to a running service)
+/// ```
+///
+/// # Service Mode Initialization Order
+///
+/// ```text
+/// 1. Load environment variables (.env)
+/// 2. Initialize AppConfig and global logger
+/// 3. Create repositories: Elasticsearch, MySQL, Kafka
+/// 4. Build services via dependency injection:
+///      ElasticService / MysqlService / ConsumeService / ProducerService
+///      → BatchService (wraps all sub-services)
+///      → CliService   (holds Arc<BatchService> for on-demand execution)
+/// 5. Assemble MainController<BatchSvc, CliSvc>
+/// 6. Start batch scheduler + CLI socket server
+/// ```
+///
+/// # Panics
+///
+/// Panics if any repository or service fails to initialize, since the application
+/// cannot run without valid connections to all external systems (ES, MySQL, Kafka).
 #[tokio::main]
 async fn main() {
     dotenv().ok();
     AppConfig::init().expect("Failed to initialize AppConfig");
     set_global_logger();
 
-    //run_cli_mode().await;
-
     let args: Vec<String> = std::env::args().collect();
 
+    // Option to run the application in CLI mode.
     if args.get(1).map(|s| s == "--cli").unwrap_or(false) {
-        run_cli_mode().await;
+        CliClientController::run().await;
         return;
     }
 
@@ -106,7 +136,7 @@ async fn main() {
         ProducerServiceImpl::new(Arc::clone(&shared_kafka_repo));
 
     // Create batch service with all dependencies
-    let batch_service: BatchService = match BatchServiceImpl::new(
+    let batch_service: BatchSvc = match BatchServiceImpl::new(
         mysql_query_service,
         elastic_query_service,
         consume_service,
@@ -118,126 +148,20 @@ async fn main() {
             panic!("[main] batch_service: {:#}", e);
         }
     };
+    
+    // Create CLI service: shares the batch service via Arc for on-demand execution
+    let cli_service: CliSvc = CliServiceImpl::new(
+        Arc::new(batch_service.clone()),
+        batch_service.schedule_config().clone(),
+    );
 
-    // Create controller with batch service
-    let batch_controller: Controller = BatchController::new(batch_service);
+    // Create main controller with both services
+    let main_controller: Controller = MainController::new(batch_service, Arc::new(cli_service));
 
-    match batch_controller.main_task().await {
+    match main_controller.main_task().await {
         Ok(_) => (),
         Err(e) => {
-            error!("{:#}", e);
+            error!("[main] {:#}", e);
         }
     }
-}
-
-/// CLI Mode: Interactive client for executing batches on a running service
-///
-/// Workflow:
-/// 1. Connect to the running service via Unix Socket
-/// 2. Display menu and read user input
-/// 3. Send command to server and display response
-/// 4. Repeat until user exits with "0" or "q"
-async fn run_cli_mode() {
-    info!("Indexing Batch Program Start. [CLI mode]");
-
-    // Connect to server
-    let socket_path: &str = AppConfig::global().socket_path();
-    let stream: UnixStream = match UnixStream::connect(socket_path).await {
-        Ok(stream) => stream,
-        Err(_) => {
-            eprintln!(
-                "[ERROR] Unable to connect to the service. ({})",
-                socket_path
-            );
-            eprintln!("The service must be running before connecting.");
-            return;
-        }
-    };
-
-    let (read_half, write_half) = tokio::io::split(stream);
-    let mut reader: tokio::io::BufReader<tokio::io::ReadHalf<UnixStream>> =
-        tokio::io::BufReader::new(read_half);
-    let mut writer: tokio::io::WriteHalf<UnixStream> = write_half;
-
-    loop {
-        // Read and display server messages (menu, prompts, results)
-        if let Err(e) = read_until_prompt(&mut reader).await {
-            eprintln!("[ERROR] Failed to read from server: {}", e);
-            break;
-        }
-
-        // Read user input
-        let user_input: String = match read_user_input().await {
-            Some(input) => input,
-            None => break, // EOF or error
-        };
-
-        // Send user input to server
-        if let Err(e) = writer.write_all(user_input.as_bytes()).await {
-            eprintln!("[ERROR] Failed to send to server: {}", e);
-            break;
-        }
-
-        // Exit if user entered quit command
-        if is_exit_command(&user_input) {
-            // Read final "Exiting" message from server
-            let _ = read_until_prompt(&mut reader).await;
-            break;
-        }
-    }
-}
-
-/// Reads and prints server messages until we encounter a prompt (ends with "Input: ")
-async fn read_until_prompt(
-    reader: &mut tokio::io::BufReader<tokio::io::ReadHalf<UnixStream>>,
-) -> std::io::Result<()> {
-    let mut buffer: String = String::new();
-
-    loop {
-        buffer.clear();
-        let bytes_read: usize = reader.read_line(&mut buffer).await?;
-
-        if bytes_read == 0 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "Server closed connection",
-            ));
-        }
-
-        print!("{}", buffer);
-
-        if let Err(e) = std::io::stdout().flush() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to flush stdout: {}", e),
-            ));
-        }
-
-        // Stop when we encounter the input prompt
-        if buffer.trim_end().ends_with("Input:") {
-            break;
-        }
-    }
-
-    Ok(())
-}
-
-/// Reads a line of input from the user (blocking operation in separate thread)
-async fn read_user_input() -> Option<String> {
-    tokio::task::spawn_blocking(|| {
-        let mut line: String = String::new();
-        match std::io::stdin().read_line(&mut line) {
-            Ok(0) | Err(_) => None,
-            Ok(_) => Some(line),
-        }
-    })
-    .await
-    .ok()
-    .flatten()
-}
-
-/// Checks if the input is an exit command
-fn is_exit_command(input: &str) -> bool {
-    let trimmed: &str = input.trim();
-    trimmed == "0" || trimmed.eq_ignore_ascii_case("q")
 }

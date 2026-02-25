@@ -14,14 +14,14 @@ mapping_schema = "./src/config/elastic_schema/consume_index_prod_type.json"
 [[batch_schedule]]
 batch_name = "spent_detail_incremental"
 index_name = "spent_detail_dev"
-enabled = false
+enabled = true
 relation_topic = "spent_detail_dev"
 relation_topic_sub = ""
 consumer_group = "incremental_spent_detail_group"
 batch_size = 100
-immediate_apply = false
+immediate_apply = true
 cron_schedule_apply = false
-cron_schedule = "0 0 23 * * *"
+cron_schedule = "* * * * * *"
 mapping_schema = "./src/config/elastic_schema/consume_index_prod_type.json"
 
 [[batch_schedule]]

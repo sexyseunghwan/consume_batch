@@ -1,1 +1,2 @@
-pub mod batch_controller;
+pub mod cli_client_controller;
+pub mod main_controller;
