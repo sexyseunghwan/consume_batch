@@ -143,7 +143,7 @@ where
             .column(telegram_room::Column::RoomSeq)
             // Add literal value for indexing_type
             .expr_as(Expr::value("I"), "indexing_type")
-            .column(spent_detail::Column::UpdatedAt)
+            // .column(spent_detail::Column::UpdatedAt)
             // Add current timestamp for produced_at
             .expr_as(Expr::value(produced_at), "produced_at")
             // WHERE conditions
