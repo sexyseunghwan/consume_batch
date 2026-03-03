@@ -461,7 +461,7 @@ where
                 )
                 .await?;
             }
-            "spent_type_dev" | "spent_type_full" => {
+            "spent_type" => {
                 Self::process_spent_type_full(schedule_item, mysql_service, elastic_service)
                     .await?;
             }
