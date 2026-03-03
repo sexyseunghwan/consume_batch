@@ -73,6 +73,16 @@
       },
       "user_seq": {
         "type" : "long"
+      },
+      "consume_keyword_type_nm": {
+        "type": "text",
+        "analyzer": "korean",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
       }
     }
   }

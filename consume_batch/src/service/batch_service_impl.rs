@@ -1254,12 +1254,15 @@ where
                 continue;
             }
              
-            let messages: Vec<SpentDetailWithRelations> = consume_service
+            let messages: Vec<SpentDetailWithRelations> = match consume_service
                 .consume_messages_as_with_group(relation_topic, batch_size, consumer_group)
-                .await
-                .context(
-                    "[BatchServiceImpl::process_spent_detail_incremental] Failed to consume messages",
-                )?;
+                .await {
+                    Ok(messages) => messages,
+                    Err(e) => {
+                        error!("[BatchServiceImpl::process_spent_detail_incremental] Failed to consume messages {:#}", e);
+                        continue;
+                    }
+                };
             
             if messages.is_empty() {
                 info!("[BatchServiceImpl::process_spent_detail_incremental] No messages available, wait before next poll...");

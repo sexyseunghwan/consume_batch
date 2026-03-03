@@ -80,29 +80,21 @@ where
     /// Executes the following SQL query:
     /// ```sql
     /// SELECT
-    ///     sd.spent_idx,
-    ///     sd.spent_name,
-    ///     sd.spent_money,
-    ///     sd.spent_at,
-    ///     sd.created_at,
-    ///     sd.user_seq,
-    ///     cp.consume_keyword_id,
-    ///     cp.consume_keyword,
-    ///     ct.consume_keyword_type_id,
-    ///     ct.consume_keyword_type,
-    ///     t.room_seq
+    /// sd.spent_idx,
+    /// sd.spent_name,
+    /// sd.spent_money,
+    /// sd.spent_at,
+    /// sd.created_at,
+    /// sd.user_seq,
+    /// ct.consume_keyword_type_id,
+    /// ct.consume_keyword_type,
+    /// t.room_seq
     /// FROM SPENT_DETAIL sd
-    /// INNER JOIN COMMON_CONSUME_PRODT_KEYWORD cp
-    ///     ON sd.consume_keyword_id = cp.consume_keyword_id
-    /// INNER JOIN COMMON_CONSUME_KEYWORD_TYPE ct
-    ///     ON cp.consume_keyword_type_id = ct.consume_keyword_type_id
-    /// INNER JOIN USERS u
-    ///     ON u.user_seq = sd.user_seq
-    /// INNER JOIN TELEGRAM_ROOM t
-    ///     ON u.user_seq = t.user_seq
+    /// INNER JOIN COMMON_CONSUME_KEYWORD_TYPE ct ON sd.consume_keyword_type_id = ct.consume_keyword_type_id
+    /// INNER JOIN USERS u ON u.user_seq = sd.user_seq
+    /// INNER JOIN TELEGRAM_ROOM t ON u.user_seq = t.user_seq
     /// WHERE sd.should_index = 1
-    ///     AND t.is_room_approved = 1
-    /// LIMIT {limit} OFFSET {offset}
+    /// AND t.is_room_approved = true;
     /// ```
     ///
     /// # Arguments
