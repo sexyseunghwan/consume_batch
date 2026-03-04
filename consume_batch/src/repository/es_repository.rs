@@ -613,9 +613,7 @@ impl EsRepository for EsRepositoryImpl {
             // Add the document
             body.push(doc_json.into());
         }
-
-        info!("{:?}", debug_body);
-
+        
         let response: Response = self
             .es_client
             .bulk(BulkParts::None)
