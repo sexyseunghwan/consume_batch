@@ -636,7 +636,7 @@ where
             "[BatchServiceImpl::process_migration_spent_detail_to_kafka] All data for the `{}` topic has been deleted.",
             produce_topic
         );
-
+        
         loop {
             let produce_spent_details: Vec<SpentDetailWithRelations> = match mysql_service
                 .fetch_spent_details_for_indexing(offset, batch_size)
@@ -1160,7 +1160,7 @@ where
         )
         .await
         .context("[BatchServiceImpl::process_spent_detail_full] Failed during incremental catch-up indexing")?;
-
+        
         info!(
             "[BatchServiceImpl::process_spent_detail_full] Incremental catch-up completed: {} documents",
             dynamic_indexed
@@ -1412,7 +1412,7 @@ where
                 "[BatchServiceImpl::process_spent_type_full] Fetching batch at offset: {}, batch_size: {}",
                 offset, batch_size
             );
-
+            
             let keywords: Vec<SpentTypeKeyword> = mysql_service
                 .fetch_spent_type_keywords_batch(offset, batch_size as u64)
                 .await

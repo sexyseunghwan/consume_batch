@@ -6,7 +6,7 @@ relation_topic = "full_spent_detail_dev"
 relation_topic_sub = "spent_detail_dev"
 consumer_group = "full_spent_detail_group"
 batch_size = 500
-immediate_apply = true
+immediate_apply = false
 cron_schedule_apply = false
 cron_schedule = "0 5,10,15,20,25,30,35,40,45,50,55 1-23 * * *"
 mapping_schema = "./src/config/elastic_schema/spent_detail.json"
@@ -19,14 +19,14 @@ relation_topic = "spent_detail_dev"
 relation_topic_sub = ""
 consumer_group = "incremental_spent_detail_group"
 batch_size = 500
-immediate_apply = false
+immediate_apply = true
 cron_schedule_apply = false
 cron_schedule = "* * * * * *"
 mapping_schema = ""
 
 [[batch_schedule]]
 batch_name = "spent_type"
-index_name = "spent_type"
+index_name = "spent_type_dev"
 enabled = true
 relation_topic = ""
 relation_topic_sub = ""

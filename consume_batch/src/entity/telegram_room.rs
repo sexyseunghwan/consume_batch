@@ -14,17 +14,30 @@ pub struct Model {
     pub updated_at: Option<DateTime>,
     pub created_by: String,
     pub updated_by: Option<String>,
+    pub user_seq: i64
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(has_many = "super::spent_detail::Entity")]
     SpentDetail,
+    #[sea_orm(
+        belongs_to = "super::users::Entity",
+        from = "Column::UserSeq",
+        to = "super::users::Column::UserSeq"
+    )]
+    Users,
 }
 
 impl Related<super::spent_detail::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::SpentDetail.def()
+    }
+}
+
+impl Related<super::users::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Users.def()
     }
 }
 
