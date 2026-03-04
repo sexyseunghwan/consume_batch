@@ -79,22 +79,23 @@ where
     ///
     /// Executes the following SQL query:
     /// ```sql
-    /// SELECT
-    /// sd.spent_idx,
-    /// sd.spent_name,
-    /// sd.spent_money,
-    /// sd.spent_at,
-    /// sd.created_at,
-    /// sd.user_seq,
-    /// ct.consume_keyword_type_id,
-    /// ct.consume_keyword_type,
-    /// t.room_seq
-    /// FROM SPENT_DETAIL sd
-    /// INNER JOIN COMMON_CONSUME_KEYWORD_TYPE ct ON sd.consume_keyword_type_id = ct.consume_keyword_type_id
-    /// INNER JOIN USERS u ON u.user_seq = sd.user_seq
-    /// INNER JOIN TELEGRAM_ROOM t ON u.user_seq = t.user_seq
-    /// WHERE sd.should_index = 1
-    /// AND t.is_room_approved = true;
+    // SELECT
+    // 	sd.spent_idx,
+    // 	sd.spent_name,
+    // 	sd.spent_money,
+    // 	sd.spent_at,
+    // 	sd.created_at,
+    // 	sd.user_seq,
+    // 	ct.consume_keyword_type_id,
+    // 	ct.consume_keyword_type,
+    // 	t.room_seq,
+    //     u.user_id
+    // 	FROM SPENT_DETAIL sd
+    // 	INNER JOIN COMMON_CONSUME_KEYWORD_TYPE ct ON sd.consume_keyword_type_id = ct.consume_keyword_type_id
+    // 	INNER JOIN USERS u ON u.user_seq = sd.user_seq
+    // 	INNER JOIN TELEGRAM_ROOM t ON t.room_seq = sd.room_seq
+    // WHERE sd.should_index = 1
+    // AND	t.is_room_approved = true;
     /// ```
     ///
     /// # Arguments
@@ -121,7 +122,7 @@ where
             // JOIN with USERS
             .join(JoinType::InnerJoin, spent_detail::Relation::Users.def())
             // JOIN with TELEGRAM_ROOM
-            .join(JoinType::InnerJoin, users::Relation::TelegramRoom.def())
+            .join(JoinType::InnerJoin, spent_detail::Relation::TelegramRoom.def())
             // SELECT specific columns
             .select_only()
             .column(spent_detail::Column::SpentIdx)
@@ -132,12 +133,12 @@ where
             .column(spent_detail::Column::UserSeq)
             .column(common_consume_keyword_type::Column::ConsumeKeywordTypeId)
             .column(common_consume_keyword_type::Column::ConsumeKeywordType)
-            .column(telegram_room::Column::RoomSeq)
+            .column(spent_detail::Column::RoomSeq)
             // Add literal value for indexing_type
             .expr_as(Expr::value("I"), "indexing_type")
-            // .column(spent_detail::Column::UpdatedAt)
             // Add current timestamp for produced_at
             .expr_as(Expr::value(produced_at), "produced_at")
+            .column(users::Column::UserId)
             // WHERE conditions
             .filter(spent_detail::Column::ShouldIndex.eq(1))
             .filter(telegram_room::Column::IsRoomApproved.eq(true))

@@ -47,10 +47,17 @@
   "mappings" : {
     "properties" : {
       "consume_keyword_type": {
-        "type" : "keyword"
+        "type": "text",
+        "analyzer": "korean",
+        "fields": {
+          "keyword": {
+            "type": "keyword",
+            "ignore_above": 256
+          }
+        }
       },
       "consume_keyword_type_id": {
-        "type" : "Integer"
+        "type" : "integer"
       },
       "created_at": {
         "type" : "date"
@@ -74,15 +81,8 @@
       "user_seq": {
         "type" : "long"
       },
-      "consume_keyword_type_nm": {
-        "type": "text",
-        "analyzer": "korean",
-        "fields": {
-          "keyword": {
-            "type": "keyword",
-            "ignore_above": 256
-          }
-        }
+      "user_id": {
+        "type" : "keyword"
       }
     }
   }

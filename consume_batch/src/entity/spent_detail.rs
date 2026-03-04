@@ -18,6 +18,7 @@ pub struct Model {
     pub user_seq: i64,
     pub spent_group_id: i64,
     pub consume_keyword_type_id: i64,
+    pub room_seq: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -40,6 +41,12 @@ pub enum Relation {
         to = "super::common_consume_keyword_type::Column::ConsumeKeywordTypeId"
     )]
     CommonConsumeKeywordType,
+    #[sea_orm(
+        belongs_to = "super::telegram_room::Entity",
+        from = "Column::RoomSeq",
+        to = "super::telegram_room::Column::RoomSeq"
+    )]
+    TelegramRoom,
 }
 
 impl Related<super::spent_group_info::Entity> for Entity {
@@ -57,6 +64,12 @@ impl Related<super::users::Entity> for Entity {
 impl Related<super::common_consume_prodt_keyword::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::CommonConsumeKeywordType.def()
+    }
+}
+
+impl Related<super::telegram_room::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::TelegramRoom.def()
     }
 }
 

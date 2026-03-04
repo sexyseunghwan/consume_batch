@@ -22,8 +22,8 @@ pub struct SpentDetailWithRelationsRaw {
     consume_keyword_type: String,
     room_seq: i64,
     indexing_type: String,
-    // updated_at: Option<DateTime<Utc>>,
     produced_at: DateTime<Utc>,
+    pub user_id: String,
 }
 
 /// Represents a spent detail with all related information for indexing.
@@ -64,7 +64,7 @@ pub struct SpentDetailWithRelations {
     /// User identifier
     pub user_seq: i64,
 
-    /// Keyword type identifier
+    /// Keyword type identifier 
     pub consume_keyword_type_id: i64,
 
     /// The type/category of the keyword
@@ -76,11 +76,11 @@ pub struct SpentDetailWithRelations {
     /// Indexing Type - I,U,D
     pub indexing_type: IndexingType,
 
-    /// Record updated timestamp
-    // pub updated_at: Option<DateTime<Utc>>,
-
     /// Current UTC timestamp when indexing was triggered
     pub produced_at: DateTime<Utc>,
+    
+    /// User id
+    pub user_id: String,
 }
 
 /// Elasticsearch-specific version of SpentDetailWithRelations.
@@ -116,11 +116,11 @@ pub struct SpentDetailWithRelationsEs {
     /// Telegram room identifier
     pub room_seq: i64,
 
-    /// Record updated timestamp
-    // pub updated_at: Option<DateTime<Utc>>,
-
     /// Record indexing timestamp
     pub produced_at: DateTime<Utc>,
+
+    /// User id
+    pub user_id: String,
 }
 
 impl From<SpentDetailWithRelations> for SpentDetailWithRelationsEs {
@@ -135,8 +135,8 @@ impl From<SpentDetailWithRelations> for SpentDetailWithRelationsEs {
             consume_keyword_type_id: src.consume_keyword_type_id,
             consume_keyword_type: src.consume_keyword_type,
             room_seq: src.room_seq,
-            // updated_at: src.updated_at,
             produced_at: src.produced_at,
+            user_id: src.user_id
         }
     }
 }
@@ -155,8 +155,8 @@ impl From<SpentDetailWithRelationsRaw> for SpentDetailWithRelations {
             room_seq: raw.room_seq,
             indexing_type: IndexingType::from_str(&raw.indexing_type)
                 .unwrap_or(IndexingType::Insert),
-            // updated_at: raw.updated_at,
             produced_at: raw.produced_at,
+            user_id: raw.user_id
         }
     }
 }

@@ -11,4 +11,5 @@ pub struct SpentDetail {
     pub user_seq: i64,
     pub spent_group_id: i64,
     pub consume_keyword_type_id: i64,
+    pub room_seq: i64,
 }

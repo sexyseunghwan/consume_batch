@@ -655,7 +655,7 @@ where
             if produce_spent_details.is_empty() {
                 break;
             }
-
+            
             for spent_detail in &produce_spent_details {
                 let spent_detail_json: Value = serde_json::to_value(spent_detail)
                     .context("[BatchServiceImpl::process_migration_spent_detail_to_kafka] Failed to convert `spent_detail` to JSON")?;
