@@ -114,7 +114,7 @@ where
 
             match input.parse::<usize>() {
                 Ok(num) if num >= 1 && num <= batch_items.len() => {
-                    let schedule_item: &BatchScheduleItem = &batch_items[num - 1];
+                    let schedule_item: &BatchScheduleItem = batch_items[num - 1];
                     let batch_name: &str = schedule_item.batch_name();
 
                     info!(

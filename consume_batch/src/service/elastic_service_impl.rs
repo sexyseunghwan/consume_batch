@@ -294,7 +294,7 @@ where
                 )
             })?;
 
-        if results.len() == 0 {
+        if results.is_empty() {
             return Ok(ConsumingIndexProdtType::new(
                 20,
                 String::from("etc"),
@@ -312,7 +312,7 @@ where
                 let keyword: &str = consume_type.source.consume_keyword();
 
                 /* Use the 'levenshtein' algorithm to determine word match */
-                let word_dist: usize = levenshtein(keyword, &prodt_name);
+                let word_dist: usize = levenshtein(keyword, prodt_name);
                 let word_dist_i64: i64 = word_dist.try_into()?;
                 manager.insert(word_dist_i64 + score_i64, consume_type.source);
             }

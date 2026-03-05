@@ -102,8 +102,7 @@ impl CliClientController {
             print!("{}", buffer);
 
             if let Err(e) = std::io::stdout().flush() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
+                return Err(std::io::Error::other(
                     format!("Failed to flush stdout: {}", e),
                 ));
             }

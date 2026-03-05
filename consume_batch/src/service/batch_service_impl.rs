@@ -769,7 +769,7 @@ where
             );
 
             elastic_service
-                .bulk_index(&new_index_name, es_messages)
+                .bulk_index(new_index_name, es_messages)
                 .await
                 .context("[BatchServiceImpl::process_spent_detail_static] Failed to bulk index")?;
 

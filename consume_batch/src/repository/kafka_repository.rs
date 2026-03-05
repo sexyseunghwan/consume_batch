@@ -101,7 +101,6 @@ use rdkafka::admin::{AdminClient, AdminOptions};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::consumer::BaseConsumer;
 use rdkafka::{Offset, TopicPartitionList};
-use std::ops::Deref;
 
 /// Trait defining Kafka repository operations.
 ///

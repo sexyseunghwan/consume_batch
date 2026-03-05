@@ -43,7 +43,7 @@ impl<T: std::fmt::Debug> ScoreManager<T> {
         /* Insert Data */
         self.data_map
             .entry(score)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(ScoredData { score, data });
 
         /* Add scores to the heap (you can insert duplicate scores that already exist) */

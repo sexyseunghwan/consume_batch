@@ -47,7 +47,7 @@ use elasticsearch::{
     http::request::JsonBody,
     indices::{
         IndicesCreateParts, IndicesDeleteParts, IndicesGetAliasParts, IndicesPutSettingsParts,
-        IndicesRefreshParts, IndicesUpdateAliasesParts,
+        IndicesRefreshParts,
     },
 };
 /// Trait defining Elasticsearch repository operations.
@@ -625,14 +625,13 @@ impl EsRepository for EsRepositoryImpl {
             let response_body: Value = response.json().await?;
 
             // Check if there were any errors in the bulk response
-            if let Some(errors) = response_body.get("errors") {
-                if errors.as_bool() == Some(true) {
+            if let Some(errors) = response_body.get("errors")
+                && errors.as_bool() == Some(true) {
                     warn!(
                         "[EsRepositoryImpl::bulk_index] Some documents failed to index: {:?}",
                         response_body.get("items")
                     );
                 }
-            }
 
             info!(
                 "[EsRepositoryImpl::bulk_index] Successfully bulk indexed documents to: {}",
@@ -707,14 +706,13 @@ impl EsRepository for EsRepositoryImpl {
         if response.status_code().is_success() {
             let response_body: Value = response.json().await?;
 
-            if let Some(errors) = response_body.get("errors") {
-                if errors.as_bool() == Some(true) {
+            if let Some(errors) = response_body.get("errors")
+                && errors.as_bool() == Some(true) {
                     warn!(
                         "[EsRepositoryImpl::bulk_update] Some documents failed to update: {:?}",
                         response_body.get("items")
                     );
                 }
-            }
 
             info!(
                 "[EsRepositoryImpl::bulk_update] Successfully bulk updated documents in: {}",
@@ -763,14 +761,13 @@ impl EsRepository for EsRepositoryImpl {
         if response.status_code().is_success() {
             let response_body: Value = response.json().await?;
 
-            if let Some(errors) = response_body.get("errors") {
-                if errors.as_bool() == Some(true) {
+            if let Some(errors) = response_body.get("errors")
+                && errors.as_bool() == Some(true) {
                     warn!(
                         "[EsRepositoryImpl::bulk_delete] Some documents failed to delete: {:?}",
                         response_body.get("items")
                     );
                 }
-            }
 
             info!(
                 "[EsRepositoryImpl::bulk_delete] Successfully bulk deleted documents from: {}",
@@ -823,8 +820,8 @@ impl EsRepository for EsRepositoryImpl {
         let mut actions: Vec<Value> = Vec::new();
 
         // If alias exists, remove it from the old index
-        if let Ok(response) = get_alias_response {
-            if response.status_code().is_success() {
+        if let Ok(response) = get_alias_response
+            && response.status_code().is_success() {
                 let body: Value = response.json().await?;
 
                 // Add remove actions for all indices currently using this alias
@@ -839,7 +836,6 @@ impl EsRepository for EsRepositoryImpl {
                     }
                 }
             }
-        }
 
         // Add the alias to the new index
         actions.push(json!({

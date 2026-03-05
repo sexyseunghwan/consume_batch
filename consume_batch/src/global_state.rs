@@ -29,7 +29,7 @@ pub static SPENT_DETAIL_INDEXING: once_lazy<RwLock<bool>> = once_lazy::new(|| Rw
 
 /// Returns the current value of [`SPENT_DETAIL_INDEXING`].
 pub async fn get_spent_detail_indexing() -> bool {
-    SPENT_DETAIL_INDEXING.read().await.clone()
+    *SPENT_DETAIL_INDEXING.read().await
 }
 
 /// Sets [`SPENT_DETAIL_INDEXING`] to the given `value`.
@@ -43,7 +43,7 @@ pub static MAX_STATIC_SPENT_DETAIL_INDEX_TIMESTAMP: once_lazy<RwLock<DateTime<Ut
     once_lazy::new(|| RwLock::new(Utc::now()));
 
 pub async fn get_max_static_spent_detail_index_timestamp() -> DateTime<Utc> {
-    MAX_STATIC_SPENT_DETAIL_INDEX_TIMESTAMP.read().await.clone()
+    *MAX_STATIC_SPENT_DETAIL_INDEX_TIMESTAMP.read().await
 }
 
 pub async fn set_max_static_spent_detail_index_timestamp(value: Option<DateTime<Utc>>) {
@@ -58,10 +58,9 @@ pub static MAX_DYNAMIC_SPENT_DETAIL_INDEX_TIMESTAMP: once_lazy<RwLock<DateTime<U
     once_lazy::new(|| RwLock::new(Utc::now()));
 
 pub async fn get_max_dynamic_spent_detail_index_timestamp() -> DateTime<Utc> {
-    MAX_DYNAMIC_SPENT_DETAIL_INDEX_TIMESTAMP
+    *MAX_DYNAMIC_SPENT_DETAIL_INDEX_TIMESTAMP
         .read()
         .await
-        .clone()
 }
 
 pub async fn set_max_dynamic_spent_detail_index_timestamp(value: Option<DateTime<Utc>>) {
