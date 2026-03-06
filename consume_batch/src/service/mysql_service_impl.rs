@@ -172,6 +172,7 @@ where
             .column(spent_detail::Column::UserSeq)
             .column(spent_detail::Column::SpentGroupId)
             .column(spent_detail::Column::ConsumeKeywordTypeId)
+            .column(spent_detail::Column::RoomSeq)
             .offset(offset)
             .limit(limit)
             .order_by_asc(spent_detail::Column::SpentIdx)
@@ -179,7 +180,7 @@ where
             .all(db)
             .await
             .context("[MysqlServiceImpl::fetch_spent_details] Failed to execute query")?;
-
+            
         Ok(results)
     }
 

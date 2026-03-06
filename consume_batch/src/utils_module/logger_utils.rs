@@ -20,7 +20,7 @@ pub fn set_global_logger() {
         )
         .format_for_files(custom_format)
         .format_for_stdout(custom_format)
-        .duplicate_to_stdout(Duplicate::Info)
+        .duplicate_to_stdout(Duplicate::Info) /* Duplicate Info-level logs to stdout */
         .start()
         .unwrap_or_else(|e| panic!("Logger initialization failed: {}", e));
 }

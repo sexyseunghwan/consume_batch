@@ -536,15 +536,21 @@ where
         let mut total_processed: u64 = 0;
 
         loop {
-            let details: Vec<SpentDetail> = mysql_service
+            
+            let details: Vec<SpentDetail> = match mysql_service
                 .fetch_spent_details(offset, batch_size)
-                .await
-                .context("[process_update_all_check_type_detail] Failed to fetch spent details")?;
+                .await {
+                    Ok(details) => details,
+                    Err(e) => {
+                        error!("[BatchServiceImpl::process_update_all_check_type_detail] {:#}", e);
+                        break;
+                    }
+                };
 
             if details.is_empty() {
                 break;
             }
-
+            
             let batch_count: usize = details.len();
             total_processed += batch_count as u64;
 
