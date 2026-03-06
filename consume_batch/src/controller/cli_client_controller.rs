@@ -17,7 +17,6 @@
 //!           └── if "0" or "q" → read final message and exit
 //! ```
 
-use crate::app_config::AppConfig;
 use crate::common::*;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
@@ -35,10 +34,9 @@ impl CliClientController {
     /// Prints to stderr and exits the loop cleanly if:
     /// - The service socket is not available (service not running)
     /// - A read or write on the socket fails mid-session
-    pub async fn run() {
+    pub async fn run(socket_path: &str) {
         info!("Indexing Batch Program Start. [CLI mode]");
 
-        let socket_path: &str = AppConfig::global().socket_path();
         let stream: UnixStream = match UnixStream::connect(socket_path).await {
             Ok(stream) => stream,
             Err(_) => {
@@ -57,6 +55,7 @@ impl CliClientController {
         let mut writer: tokio::io::WriteHalf<UnixStream> = write_half;
 
         loop {
+            
             if let Err(e) = Self::read_until_prompt(&mut reader).await {
                 eprintln!("[ERROR] Failed to read from server: {}", e);
                 break;

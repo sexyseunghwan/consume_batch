@@ -88,16 +88,20 @@ type Controller = MainController<BatchSvc, CliSvc>;
 #[tokio::main]
 async fn main() {
     dotenv().ok();
-    AppConfig::init().expect("Failed to initialize AppConfig");
-    set_global_logger();
 
     let args: Vec<String> = std::env::args().collect();
 
     // Option to run the application in CLI mode.
-    if args.get(1).map(|s| s == "--cli").unwrap_or(false) {
-        CliClientController::run().await;
+    // Check before AppConfig::init() so CLI client does not require all service env vars.
+    if args.get(1).map(|s| s == "--cli" || s == "-cli").unwrap_or(false) {
+        let socket_path: String = std::env::var("SOCKET_PATH")
+            .unwrap_or_else(|_| "./socket/consume_batch.sock".to_string());
+        CliClientController::run(&socket_path).await;
         return;
     }
+    
+    AppConfig::init().expect("Failed to initialize AppConfig");
+    set_global_logger();
 
     info!("Indexing Batch Program Start.");
 
@@ -155,7 +159,7 @@ async fn main() {
         Arc::new(batch_service.clone()),
         batch_service.schedule_config().clone(),
     );
-
+    
     // Create main controller with both services
     let main_controller: Controller = MainController::new(batch_service, Arc::new(cli_service));
 

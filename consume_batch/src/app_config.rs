@@ -5,8 +5,6 @@ use crate::common::*;
 #[derive(Debug, Clone, Getters)]
 #[getset(get = "pub")]
 pub struct AppConfig {
-    /// Telegram bot token information.
-    pub teloxide_token: String,
     /// Elasticsearch URL
     pub es_db_url: String,
     /// Elasticsearch username
@@ -55,8 +53,6 @@ impl AppConfig {
         dotenv::dotenv().ok();
 
         let config: AppConfig = AppConfig {
-            teloxide_token: env::var("TELOXIDE_TOKEN")
-                .map_err(|_| "TELOXIDE_TOKEN not found in environment".to_string())?,
             es_db_url: env::var("ES_DB_URL")
                 .map_err(|_| "ES_DB_URL not found in environment".to_string())?,
             es_id: env::var("ES_ID").map_err(|_| "ES_ID not found in environment".to_string())?,
@@ -84,7 +80,7 @@ impl AppConfig {
             es_spent_type: env::var("ES_SPENT_TYPE")
                 .map_err(|_| "ES_SPENT_TYPE not found in environment".to_string())?,
             socket_path: env::var("SOCKET_PATH")
-                .unwrap_or_else(|_| "/tmp/consume_batch.sock".to_string()),
+                .unwrap_or_else(|_| "./socket/consume_batch.sock".to_string()),
         };
 
         APP_CONFIG

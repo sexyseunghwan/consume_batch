@@ -12,7 +12,7 @@ pub use tokio::sync::RwLock;
 
 pub use log::{error, info, warn};
 
-pub use flexi_logger::{Age, Cleanup, Criterion, FileSpec, Logger, Naming, Record};
+pub use flexi_logger::{Age, Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming, Record};
 
 pub use chrono::{
     DateTime, Utc,

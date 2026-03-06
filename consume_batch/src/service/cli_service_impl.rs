@@ -93,8 +93,8 @@ where
             }
             menu.push_str("  0. Exit\n");
             menu.push_str("==============================\n");
-            menu.push_str("Input:");
-
+            menu.push_str("Input:\n");
+            
             writer.write_all(menu.as_bytes()).await?;
 
             // Receive user input (including line break)
@@ -102,7 +102,7 @@ where
             let n: usize = reader.read_line(&mut line).await?;
 
             if n == 0 {
-                break; // Client disconnected
+                break; // Client Disconnected
             }
 
             let input: &str = line.trim();
