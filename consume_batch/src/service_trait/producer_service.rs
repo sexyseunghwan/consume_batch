@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::common::*;
 
 #[async_trait]

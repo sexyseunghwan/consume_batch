@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::common::*;
 
 use crate::models::{ConsumingIndexProdtType, DocumentWithId};

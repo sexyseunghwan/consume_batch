@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Kafka repository implementation with shared instance pattern.
 //!
 //! This module provides the data access layer for Apache Kafka consumer operations
@@ -727,7 +728,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
         }
 
         match self.producer.send(record, Duration::from_secs(30)).await {
-            Ok(delivery) => {
+            Ok(_delivery) => {
                 // info!(
                 //     "[KafkaRepositoryImpl::send_message] Message sent to topic: {}, partition: {}, offset: {}",
                 //     topic, delivery.partition, delivery.offset

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! MySQL repository implementation.
 //!
 //! This module provides the data access layer for MySQL database operations

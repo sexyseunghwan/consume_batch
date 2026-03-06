@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 //! Spent detail with relations model for Elasticsearch indexing.
 //!
 //! This module provides the data structure for indexing spent detail information

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Elasticsearch repository implementation.
 //!
 //! This module provides the data access layer for Elasticsearch operations,

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 //! Global environment configuration module.
 //!
 //! This module provides a centralized, lazily-initialized configuration

@@ -18,11 +18,14 @@ pub struct AppConfig {
     pub kafka_sasl_mechanism: Option<String>,
     pub kafka_sasl_username: Option<String>,
     pub kafka_sasl_password: Option<String>,
+    #[allow(dead_code)]
     pub my_sql_host: String,
     pub database_url: String,
+    #[allow(dead_code)]
     pub batch_size: usize,
     pub batch_schedule: String,
 
+    #[allow(dead_code)]
     pub es_spent_detail: String,
     pub es_spent_type: String,
     pub socket_path: String,
@@ -40,14 +43,12 @@ impl AppConfig {
     /// * `Result<(), String>` - Ok if initialization succeeds, Err with message if fails
     ///
     /// # Example
-    /// ```
+    /// ```no_run
     /// use consume_alert_rust::config::AppConfig;
     ///
-    /// fn main() {
-    ///     AppConfig::init().expect("Failed to initialize config");
-    ///     let config = AppConfig::global();
-    ///     println!("Consume topic: {}", config.consume_topic);
-    /// }
+    /// AppConfig::init().expect("Failed to initialize config");
+    /// let config = AppConfig::global();
+    /// println!("Socket path: {}", config.socket_path());
     /// ```
     pub fn init() -> Result<(), String> {
         dotenv::dotenv().ok();
@@ -114,6 +115,7 @@ impl AppConfig {
     ///
     /// # Returns
     /// * `Option<&'static AppConfig>` - Some if initialized, None otherwise
+    #[allow(dead_code)]
     pub fn try_global() -> Option<&'static AppConfig> {
         APP_CONFIG.get()
     }

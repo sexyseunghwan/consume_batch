@@ -1,3 +1,4 @@
+#![allow(clippy::too_many_arguments)]
 use crate::common::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromQueryResult, Getters, new)]
