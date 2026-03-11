@@ -39,7 +39,72 @@
 //! - Each job triggers `process_index_batch` for its specific index
 //! - Multiple indices can be processed concurrently without blocking each other
 
-use crate::{app_config::*, common::*, global_state::*};
+use crate::{app_config::*, common::*, global_state::*, utils_module::cli_log::CLI_LOG_TX};
+
+/// A helper macro that logs messages using the standard `log` crate
+/// and optionally forwards the same message to a CLI logging channel.
+///
+/// This macro supports different log levels (`info`, `warn`, `error`).
+/// For each log entry:
+/// 1. The message is formatted using `format!`.
+/// 2. The message is logged via the `log` crate.
+/// 3. If a CLI log channel (`CLI_LOG_TX`) is available, the message is
+///    sent through the channel so that CLI clients can receive real-time logs.
+///
+/// `try_with` is used to safely access the thread-local sender without
+/// causing a panic if it is not initialized.
+///
+/// `try_send` is used to avoid blocking if the channel is full.
+macro_rules! batch_log {
+    
+    // INFO level logging
+    // Example: batch_log!(info, "Processing batch {}", id);
+    (info, $($arg:tt)*) => {{
+        // Format the log message from the provided arguments
+        let msg = format!($($arg)*);
+
+        // Write the message to the standard logging system
+        log::info!("{}", msg);
+
+        // Attempt to send the log message to the CLI log channel
+        let _ = CLI_LOG_TX.try_with(|opt| {
+            if let Some(tx) = opt {
+                // Non-blocking send to avoid stalling the main process
+                let _ = tx.try_send(msg);
+            }
+        });
+    }};
+
+    // ERROR level logging
+    (error, $($arg:tt)*) => {{
+        let msg = format!($($arg)*);
+
+        // Log the error using the standard logger
+        log::error!("{}", msg);
+
+        // Forward the error message to CLI clients with an [ERROR] prefix
+        let _ = CLI_LOG_TX.try_with(|opt| {
+            if let Some(tx) = opt {
+                let _ = tx.try_send(format!("[ERROR] {}", msg));
+            }
+        });
+    }};
+    
+    // WARN level logging
+    (warn, $($arg:tt)*) => {{
+        let msg = format!($($arg)*);
+
+        // Log the warning message
+        log::warn!("{}", msg);
+
+        // Forward the warning message to CLI clients with a [WARN] prefix
+        let _ = CLI_LOG_TX.try_with(|opt| {
+            if let Some(tx) = opt {
+                let _ = tx.try_send(format!("[WARN] {}", msg));
+            }
+        });
+    }};
+}
 
 use crate::enums::IndexingType;
 
@@ -181,7 +246,7 @@ where
             BatchScheduleConfig::load_from_file(batch_schedule)
                 .context("[BatchServiceImpl::new] schedule_config: ")?;
 
-        info!(
+        batch_log!(info,
             "Loaded {} batch schedules ({} enabled)",
             schedule_config.batch_schedule().len(),
             schedule_config.get_enabled_schedules().len()
@@ -207,16 +272,14 @@ where
         self.schedule_config.get_enabled_schedules()
     }
 
-    /// Initializes and starts the batch job scheduler.
+    /// Registers all enabled cron-based jobs into a new [`JobScheduler`] and starts it.
     ///
-    /// Creates a [`JobScheduler`], registers all enabled schedules based on
-    /// their `cron_schedule_apply` setting:
-    /// - `true`: Register with cron scheduler (periodic execution)
-    /// - `false`: Run once immediately (one-time execution)
+    /// Only schedules where `cron_schedule_apply` is `true` are registered here.
+    /// Immediate (one-time) jobs are handled separately by [`spawn_immediate_jobs`].
     ///
     /// # Returns
     ///
-    /// Returns the running [`JobScheduler`] instance and a JoinSet for immediate jobs.
+    /// Returns the started [`JobScheduler`] instance.
     ///
     /// # Errors
     ///
@@ -224,59 +287,62 @@ where
     /// - The scheduler cannot be created
     /// - Any cron expression is invalid
     /// - Jobs cannot be added to the scheduler
-    async fn start_scheduler(&self) -> anyhow::Result<(JobScheduler, JoinSet<()>)> {
-        // Scheduler
+    async fn build_and_start_cron_scheduler(&self) -> anyhow::Result<JobScheduler> {
         let scheduler: JobScheduler = JobScheduler::new()
             .await
-            .context("[BatchServiceImpl::start_scheduler] Failed to create JobScheduler")?;
+            .context("[BatchServiceImpl::build_and_start_cron_scheduler] Failed to create JobScheduler")?;
 
-        // Tasks to be executed immediately.
-        let mut immediate_jobs: JoinSet<()> = JoinSet::new();
-
-        // Scheduled tasks -> Mix of scheduled and immediate-execution tasks. -> Only fetches tasks permitted for execution.
-        let enabled_schedules: Vec<&BatchScheduleItem> = self.get_enabled_schedules();
-
-        if enabled_schedules.is_empty() {
-            error!("[BatchServiceImpl::start_scheduler] No enabled batch schedules found");
-        }
-        if enabled_schedules.is_empty() {
-            error!("[BatchServiceImpl::start_scheduler] No enabled batch schedules found");
-            return Ok((scheduler, immediate_jobs));
-        }
-
-        // Separate schedules by cron_schedule_apply
-        // 스케쥴 작업 | 즉시 실행 작업 -> 두개로 나눠진다.
-        let cron_schedules: Vec<&BatchScheduleItem> = enabled_schedules
-            .iter()
+        let cron_schedules: Vec<&BatchScheduleItem> = self
+            .get_enabled_schedules()
+            .into_iter()
             .filter(|item| *item.cron_schedule_apply())
-            .copied()
             .collect();
 
-        let immediate_schedules: Vec<&BatchScheduleItem> = enabled_schedules
-            .iter()
-            .filter(|item| *item.immediate_apply())
-            .copied()
-            .collect();
-
-        info!(
-            "[BatchServiceImpl::start_scheduler] Found {} cron jobs, {} immediate jobs",
-            cron_schedules.len(),
-            immediate_schedules.len()
+        batch_log!(info,
+            "[BatchServiceImpl::build_and_start_cron_scheduler] Registering {} cron job(s)",
+            cron_schedules.len()
         );
 
-        // Register cron-based jobs with scheduler
         for schedule_item in cron_schedules {
             let job: Job = self.create_index_job(schedule_item)?;
             scheduler.add(job).await?;
 
-            info!(
-                "[BatchServiceImpl::start_scheduler] {} Cron job registered (schedule: {})",
+            batch_log!(info,
+                "[BatchServiceImpl::build_and_start_cron_scheduler] {} Cron job registered (schedule: {})",
                 schedule_item.index_name(),
                 schedule_item.cron_schedule()
             );
         }
 
-        // Spawn immediate (one-time) jobs
+        scheduler.start().await?;
+
+        batch_log!(info,"[BatchServiceImpl::build_and_start_cron_scheduler] Cron scheduler started successfully");
+
+        Ok(scheduler)
+    }
+
+    /// Spawns all enabled immediate (one-time) batch jobs and returns their handles.
+    ///
+    /// Only schedules where `immediate_apply` is `true` are spawned here.
+    /// Cron-based jobs are handled separately by [`build_and_start_cron_scheduler`].
+    ///
+    /// # Returns
+    ///
+    /// Returns a [`JoinSet`] containing handles to all spawned immediate jobs.
+    fn spawn_immediate_jobs(&self) -> JoinSet<()> {
+        let mut immediate_jobs: JoinSet<()> = JoinSet::new();
+
+        let immediate_schedules: Vec<&BatchScheduleItem> = self
+            .get_enabled_schedules()
+            .into_iter()
+            .filter(|item| *item.immediate_apply())
+            .collect();
+
+        batch_log!(info,
+            "[BatchServiceImpl::spawn_immediate_jobs] Spawning {} immediate job(s)",
+            immediate_schedules.len()
+        );
+
         for immediate_item in immediate_schedules {
             let mysql: Arc<M> = Arc::clone(&self.mysql_service);
             let elastic: Arc<E> = Arc::clone(&self.elastic_service);
@@ -284,34 +350,29 @@ where
             let produce: Arc<P> = Arc::clone(&self.producer_service);
             let item: BatchScheduleItem = immediate_item.clone();
 
-            info!(
-                "[BatchServiceImpl::start_scheduler] {} Spawning immediate job (one-time execution)",
+            batch_log!(info,
+                "[BatchServiceImpl::spawn_immediate_jobs] {} Spawning immediate job (one-time execution)",
                 immediate_item.index_name()
             );
 
             immediate_jobs.spawn(async move {
-                info!("[{}] Immediate job started", item.index_name());
+                batch_log!(info,"[{}] Immediate job started", item.index_name());
 
                 match Self::process_batch(&item, &mysql, &elastic, &consume, &produce).await {
                     Ok(()) => {
-                        info!(
+                        batch_log!(info,
                             "[{}] Immediate job completed successfully",
                             item.index_name()
                         );
                     }
                     Err(e) => {
-                        error!("[{}] Immediate job failed: {}", item.index_name(), e);
+                        batch_log!(error,"[{}] Immediate job failed: {}", item.index_name(), e);
                     }
                 }
             });
         }
 
-        // 스케쥴러 작업은 여기서 실제적으로 시작해준다.
-        scheduler.start().await?;
-
-        info!("[BatchServiceImpl::start_scheduler] Batch scheduler started successfully");
-
-        Ok((scheduler, immediate_jobs))
+        immediate_jobs
     }
 
     /// Creates a scheduled job for a specific index.
@@ -342,7 +403,7 @@ where
         let producer_service: Arc<P> = Arc::clone(&self.producer_service);
         let schedule_item_move: BatchScheduleItem = schedule_item.clone();
 
-        info!(
+        batch_log!(info,
             "[BatchServiceImpl::create_index_job] {} Registering cron job with schedule: {}",
             index_name, cron_expr
         );
@@ -357,20 +418,20 @@ where
             let schedule_item: BatchScheduleItem = schedule_item_move.clone();
 
             Box::pin(async move {
-                info!("[{}] Cron job triggered", schedule_item.index_name());
+                batch_log!(info,"[{}] Cron job triggered", schedule_item.index_name());
 
                 // Call the batch processing logic with schedule_item
                 match Self::process_batch(&schedule_item, &mysql, &elastic, &consume, &produce)
                     .await
                 {
                     Ok(()) => {
-                        info!(
+                        batch_log!(info,
                             "[{}] Cron job completed successfully",
                             schedule_item.index_name()
                         );
                     }
                     Err(e) => {
-                        error!(
+                        batch_log!(error,
                             "[{}] Batch processing failed: {}",
                             schedule_item.index_name(),
                             e
@@ -421,7 +482,7 @@ where
         let batch_name: &str = schedule_item.batch_name();
         let index_name: &str = schedule_item.index_name();
 
-        info!(
+        batch_log!(info,
             "[BatchServiceImpl::process_index_batch] {} Starting batch indexing job",
             index_name
         );
@@ -436,7 +497,7 @@ where
                 )
                 .await
                 {
-                    error!(
+                    batch_log!(error,
                         "[BatchServiceImpl::process_index_batch] spent_detail_full: migration to kafka failed: {:#}",
                         e
                     );
@@ -447,7 +508,7 @@ where
                     Self::process_spent_detail_full(schedule_item, elastic_service, consume_service)
                         .await
                 {
-                    error!(
+                    batch_log!(error,
                         "[BatchServiceImpl::process_index_batch] spent_detail_full: full indexing failed: {:#}",
                         e
                     );
@@ -480,7 +541,7 @@ where
                 .context("[BatchServiceImpl::process_index_batch] all_change_spent_detail_type ")?;
             }
             _ => {
-                warn!(
+                batch_log!(warn,
                     "[BatchServiceImpl::process_index_batch] Unknown batch_name: {}, skipping",
                     batch_name
                 );
@@ -489,7 +550,7 @@ where
 
         let elapsed: chrono::TimeDelta = Utc::now() - start_time;
 
-        info!(
+        batch_log!(info,
             "[BatchServiceImpl::process_index_batch] {} Batch indexing completed successfully in {}ms",
             index_name,
             elapsed.num_milliseconds()
@@ -526,7 +587,7 @@ where
     ) -> anyhow::Result<()> {
         let batch_size: u64 = *schedule_item.batch_size() as u64;
 
-        info!(
+        batch_log!(info,
             "[BatchServiceImpl::process_update_all_check_type_detail] Starting. batch_size={}",
             batch_size
         );
@@ -542,7 +603,7 @@ where
                 .await {
                     Ok(details) => details,
                     Err(e) => {
-                        error!("[BatchServiceImpl::process_update_all_check_type_detail] {:#}", e);
+                        batch_log!(error,"[BatchServiceImpl::process_update_all_check_type_detail] {:#}", e);
                         break;
                     }
                 };
@@ -578,7 +639,7 @@ where
 
                 total_updated += updated;
                 
-                info!(
+                batch_log!(info,
                     "[process_update_all_check_type_detail] Batch offset={}, updated {}/{} records",
                     offset, update_count, batch_count
                 );
@@ -587,7 +648,7 @@ where
             offset += batch_size;
         }
 
-        info!(
+        batch_log!(info,
             "[process_update_all_check_type_detail] Completed. processed={}, updated={}",
             total_processed, total_updated
         );
@@ -624,7 +685,7 @@ where
         let produce_topic: &str = schedule_item.relation_topic().as_str();
         let batch_size: u64 = *schedule_item.batch_size() as u64;
 
-        info!(
+        batch_log!(info,
             "[BatchServiceImpl::process_migration_spent_detail_to_kafka] Starting. batch_size={}",
             batch_size
         );
@@ -638,7 +699,7 @@ where
             .await
             .context("[BatchServiceImpl::process_migration_spent_detail_to_kafka] ")?;
 
-        info!(
+        batch_log!(info,
             "[BatchServiceImpl::process_migration_spent_detail_to_kafka] All data for the `{}` topic has been deleted.",
             produce_topic
         );
@@ -650,7 +711,7 @@ where
             {
                 Ok(produce_spent_details) => produce_spent_details,
                 Err(e) => {
-                    error!(
+                    batch_log!(error,
                         "[BatchServiceImpl::process_migration_spent_detail_to_kafka] Failed to load vector for `produce_spent_details` from DB.: {:?}",
                         e
                     );
@@ -672,7 +733,7 @@ where
                 {
                     Ok(_) => (),
                     Err(e) => {
-                        error!(
+                        batch_log!(error,
                             "[BatchServiceImpl::process_migration_spent_detail_to_kafka] Failed to produce data to Kafka. {:#}",
                             e
                         );
@@ -685,7 +746,7 @@ where
             total_selected += produce_spent_details.len();
         }
 
-        info!(
+        batch_log!(info,
             "[BatchServiceImpl::process_migration_spent_detail_to_kafka] Successfully produced {} data points",
             total_selected
         );
@@ -746,7 +807,7 @@ where
                 )?;
 
             if messages.is_empty() {
-                info!(
+                batch_log!(info,
                     "[BatchServiceImpl::process_spent_detail_static] No more messages in topic '{}', finishing",
                     relation_topic
                 );
@@ -755,7 +816,7 @@ where
 
             let batch_count: usize = messages.len();
 
-            info!(
+            batch_log!(info,
                 "[BatchServiceImpl::process_spent_detail_static] Consumed {} messages, converting for ES indexing",
                 batch_count
             );
@@ -769,7 +830,7 @@ where
             let es_messages: Vec<SpentDetailWithRelationsEs> =
                 messages.into_iter().map(|msg| msg.into()).collect();
 
-            info!(
+            batch_log!(info,
                 "[BatchServiceImpl::process_spent_detail_static] Indexing {} documents to {}",
                 batch_count, new_index_name
             );
@@ -781,7 +842,7 @@ where
 
             total_indexed += batch_count as u64;
 
-            info!(
+            batch_log!(info,
                 "[BatchServiceImpl::process_spent_detail_static] Indexed {} documents so far",
                 total_indexed
             );
@@ -811,7 +872,7 @@ where
         cur_max_produced_at: DateTime<Utc>,
     ) -> bool {
         if cur_max_produced_at > max_dynamic_produced_at {
-            info!(
+            batch_log!(info,
                 "[BatchServiceImpl::check_catch_up_status] \
                 Catch-up surpassed dynamic incremental progress. \
                 cur_max_produced_at={}, max_dynamic_produced_at={}. \
@@ -828,7 +889,7 @@ where
             let ok: bool = produced_diff_secs <= 5;
 
             if ok {
-                info!(
+                batch_log!(info,
                     "[BatchServiceImpl::check_catch_up_status] \
                     Within 5s of dynamic incremental progress. \
                     produced_diff={}s.",
@@ -865,7 +926,7 @@ where
         let batch_size: usize = *schedule_item.batch_size();
         let consumer_group: &str = schedule_item.consumer_group();
 
-        info!(
+        batch_log!(info,
             "[BatchServiceImpl::process_spent_detail_dynamic] Starting. topic='{}', index='{}'",
             relation_topic, new_index_name
         );
@@ -891,12 +952,12 @@ where
 
             if filtered.is_empty() {
                 empty_count += 1;
-                info!(
+                batch_log!(info,
                     "[BatchServiceImpl::process_spent_detail_dynamic] No new messages ({}/3 empty batches)",
                     empty_count
                 );
                 if empty_count > 3 {
-                    info!(
+                    batch_log!(info,
                         "[BatchServiceImpl::process_spent_detail_dynamic] Terminating after {} consecutive empty batches",
                         empty_count
                     );
@@ -921,7 +982,7 @@ where
             let catch_up_complete: bool =
                 Self::check_catch_up_status(max_dynamic_produced_at, cur_max_produced_at).await;
 
-            info!(
+            batch_log!(info,
                 "[BatchServiceImpl::process_spent_detail_dynamic] Processing {} messages (catch_up_complete={})",
                 batch_count, catch_up_complete
             );
@@ -941,14 +1002,14 @@ where
 
             if catch_up_complete {
                 set_spent_detail_indexing(false).await;
-                info!(
+                batch_log!(info,
                     "[BatchServiceImpl::process_spent_detail_dynamic] Catch-up complete. total_processed={}",
                     total_processed
                 );
                 break;
             }
 
-            info!(
+            batch_log!(info,
                 "[BatchServiceImpl::process_spent_detail_dynamic] total_processed={} so far",
                 total_processed
             );
@@ -956,7 +1017,7 @@ where
             tokio::time::sleep(Duration::from_secs(10)).await;
         }
 
-        info!(
+        batch_log!(info,
             "[BatchServiceImpl::process_spent_detail_dynamic] Done. total_processed={}",
             total_processed
         );
@@ -1028,7 +1089,7 @@ where
         to_delete: Vec<i64>,
     ) -> anyhow::Result<()> {
         if !to_insert.is_empty() {
-            info!(
+            batch_log!(info,
                 "[BatchServiceImpl::apply_es_operations] Inserting {} docs into '{}'",
                 to_insert.len(),
                 index_name
@@ -1040,7 +1101,7 @@ where
         }
 
         if !to_update.is_empty() {
-            info!(
+            batch_log!(info,
                 "[BatchServiceImpl::apply_es_operations] Updating {} docs in '{}'",
                 to_update.len(),
                 index_name
@@ -1052,7 +1113,7 @@ where
         }
 
         if !to_delete.is_empty() {
-            info!(
+            batch_log!(info,
                 "[BatchServiceImpl::apply_es_operations] Deleting {} docs from '{}'",
                 to_delete.len(),
                 index_name
@@ -1110,11 +1171,11 @@ where
         let read_index_alias: String = format!("read_{}", index_name);
         let write_index_alias: String = format!("write_{}", index_name);
 
-        info!(
+        batch_log!(info,
             "[BatchServiceImpl::process_spent_detail_full] Starting full indexing for '{}'",
             index_name
         );
-        info!(
+        batch_log!(info,
             "[BatchServiceImpl::process_spent_detail_full] Read alias: {}, Write alias: {} (unchanged)",
             read_index_alias, write_index_alias
         );
@@ -1125,7 +1186,7 @@ where
             .await
             .context("[BatchServiceImpl::process_spent_detail_full] prepare_full_index")?;
 
-        info!(
+        batch_log!(info,
             "[BatchServiceImpl::process_spent_detail_full] Created new index: {}",
             new_index_name
         );
@@ -1140,7 +1201,7 @@ where
         .await
         .context("[BatchServiceImpl::process_spent_detail_full] Failed during full indexing from primary topic")?;
 
-        info!(
+        batch_log!(info,
             "[BatchServiceImpl::process_spent_detail_full] Full indexing completed: {} documents",
             static_indexed
         );
@@ -1167,19 +1228,19 @@ where
         .await
         .context("[BatchServiceImpl::process_spent_detail_full] Failed during incremental catch-up indexing")?;
         
-        info!(
+        batch_log!(info,
             "[BatchServiceImpl::process_spent_detail_full] Incremental catch-up completed: {} documents",
             dynamic_indexed
         );
 
         let total_indexed: u64 = static_indexed + dynamic_indexed;
 
-        info!(
+        batch_log!(info,
             "[BatchServiceImpl::process_spent_detail_full] Finalizing index settings for: {}",
             new_index_name
         );
 
-        info!(
+        batch_log!(info,
             "[BatchServiceImpl::process_spent_detail_full]   - Total indexed: {} documents ({} full + {} incremental)",
             total_indexed, static_indexed, dynamic_indexed
         );
@@ -1241,10 +1302,10 @@ where
         let batch_size: usize = *schedule_item.batch_size();
         let consumer_group: &str = schedule_item.consumer_group();
 
-        info!(
+        batch_log!(info,
             "[BatchServiceImpl::process_spent_detail_incremental] Starting continuous incremental indexing"
         );
-        info!(
+        batch_log!(info,
             "[BatchServiceImpl::process_spent_detail_incremental] Topic: {}, Write alias: {}",
             relation_topic, write_index_alias
         );
@@ -1265,13 +1326,13 @@ where
                 .await {
                     Ok(messages) => messages,
                     Err(e) => {
-                        error!("[BatchServiceImpl::process_spent_detail_incremental] Failed to consume messages {:#}", e);
+                        batch_log!(error,"[BatchServiceImpl::process_spent_detail_incremental] Failed to consume messages {:#}", e);
                         continue;
                     }
                 };
             
             if messages.is_empty() {
-                info!("[BatchServiceImpl::process_spent_detail_incremental] No messages available, wait before next poll...");
+                batch_log!(info,"[BatchServiceImpl::process_spent_detail_incremental] No messages available, wait before next poll...");
                 tokio::time::sleep(Duration::from_secs(10)).await;
                 continue;
             }
@@ -1282,7 +1343,7 @@ where
 
             let batch_count: usize = messages.len();
 
-            info!(
+            batch_log!(info,
                 "[BatchServiceImpl::process_spent_detail_incremental] Consumed {} messages from '{}', processing by indexing_type",
                 batch_count, relation_topic
             );
@@ -1308,7 +1369,7 @@ where
             
             // Process inserts
             if !to_insert.is_empty() {
-                info!(
+                batch_log!(info,
                     "[BatchServiceImpl::process_spent_detail_incremental] Inserting {} documents to write alias '{}'",
                     to_insert.len(),
                     write_index_alias
@@ -1321,7 +1382,7 @@ where
 
             // Process updates
             if !to_update.is_empty() {
-                info!(
+                batch_log!(info,
                     "[BatchServiceImpl::process_spent_detail_incremental] Updating {} documents in write alias '{}'",
                     to_update.len(),
                     write_index_alias
@@ -1334,7 +1395,7 @@ where
             
             // Process deletes
             if !to_delete.is_empty() {
-                info!(
+                batch_log!(info,
                     "[BatchServiceImpl::process_spent_detail_incremental] Deleting {} documents from write alias '{}'",
                     to_delete.len(),
                     write_index_alias
@@ -1347,7 +1408,7 @@ where
 
             total_processed += batch_count as u64;
 
-            info!(
+            batch_log!(info,
                 "[BatchServiceImpl::process_spent_detail_incremental] Successfully processed {} messages (total: {})",
                 batch_count, total_processed
             );
@@ -1397,7 +1458,7 @@ where
         let index_alias: &str = schedule_item.index_name();
         let batch_size: usize = *schedule_item.batch_size();
 
-        info!(
+        batch_log!(info,
             "[BatchServiceImpl::process_spent_type_full] Processing {} (index: {})",
             schedule_item.batch_name(),
             index_alias
@@ -1414,7 +1475,7 @@ where
         let mut total_indexed: u64 = 0;
 
         loop {
-            info!(
+            batch_log!(info,
                 "[BatchServiceImpl::process_spent_type_full] Fetching batch at offset: {}, batch_size: {}",
                 offset, batch_size
             );
@@ -1427,12 +1488,12 @@ where
                 )?;
 
             if keywords.is_empty() {
-                info!("[BatchServiceImpl::process_spent_type_full] No more data to index");
+                batch_log!(info,"[BatchServiceImpl::process_spent_type_full] No more data to index");
                 break;
             }
 
             let batch_count: usize = keywords.len();
-            info!(
+            batch_log!(info,
                 "[BatchServiceImpl::process_spent_type_full] Indexing {} documents",
                 batch_count
             );
@@ -1445,7 +1506,7 @@ where
             total_indexed += batch_count as u64;
             offset += batch_size as u64;
 
-            info!(
+            batch_log!(info,
                 "[BatchServiceImpl::process_spent_type_full] Indexed {} documents so far",
                 total_indexed
             );
@@ -1466,7 +1527,7 @@ where
                 "[BatchServiceImpl::process_spent_type_full] Failed to delete the old index.",
             )?;
 
-        info!(
+        batch_log!(info,
             "[BatchServiceImpl::process_spent_type_full] Completed successfully. Total indexed: {}",
             total_indexed
         );
@@ -1525,20 +1586,24 @@ where
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     async fn main_batch_task(&self) -> anyhow::Result<()> {
-        info!("[BatchServiceImpl::main_batch_task] Starting batch service main task");
+        batch_log!(info,"[BatchServiceImpl::main_batch_task] Starting batch service main task");
 
-        let (mut scheduler, mut immediate_jobs) = self.start_scheduler().await?;
-
-        info!(
+        /* 1. Start scheduler tasks */ 
+        let mut scheduler: JobScheduler = self.build_and_start_cron_scheduler().await?;
+        /* 2. Start immediate job tasks */ 
+        let mut immediate_jobs: JoinSet<()> = self.spawn_immediate_jobs();
+        
+        batch_log!(info,
             "[BatchServiceImpl::main_batch_task] Scheduler is running. Press Ctrl+C to shutdown gracefully."
         );
 
         // Wait for either:
         // 1. Shutdown signal (Ctrl+C)
         // 2. All immediate jobs complete -> then keep alive until Ctrl+C
+        // 3. *** tokio::select! chooses the branch that "completes first", not the branch that starts "executing first" ***
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
-                info!(
+                batch_log!(info,
                     "[BatchServiceImpl::main_batch_task] Shutdown signal received, stopping scheduler..."
                 );
             }
@@ -1546,23 +1611,27 @@ where
                 // Wait for all immediate jobs to complete
                 while let Some(result) = immediate_jobs.join_next().await {
                     if let Err(e) = result {
-                        error!("[BatchServiceImpl::main_batch_task] Immediate job panicked: {:?}", e);
+                        batch_log!(error,"[BatchServiceImpl::main_batch_task] Immediate job panicked: {:?}", e);
                     }
                 }
-                info!("[BatchServiceImpl::main_batch_task] All immediate jobs completed, keeping service alive until Ctrl+C...");
+
+                batch_log!(info,"[BatchServiceImpl::main_batch_task] All immediate jobs completed, keeping service alive until Ctrl+C...");
+                
                 // Always keep running until Ctrl+C (socket server + cron jobs may still be active)
+                // pending -> std::future::pending returns a `Future` that never resolves to `Ready`.
+                //         -> Never complete.
                 std::future::pending::<()>().await;
             } => {}
         }
-
+        
         // Gracefully shutdown the scheduler
         scheduler
             .shutdown()
             .await
             .context("[BatchServiceImpl::main_batch_task] Failed to shutdown scheduler")?;
 
-        info!("[BatchServiceImpl::main_batch_task] Scheduler stopped gracefully. Goodbye!");
-
+        batch_log!(info,"[BatchServiceImpl::main_batch_task] Scheduler stopped gracefully. Goodbye!");
+        
         Ok(())
     }
 

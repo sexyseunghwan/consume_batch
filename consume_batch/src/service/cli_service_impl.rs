@@ -23,12 +23,13 @@
 //! The socket server listens on the path configured in `AppConfig::socket_path`.
 //! CLI clients connect via `--cli` flag and interact through the socket.
 
-use crate::{app_config::AppConfig, common::*, models::batch_schedule::*};
+use crate::{app_config::AppConfig, common::*, models::batch_schedule::*, utils_module::cli_log::CLI_LOG_TX};
 
 use crate::service_trait::{batch_service::BatchService, cli_service::CliService};
 
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::net::UnixListener;
+use tokio::sync::mpsc;
 
 /// CLI service implementation that manages the Unix domain socket server.
 ///
@@ -77,9 +78,24 @@ where
         batch_service: Arc<B>,
         schedule_config: BatchScheduleConfig,
     ) -> anyhow::Result<()> {
-        let (reader, mut writer) = stream.into_split();
+
+        let (reader, writer) = stream.into_split();
+        
         let mut reader: tokio::io::BufReader<tokio::net::unix::OwnedReadHalf> =
             tokio::io::BufReader::new(reader);
+
+        // Route all socket writes through a channel so the log-forwarding task
+        // and the main loop can both write concurrently.
+        let (socket_tx, mut socket_rx) = mpsc::channel::<String>(256);
+        
+        tokio::spawn(async move {
+            let mut w: tokio::net::unix::OwnedWriteHalf = writer;
+            while let Some(msg) = socket_rx.recv().await {
+                if w.write_all(msg.as_bytes()).await.is_err() {
+                    break;
+                }
+            }
+        });
 
         let batch_items: Vec<&BatchScheduleItem> = schedule_config.get_enabled_schedules();
 
@@ -94,8 +110,8 @@ where
             menu.push_str("  0. Exit\n");
             menu.push_str("==============================\n");
             menu.push_str("Input:\n");
-            
-            writer.write_all(menu.as_bytes()).await?;
+
+            socket_tx.send(menu).await?;
 
             // Receive user input (including line break)
             let mut line: String = String::new();
@@ -108,7 +124,7 @@ where
             let input: &str = line.trim();
 
             if input == "0" || input.eq_ignore_ascii_case("q") {
-                writer.write_all("\nExiting.\n".as_bytes()).await?;
+                socket_tx.send("\nExiting.\n".to_string()).await?;
                 break;
             }
 
@@ -122,35 +138,50 @@ where
                         batch_name
                     );
 
-                    writer
-                        .write_all(
-                            format!("\n[{}] Batch execution in progress...\n", batch_name)
-                                .as_bytes(),
-                        )
+                    socket_tx
+                        .send(format!("\n[{}] Batch execution in progress...\n", batch_name))
                         .await?;
 
-                    match batch_service.run_batch(schedule_item).await {
+                    // Create per-session log channel so only this batch's logs
+                    // are forwarded to this CLI connection.
+                    let (log_tx, mut log_rx) = mpsc::channel::<String>(256);
+
+                    // Forward log messages to the socket writer concurrently.
+                    let socket_tx_log: mpsc::Sender<String> = socket_tx.clone();
+                    tokio::spawn(async move {
+                        while let Some(msg) = log_rx.recv().await {
+                            let _ = socket_tx_log
+                                .send(format!("[LOG] {}\n", msg))
+                                .await;
+                        }
+                    });
+
+                    // Run batch with the log sender stored in task-local storage.
+                    // When the scope exits, log_tx is dropped, which closes log_rx
+                    // and causes the forwarding task above to exit cleanly.
+                    let result = CLI_LOG_TX
+                        .scope(Some(log_tx), batch_service.run_batch(schedule_item))
+                        .await;
+
+                    match result {
                         Ok(()) => {
-                            writer
-                                .write_all(format!("[{}] Complete.\n", batch_name).as_bytes())
+                            socket_tx
+                                .send(format!("[{}] Complete.\n", batch_name))
                                 .await?;
                         }
                         Err(e) => {
-                            writer
-                                .write_all(format!("[{}] Failed: {}\n", batch_name, e).as_bytes())
+                            socket_tx
+                                .send(format!("[{}] Failed: {}\n", batch_name, e))
                                 .await?;
                         }
                     }
                 }
                 _ => {
-                    writer
-                        .write_all(
-                            format!(
-                                "Please enter the correct number. (1-{})\n",
-                                batch_items.len()
-                            )
-                            .as_bytes(),
-                        )
+                    socket_tx
+                        .send(format!(
+                            "Please enter the correct number. (1-{})\n",
+                            batch_items.len()
+                        ))
                         .await?;
                 }
             }
@@ -169,14 +200,19 @@ where
     ///
     /// Listens on the path configured in `AppConfig::socket_path` and
     /// spawns a separate task for each incoming connection.
-    async fn start_socket_server(&self) -> anyhow::Result<()> {
+    async fn start_socket_server(&self) -> anyhow::Result<()> {        
         let socket_path: &str = AppConfig::global().socket_path();
 
         // Remove existing socket file to handle unclean shutdowns
-        let _ = std::fs::remove_file(socket_path);
-
+        std::fs::remove_file(socket_path)
+            .inspect_err(|e| {
+                error!("[CliServiceImpl::start_socket_server] {:#}", e);
+            })?;
+        
         let listener: UnixListener = UnixListener::bind(socket_path)
-            .context("[CliServiceImpl::start_socket_server] Failed to bind socket")?;
+            .inspect_err(|e| {
+                error!("[CliServiceImpl::start_socket_server] Failed to bind socket: {:#}", e);
+            })?;
         
         info!(
             "[CliServiceImpl::start_socket_server] CLI socket server listening on {}",
