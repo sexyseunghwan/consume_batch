@@ -882,10 +882,9 @@ impl EsRepository for EsRepositoryImpl {
             .get_alias(IndicesGetAliasParts::Name(&[alias_name]))
             .send()
             .await
-            .context(format!(
-                "[EsRepositoryImpl::get_index_by_alias] Failed to send request for alias '{}'",
-                alias_name
-            ))?;
+            .inspect_err(|e| {
+                error!("[EsRepositoryImpl::get_index_by_alias] Failed to send request for alias '{}': {:#}", alias_name, e);
+            })?;
 
         if response.status_code() == 404 {
             return Ok(vec![]);
@@ -894,7 +893,9 @@ impl EsRepository for EsRepositoryImpl {
         let body: Value = response
             .json()
             .await
-            .context("[EsRepositoryImpl::get_index_by_alias] Failed to parse response body")?;
+            .inspect_err(|e| {
+                error!("[EsRepositoryImpl::get_index_by_alias] Failed to parse response body: {:#}", e);
+            })?;
 
         let indices: Vec<String> = body
             .as_object()
@@ -917,7 +918,9 @@ impl EsRepository for EsRepositoryImpl {
             .delete(IndicesDeleteParts::Index(&index_refs))
             .send()
             .await
-            .context("[EsRepositoryImpl::delete_indices] Failed to send delete request")?;
+            .inspect_err(|e| {
+                error!("[EsRepositoryImpl::delete_indices] Failed to send delete request: {:#}", e);
+            })?;
 
         if response.status_code().is_success() {
             info!(

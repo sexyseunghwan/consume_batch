@@ -82,10 +82,9 @@ where
         self.elastic_conn
             .swap_alias(write_alias, target_index)
             .await
-            .context(format!(
-                "[ElasticServiceImpl::update_write_alias] Failed to update write alias '{}' to '{}'",
-                write_alias, target_index
-            ))
+            .inspect_err(|e| {
+                error!("[ElasticServiceImpl::update_write_alias] Failed to update write alias '{}' to '{}': {:#}", write_alias, target_index, e);
+            })
     }
 
     async fn update_read_alias(&self, read_alias: &str, target_index: &str) -> anyhow::Result<()> {
@@ -98,10 +97,9 @@ where
         self.elastic_conn
             .swap_alias(read_alias, target_index)
             .await
-            .context(format!(
-                "[ElasticServiceImpl::update_read_alias] Failed to update read alias '{}' to '{}'",
-                read_alias, target_index
-            ))
+            .inspect_err(|e| {
+                error!("[ElasticServiceImpl::update_read_alias] Failed to update read alias '{}' to '{}': {:#}", read_alias, target_index, e);
+            })
     }
 
     async fn get_query_result_vec<T: DeserializeOwned>(
@@ -165,12 +163,16 @@ where
 
         self.update_index_settings(new_index_name, &production_settings)
             .await
-            .context("[ElasticServiceImpl::finalize_full_index] Failed to update index settings")?;
+            .inspect_err(|e| {
+                error!("[ElasticServiceImpl::finalize_full_index] Failed to update index settings: {:#}", e);
+            })?;
 
         self.elastic_conn
             .refresh_index(new_index_name)
             .await
-            .context("[ElasticServiceImpl::finalize_full_index] Failed to refresh index")?;
+            .inspect_err(|e| {
+                error!("[ElasticServiceImpl::finalize_full_index] Failed to refresh index: {:#}", e);
+            })?;
 
         info!(
             "[ElasticServiceImpl::finalize_full_index] Refreshing index '{}' before alias swap",
@@ -181,9 +183,9 @@ where
             .elastic_conn
             .get_index_by_alias(index_alias)
             .await
-            .context(
-                "[ElasticServiceImpl::finalize_full_index] Failed to resolve alias to index",
-            )?;
+            .inspect_err(|e| {
+                error!("[ElasticServiceImpl::finalize_full_index] Failed to resolve alias to index: {:#}", e);
+            })?;
 
         info!(
             "[ElasticServiceImpl::finalize_full_index] Current indices for alias '{}': {:?}",
@@ -192,7 +194,9 @@ where
 
         self.swap_alias(index_alias, new_index_name)
             .await
-            .context("[ElasticServiceImpl::finalize_full_index] Failed to swap alias")?;
+            .inspect_err(|e| {
+                error!("[ElasticServiceImpl::finalize_full_index] Failed to swap alias: {:#}", e);
+            })?;
 
         info!(
             "[ElasticServiceImpl::finalize_full_index] Swapping alias '{}': {:?} -> '{}'",
@@ -209,13 +213,14 @@ where
     ) -> anyhow::Result<String> {
         let schema_content: String = tokio::fs::read_to_string(mapping_schema_path)
             .await
-            .context(format!(
-                "[ElasticServiceImpl::prepare_full_index] Failed to read mapping schema file: {}",
-                mapping_schema_path
-            ))?;
+            .inspect_err(|e| {
+                error!("[ElasticServiceImpl::prepare_full_index] Failed to read mapping schema file: {}: {:#}", mapping_schema_path, e);
+            })?;
 
         let schema: Value = serde_json::from_str(&schema_content)
-            .context("[ElasticServiceImpl::prepare_full_index] Failed to parse mapping schema")?;
+            .inspect_err(|e| {
+                error!("[ElasticServiceImpl::prepare_full_index] Failed to parse mapping schema: {:#}", e);
+            })?;
 
         let mappings: Value = schema
             .get("mappings")
@@ -249,7 +254,9 @@ where
 
         self.create_index(&new_index_name, &settings, &mappings)
             .await
-            .context("[ElasticServiceImpl::prepare_full_index] Failed to create index")?;
+            .inspect_err(|e| {
+                error!("[ElasticServiceImpl::prepare_full_index] Failed to create index: {:#}", e);
+            })?;
 
         Ok(new_index_name)
     }

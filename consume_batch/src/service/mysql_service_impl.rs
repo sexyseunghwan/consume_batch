@@ -68,9 +68,9 @@ where
             .into_model::<SpentTypeKeyword>()
             .all(db)
             .await
-            .context(
-                "[MysqlServiceImpl::fetch_spent_type_keywords_batch] Failed to execute query",
-            )?;
+            .inspect_err(|e| {
+                error!("[MysqlServiceImpl::fetch_spent_type_keywords_batch] Failed to execute query: {:#}", e);
+            })?;
 
         Ok(results)
     }
@@ -148,9 +148,9 @@ where
             .into_model::<SpentDetailWithRelations>()
             .all(db)
             .await
-            .context(
-                "[MysqlServiceImpl::fetch_spent_details_for_indexing] Failed to execute query",
-            )?;
+            .inspect_err(|e| {
+                error!("[MysqlServiceImpl::fetch_spent_details_for_indexing] Failed to execute query: {:#}", e);
+            })?;
 
         Ok(results)
     }
@@ -179,7 +179,9 @@ where
             .into_model::<SpentDetail>()
             .all(db)
             .await
-            .context("[MysqlServiceImpl::fetch_spent_details] Failed to execute query")?;
+            .inspect_err(|e| {
+                error!("[MysqlServiceImpl::fetch_spent_details] Failed to execute query: {:#}", e);
+            })?;
             
         Ok(results)
     }
@@ -224,9 +226,10 @@ where
         }
 
         // Wrap all chunks in a single transaction.
-        let txn: DatabaseTransaction = db.begin().await.context(
-            "[MysqlServiceImpl::update_spent_detail_type_batch] Failed to begin transaction",
-        )?;
+        let txn: DatabaseTransaction = db.begin().await
+            .inspect_err(|e| {
+                error!("[MysqlServiceImpl::update_spent_detail_type_batch] Failed to begin transaction: {:#}", e);
+            })?;
 
         /// Max number of CASE WHEN clauses per chunk.
         /// Limited to 500 to stay within MySQL's max_allowed_packet and reduce query parsing overhead.
@@ -260,9 +263,9 @@ where
                     .filter(spent_detail::Column::SpentIdx.is_in(ids))
                     .exec(&txn)
                     .await
-                    .context(
-                        "[MysqlServiceImpl::update_spent_detail_type_batch] Failed to bulk update",
-                    )?;
+                    .inspect_err(|e| {
+                        error!("[MysqlServiceImpl::update_spent_detail_type_batch] Failed to bulk update: {:#}", e);
+                    })?;
 
                 total_affected += result.rows_affected;
             }
@@ -277,16 +280,18 @@ where
                 "[MysqlServiceImpl::update_spent_detail_type_batch] Rolling back transaction: {}",
                 e
             );
-            txn.rollback().await.context(
-                "[MysqlServiceImpl::update_spent_detail_type_batch] Failed to rollback transaction",
-            )?;
+            txn.rollback().await
+                .inspect_err(|e| {
+                    error!("[MysqlServiceImpl::update_spent_detail_type_batch] Failed to rollback transaction: {:#}", e);
+                })?;
             return Err(e);
         }
 
         // COMMIT when all chunks succeed
-        txn.commit().await.context(
-            "[MysqlServiceImpl::update_spent_detail_type_batch] Failed to commit transaction",
-        )?;
+        txn.commit().await
+            .inspect_err(|e| {
+                error!("[MysqlServiceImpl::update_spent_detail_type_batch] Failed to commit transaction: {:#}", e);
+            })?;
 
         Ok(total_affected)
     }
@@ -313,9 +318,10 @@ where
             return Ok(0);
         }
 
-        let txn: DatabaseTransaction = db.begin().await.context(
-            "[MysqlServiceImpl::update_spent_detail_type_one_by_one] Failed to begin transaction",
-        )?;
+        let txn: DatabaseTransaction = db.begin().await
+            .inspect_err(|e| {
+                error!("[MysqlServiceImpl::update_spent_detail_type_one_by_one] Failed to begin transaction: {:#}", e);
+            })?;
 
         let mut total_affected: u64 = 0;
 
@@ -329,9 +335,9 @@ where
                     .filter(spent_detail::Column::SpentIdx.eq(*spent_idx))
                     .exec(&txn)
                     .await
-                    .context(
-                        "[MysqlServiceImpl::update_spent_detail_type_one_by_one] Failed to update row",
-                    )?;
+                    .inspect_err(|e| {
+                        error!("[MysqlServiceImpl::update_spent_detail_type_one_by_one] Failed to update row: {:#}", e);
+                    })?;
 
                 total_affected += result.rows_affected;
             }
@@ -347,13 +353,16 @@ where
             );
             txn.rollback()
                 .await
-                .context("[MysqlServiceImpl::update_spent_detail_type_one_by_one] Failed to rollback transaction")?;
+                .inspect_err(|e| {
+                    error!("[MysqlServiceImpl::update_spent_detail_type_one_by_one] Failed to rollback transaction: {:#}", e);
+                })?;
             return Err(e);
         }
 
-        txn.commit().await.context(
-            "[MysqlServiceImpl::update_spent_detail_type_one_by_one] Failed to commit transaction",
-        )?;
+        txn.commit().await
+            .inspect_err(|e| {
+                error!("[MysqlServiceImpl::update_spent_detail_type_one_by_one] Failed to commit transaction: {:#}", e);
+            })?;
 
         Ok(total_affected)
     }

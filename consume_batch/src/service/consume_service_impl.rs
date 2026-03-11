@@ -201,10 +201,10 @@ where
         let mut results: Vec<T> = Vec::with_capacity(messages.len());
 
         for (index, msg) in messages.into_iter().enumerate() {
-            let deserialized: T = serde_json::from_value(msg).context(format!(
-                "[ConsumeServiceImpl::consume_messages_as_with_group] Failed to deserialize message at index {} from topic: {} (group: {})",
-                index, topic, group_suffix
-            ))?;
+            let deserialized: T = serde_json::from_value(msg)
+                .inspect_err(|e| {
+                    error!("[ConsumeServiceImpl::consume_messages_as_with_group] Failed to deserialize message at index {} from topic: {} (group: {}): {:#}", index, topic, group_suffix, e);
+                })?;
             results.push(deserialized);
         }
 
@@ -283,10 +283,9 @@ where
 
         for (index, msg) in messages.into_iter().enumerate() {
             let deserialized: T = serde_json::from_value(msg)
-                .context(format!(
-                    "[ConsumeServiceImpl::consume_messages_as] Failed to deserialize message at index {} from topic: {}",
-                    index, topic
-                ))?;
+                .inspect_err(|e| {
+                    error!("[ConsumeServiceImpl::consume_messages_as] Failed to deserialize message at index {} from topic: {}: {:#}", index, topic, e);
+                })?;
             results.push(deserialized);
         }
 

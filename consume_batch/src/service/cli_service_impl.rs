@@ -223,7 +223,9 @@ where
             let (stream, _) = listener
                 .accept()
                 .await
-                .context("[CliServiceImpl::start_socket_server] Failed to accept connection")?;
+                .inspect_err(|e| {
+                    error!("[CliServiceImpl::start_socket_server] Failed to accept connection: {:#}", e);
+                })?;
 
             let batch: Arc<B> = Arc::clone(&self.batch_service);
             let config: BatchScheduleConfig = self.schedule_config.clone();

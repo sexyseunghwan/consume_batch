@@ -244,7 +244,9 @@ where
 
         let schedule_config: BatchScheduleConfig =
             BatchScheduleConfig::load_from_file(batch_schedule)
-                .context("[BatchServiceImpl::new] schedule_config: ")?;
+                .inspect_err(|e| {
+                    error!("[BatchServiceImpl::new] schedule_config: {:#}", e);
+                })?;
 
         batch_log!(info,
             "Loaded {} batch schedules ({} enabled)",
@@ -290,7 +292,9 @@ where
     async fn build_and_start_cron_scheduler(&self) -> anyhow::Result<JobScheduler> {
         let scheduler: JobScheduler = JobScheduler::new()
             .await
-            .context("[BatchServiceImpl::build_and_start_cron_scheduler] Failed to create JobScheduler")?;
+            .inspect_err(|e| {
+                error!("[BatchServiceImpl::build_and_start_cron_scheduler] Failed to create JobScheduler: {:#}", e);
+            })?;
 
         let cron_schedules: Vec<&BatchScheduleItem> = self
             .get_enabled_schedules()
@@ -529,7 +533,9 @@ where
             "spent_detail_migration_to_kafka" => {
                 Self::process_migration_spent_detail_to_kafka(schedule_item, mysql_service, producer_service)
                     .await
-                    .context("[BatchServiceImpl::process_index_batch] process_migration_spent_detail_to_kafka ")?;
+                    .inspect_err(|e| {
+                        error!("[BatchServiceImpl::process_index_batch] process_migration_spent_detail_to_kafka: {:#}", e);
+                    })?;
             }
             "all_change_spent_detail_type" => {
                 Self::process_update_all_check_type_detail(
@@ -538,7 +544,9 @@ where
                     elastic_service,
                 )
                 .await
-                .context("[BatchServiceImpl::process_index_batch] all_change_spent_detail_type ")?;
+                .inspect_err(|e| {
+                    error!("[BatchServiceImpl::process_index_batch] all_change_spent_detail_type: {:#}", e);
+                })?;
             }
             _ => {
                 batch_log!(warn,
@@ -622,9 +630,9 @@ where
                 let spent_type: ConsumingIndexProdtType = elastic_service
                     .get_consume_type_judgement(detail.spent_name())
                     .await
-                    .context(
-                        "[BatchServiceImpl::process_update_all_check_type_detail] spent_type ",
-                    )?;
+                    .inspect_err(|e| {
+                        error!("[BatchServiceImpl::process_update_all_check_type_detail] spent_type: {:#}", e);
+                    })?;
 
                 updates.push((*detail.spent_idx(), *spent_type.consume_keyword_type_id()));
             }
@@ -635,7 +643,9 @@ where
                     //.update_spent_detail_type_one_by_one(updates)
                     .update_spent_detail_type_batch(updates)
                     .await
-                    .context("[process_update_all_check_type_detail] Failed to update batch")?;
+                    .inspect_err(|e| {
+                        error!("[process_update_all_check_type_detail] Failed to update batch: {:#}", e);
+                    })?;
 
                 total_updated += updated;
                 
@@ -697,7 +707,9 @@ where
         producer_service
             .purge_topic(produce_topic)
             .await
-            .context("[BatchServiceImpl::process_migration_spent_detail_to_kafka] ")?;
+            .inspect_err(|e| {
+                error!("[BatchServiceImpl::process_migration_spent_detail_to_kafka]: {:#}", e);
+            })?;
 
         batch_log!(info,
             "[BatchServiceImpl::process_migration_spent_detail_to_kafka] All data for the `{}` topic has been deleted.",
@@ -725,7 +737,9 @@ where
             
             for spent_detail in &produce_spent_details {
                 let spent_detail_json: Value = serde_json::to_value(spent_detail)
-                    .context("[BatchServiceImpl::process_migration_spent_detail_to_kafka] Failed to convert `spent_detail` to JSON")?;
+                    .inspect_err(|e| {
+                        error!("[BatchServiceImpl::process_migration_spent_detail_to_kafka] Failed to convert `spent_detail` to JSON: {:#}", e);
+                    })?;
 
                 match producer_service
                     .produce_object_to_topic(produce_topic, &spent_detail_json, None)
@@ -802,9 +816,9 @@ where
             let messages: Vec<SpentDetailWithRelations> = consume_service
                 .consume_messages_as_with_group(relation_topic, batch_size, consumer_group)
                 .await
-                .context(
-                    "[BatchServiceImpl::process_spent_detail_static] Failed to consume messages",
-                )?;
+                .inspect_err(|e| {
+                    error!("[BatchServiceImpl::process_spent_detail_static] Failed to consume messages: {:#}", e);
+                })?;
 
             if messages.is_empty() {
                 batch_log!(info,
@@ -838,7 +852,9 @@ where
             elastic_service
                 .bulk_index(new_index_name, es_messages)
                 .await
-                .context("[BatchServiceImpl::process_spent_detail_static] Failed to bulk index")?;
+                .inspect_err(|e| {
+                    error!("[BatchServiceImpl::process_spent_detail_static] Failed to bulk index: {:#}", e);
+                })?;
 
             total_indexed += batch_count as u64;
 
@@ -938,9 +954,9 @@ where
             let messages: Vec<SpentDetailWithRelations> = consume_service
                 .consume_messages_as_with_group(relation_topic, batch_size, consumer_group)
                 .await
-                .context(
-                    "[BatchServiceImpl::process_spent_detail_dynamic] Failed to consume messages",
-                )?;
+                .inspect_err(|e| {
+                    error!("[BatchServiceImpl::process_spent_detail_dynamic] Failed to consume messages: {:#}", e);
+                })?;
             
             // *** Incremental indexing starts based on the timestamp of the last full indexing. ***
             let max_static_produced_at: DateTime<Utc> =
@@ -1097,7 +1113,9 @@ where
             elastic_service
                 .bulk_index(index_name, to_insert)
                 .await
-                .context("[BatchServiceImpl::apply_es_operations] bulk_index failed")?;
+                .inspect_err(|e| {
+                    error!("[BatchServiceImpl::apply_es_operations] bulk_index failed: {:#}", e);
+                })?;
         }
 
         if !to_update.is_empty() {
@@ -1109,7 +1127,9 @@ where
             elastic_service
                 .bulk_update(index_name, to_update, "spent_idx")
                 .await
-                .context("[BatchServiceImpl::apply_es_operations] bulk_update failed")?;
+                .inspect_err(|e| {
+                    error!("[BatchServiceImpl::apply_es_operations] bulk_update failed: {:#}", e);
+                })?;
         }
 
         if !to_delete.is_empty() {
@@ -1121,7 +1141,9 @@ where
             elastic_service
                 .bulk_delete(index_name, to_delete)
                 .await
-                .context("[BatchServiceImpl::apply_es_operations] bulk_delete failed")?;
+                .inspect_err(|e| {
+                    error!("[BatchServiceImpl::apply_es_operations] bulk_delete failed: {:#}", e);
+                })?;
         }
 
         Ok(())
@@ -1184,7 +1206,9 @@ where
         let new_index_name: String = elastic_service
             .prepare_full_index(index_name, schedule_item.mapping_schema())
             .await
-            .context("[BatchServiceImpl::process_spent_detail_full] prepare_full_index")?;
+            .inspect_err(|e| {
+                error!("[BatchServiceImpl::process_spent_detail_full] prepare_full_index: {:#}", e);
+            })?;
 
         batch_log!(info,
             "[BatchServiceImpl::process_spent_detail_full] Created new index: {}",
@@ -1199,7 +1223,9 @@ where
             &new_index_name
         )
         .await
-        .context("[BatchServiceImpl::process_spent_detail_full] Failed during full indexing from primary topic")?;
+        .inspect_err(|e| {
+            error!("[BatchServiceImpl::process_spent_detail_full] Failed during full indexing from primary topic: {:#}", e);
+        })?;
 
         batch_log!(info,
             "[BatchServiceImpl::process_spent_detail_full] Full indexing completed: {} documents",
@@ -1213,9 +1239,9 @@ where
         let unused_indexies: Vec<String> = elastic_service
             .finalize_full_index(&read_index_alias, &new_index_name)
             .await
-            .context(
-                "[BatchServiceImpl::process_spent_detail_full] Failed to apply index settings.",
-            )?;
+            .inspect_err(|e| {
+                error!("[BatchServiceImpl::process_spent_detail_full] Failed to apply index settings: {:#}", e);
+            })?;
 
         // Step 4: Index incremental changes from incremental topic (spent_detail_dev)
         // This ensures changes that occurred during full indexing are captured
@@ -1226,7 +1252,9 @@ where
             &new_index_name
         )
         .await
-        .context("[BatchServiceImpl::process_spent_detail_full] Failed during incremental catch-up indexing")?;
+        .inspect_err(|e| {
+            error!("[BatchServiceImpl::process_spent_detail_full] Failed during incremental catch-up indexing: {:#}", e);
+        })?;
         
         batch_log!(info,
             "[BatchServiceImpl::process_spent_detail_full] Incremental catch-up completed: {} documents",
@@ -1249,7 +1277,9 @@ where
         elastic_service
             .update_write_alias(&write_index_alias, &new_index_name)
             .await
-            .context("[BatchServiceImpl::process_spent_detail_full] Failed to write alias")?;
+            .inspect_err(|e| {
+                error!("[BatchServiceImpl::process_spent_detail_full] Failed to write alias: {:#}", e);
+            })?;
 
         // Step 6: Resume the incremental indexing process after alias reassignment.
         set_spent_detail_indexing(true).await;
@@ -1258,7 +1288,9 @@ where
         elastic_service
             .delete_indices(&unused_indexies)
             .await
-            .context("[BatchServiceImpl::process_spent_detail_full] Index deletion failed. ")?;
+            .inspect_err(|e| {
+                error!("[BatchServiceImpl::process_spent_detail_full] Index deletion failed: {:#}", e);
+            })?;
 
         Ok(())
     }
@@ -1377,7 +1409,9 @@ where
                 elastic_service
                     .bulk_index(&write_index_alias, to_insert)
                     .await
-                    .context("[BatchServiceImpl::process_spent_detail_incremental] Failed to bulk insert")?;
+                    .inspect_err(|e| {
+                        error!("[BatchServiceImpl::process_spent_detail_incremental] Failed to bulk insert: {:#}", e);
+                    })?;
             }
 
             // Process updates
@@ -1390,7 +1424,9 @@ where
                 elastic_service
                     .bulk_update(&write_index_alias, to_update, "spent_idx")
                     .await
-                    .context("[BatchServiceImpl::process_spent_detail_incremental] Failed to bulk update")?;
+                    .inspect_err(|e| {
+                        error!("[BatchServiceImpl::process_spent_detail_incremental] Failed to bulk update: {:#}", e);
+                    })?;
             }
             
             // Process deletes
@@ -1403,7 +1439,9 @@ where
                 elastic_service
                     .bulk_delete(&write_index_alias, to_delete)
                     .await
-                    .context("[BatchServiceImpl::process_spent_detail_incremental] Failed to bulk delete")?;
+                    .inspect_err(|e| {
+                        error!("[BatchServiceImpl::process_spent_detail_incremental] Failed to bulk delete: {:#}", e);
+                    })?;
             }
 
             total_processed += batch_count as u64;
@@ -1468,7 +1506,9 @@ where
         let new_index_name: String = elastic_service
             .prepare_full_index(index_alias, schedule_item.mapping_schema())
             .await
-            .context("[BatchServiceImpl::process_spent_type_full] prepare_full_index")?;
+            .inspect_err(|e| {
+                error!("[BatchServiceImpl::process_spent_type_full] prepare_full_index: {:#}", e);
+            })?;
 
         // Step 3: MySQL에서 배치 단위로 조회하여 ES에 색인
         let mut offset: u64 = 0;
@@ -1483,9 +1523,9 @@ where
             let keywords: Vec<SpentTypeKeyword> = mysql_service
                 .fetch_spent_type_keywords_batch(offset, batch_size as u64)
                 .await
-                .context(
-                    "[BatchServiceImpl::process_spent_type_full] Failed to fetch keywords batch",
-                )?;
+                .inspect_err(|e| {
+                    error!("[BatchServiceImpl::process_spent_type_full] Failed to fetch keywords batch: {:#}", e);
+                })?;
 
             if keywords.is_empty() {
                 batch_log!(info,"[BatchServiceImpl::process_spent_type_full] No more data to index");
@@ -1501,7 +1541,9 @@ where
             elastic_service
                 .bulk_index(&new_index_name, keywords)
                 .await
-                .context("[BatchServiceImpl::process_spent_type_full] Failed to bulk index")?;
+                .inspect_err(|e| {
+                    error!("[BatchServiceImpl::process_spent_type_full] Failed to bulk index: {:#}", e);
+                })?;
 
             total_indexed += batch_count as u64;
             offset += batch_size as u64;
@@ -1516,16 +1558,16 @@ where
         let unused_indexies: Vec<String> = elastic_service
             .finalize_full_index(index_alias, &new_index_name)
             .await
-            .context(
-                "[BatchServiceImpl::process_spent_type_full] Index post-processing has failed.",
-            )?;
+            .inspect_err(|e| {
+                error!("[BatchServiceImpl::process_spent_type_full] Index post-processing has failed: {:#}", e);
+            })?;
 
         elastic_service
             .delete_indices(&unused_indexies)
             .await
-            .context(
-                "[BatchServiceImpl::process_spent_type_full] Failed to delete the old index.",
-            )?;
+            .inspect_err(|e| {
+                error!("[BatchServiceImpl::process_spent_type_full] Failed to delete the old index: {:#}", e);
+            })?;
 
         batch_log!(info,
             "[BatchServiceImpl::process_spent_type_full] Completed successfully. Total indexed: {}",
@@ -1628,7 +1670,9 @@ where
         scheduler
             .shutdown()
             .await
-            .context("[BatchServiceImpl::main_batch_task] Failed to shutdown scheduler")?;
+            .inspect_err(|e| {
+                error!("[BatchServiceImpl::main_batch_task] Failed to shutdown scheduler: {:#}", e);
+            })?;
 
         batch_log!(info,"[BatchServiceImpl::main_batch_task] Scheduler stopped gracefully. Goodbye!");
         
