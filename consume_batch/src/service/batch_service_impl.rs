@@ -1673,12 +1673,12 @@ where
             .inspect_err(|e| {
                 error!("[BatchServiceImpl::main_batch_task] Failed to shutdown scheduler: {:#}", e);
             })?;
-
+        
         batch_log!(info,"[BatchServiceImpl::main_batch_task] Scheduler stopped gracefully. Goodbye!");
         
         Ok(())
     }
-
+    
     async fn run_batch(&self, schedule_item: &BatchScheduleItem) -> anyhow::Result<()> {
         Self::process_batch(
             schedule_item,
