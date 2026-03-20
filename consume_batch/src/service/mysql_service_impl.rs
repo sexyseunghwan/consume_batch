@@ -3,13 +3,15 @@ use crate::common::*;
 use crate::service_trait::mysql_service::*;
 
 use crate::entity::{
-    common_consume_keyword_type, common_consume_prodt_keyword, spent_detail, telegram_room, users,
+    common_consume_keyword_type, common_consume_prodt_keyword, dim_calendar, spent_detail,
+    telegram_room, users,
 };
 use crate::models::{SpentDetail, SpentDetailWithRelations, SpentTypeKeyword};
 
 use sea_orm::{
-    ColumnTrait, JoinType, QueryFilter, QuerySelect, RelationTrait,
-    sea_query::{CaseStatement, Expr},
+    ColumnTrait, JoinType, QueryFilter, QuerySelect,
+    RelationTrait,
+    sea_query::{CaseStatement, Expr, OnConflict},
 };
 
 use crate::repository::mysql_repository::*;
@@ -365,5 +367,62 @@ where
             })?;
 
         Ok(total_affected)
+    }
+
+    /// Bulk-inserts DIM_CALENDAR rows within a transaction.
+    ///
+    /// All rows are inserted atomically — if any insert fails the entire batch
+    /// is rolled back. Duplicate `dt` PKs are handled via
+    /// `ON DUPLICATE KEY UPDATE created_by = VALUES(created_by)` (a no-op update)
+    /// since MySQL does not support `ON CONFLICT DO NOTHING`.
+    async fn insert_dim_calendar_bulk(
+        &self,
+        rows: Vec<dim_calendar::ActiveModel>,
+    ) -> anyhow::Result<()> {
+
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+
+        let txn: DatabaseTransaction = db.begin().await.inspect_err(|e| {
+            error!(
+                "[MysqlServiceImpl::insert_dim_calendar_bulk] Failed to begin transaction: {:#}",
+                e
+            );
+        })?;
+
+        let result: std::result::Result<u64, DbErr> = dim_calendar::Entity::insert_many(rows)
+            .on_conflict(
+                OnConflict::column(dim_calendar::Column::Dt)
+                    .update_column(dim_calendar::Column::CreatedBy)
+                    .to_owned(),
+            )
+            .exec_without_returning(&txn)
+            .await;
+
+        if let Err(e) = result {
+            error!(
+                "[MysqlServiceImpl::insert_dim_calendar_bulk] Bulk insert failed, rolling back: {:#}",
+                e
+            );
+            txn.rollback().await.inspect_err(|e| {
+                error!(
+                    "[MysqlServiceImpl::insert_dim_calendar_bulk] Rollback failed: {:#}",
+                    e
+                );
+            })?;
+            return Err(e.into());
+        }
+
+        txn.commit().await.inspect_err(|e| {
+            error!(
+                "[MysqlServiceImpl::insert_dim_calendar_bulk] Commit failed: {:#}",
+                e
+            );
+        })?;
+
+        Ok(())
     }
 }

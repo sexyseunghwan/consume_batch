@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 use crate::common::*;
+use crate::entity::dim_calendar;
 use crate::models::{SpentDetail, SpentDetailWithRelations, SpentTypeKeyword};
 
 #[async_trait]
@@ -82,4 +83,10 @@ pub trait MysqlService {
         &self,
         updates: Vec<(i64, i64)>,
     ) -> anyhow::Result<u64>;
+
+    /// Bulk-inserts DIM_CALENDAR rows, ignoring duplicate PKs (dt).
+    async fn insert_dim_calendar_bulk(
+        &self,
+        rows: Vec<dim_calendar::ActiveModel>,
+    ) -> anyhow::Result<()>;
 }

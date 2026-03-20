@@ -7,7 +7,6 @@ pub use std::{
     time::Duration,
 };
 
-
 pub use tokio::sync::RwLock;
 
 pub use log::{error, info, warn};
@@ -15,7 +14,7 @@ pub use log::{error, info, warn};
 pub use flexi_logger::{Age, Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming, Record};
 
 pub use chrono::{
-    DateTime, Utc,
+    DateTime, Utc, Datelike, NaiveDate
 };
 
 pub use serde::{Deserialize, Serialize};
@@ -70,7 +69,7 @@ pub use rayon::prelude::*;
 pub use sea_orm::{
     ActiveModelBehavior, ActiveModelTrait, ColumnTrait, Database,
     DatabaseConnection, DatabaseTransaction, DbErr, EntityTrait, FromQueryResult,
-    QueryFilter, QueryOrder, QueryResult, TransactionTrait,
+    QueryFilter, QueryOrder, QueryResult, TransactionTrait, Set
 };
 
 pub use tokio_cron_scheduler::{Job, JobScheduler};
