@@ -16,3 +16,5 @@ pub mod document_with_id;
 pub use document_with_id::*;
 
 pub mod score_manager;
+
+pub mod holiday;

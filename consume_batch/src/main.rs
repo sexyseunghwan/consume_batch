@@ -27,6 +27,7 @@ mod service;
 use service::{
     batch_service_impl::*, cli_service_impl::CliServiceImpl, consume_service_impl::*,
     elastic_service_impl::*, mysql_service_impl::*, producer_service_impl::*,
+    public_data_service_impl::PublicDataServiceImpl,
 };
 
 mod service_trait;
@@ -50,7 +51,8 @@ type ElasticService = ElasticServiceImpl<EsRepositoryImpl>;
 type MysqlService = MysqlServiceImpl<MysqlRepositoryImpl>;
 type ConsumeService = ConsumeServiceImpl<KafkaRepositoryImpl>;
 type ProducerService = ProducerServiceImpl<KafkaRepositoryImpl>;
-type BatchSvc = BatchServiceImpl<MysqlService, ElasticService, ConsumeService, ProducerService>;
+type PublicDataSvc = PublicDataServiceImpl;
+type BatchSvc = BatchServiceImpl<MysqlService, ElasticService, ConsumeService, ProducerService, PublicDataSvc>;
 type CliSvc = CliServiceImpl<BatchSvc>;
 type Controller = MainController<BatchSvc, CliSvc>;
 
@@ -140,12 +142,17 @@ async fn main() {
     let producer_service: ProducerService =
         ProducerServiceImpl::new(Arc::clone(&shared_kafka_repo));
 
+    let public_data_service: PublicDataSvc = PublicDataServiceImpl::new(
+        AppConfig::global().public_data_api_key().clone().unwrap_or_default(),
+    );
+
     // Create batch service with all dependencies
     let batch_service: BatchSvc = match BatchServiceImpl::new(
         mysql_query_service,
         elastic_query_service,
         consume_service,
         producer_service,
+        public_data_service,
     ) {
         Ok(batch_service) => batch_service,
         Err(e) => {

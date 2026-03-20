@@ -29,6 +29,7 @@ pub struct AppConfig {
     pub es_spent_detail: String,
     pub es_spent_type: String,
     pub socket_path: String,
+    pub public_data_api_key: Option<String>,
 }
 
 /// Global static instance of AppConfig
@@ -82,6 +83,7 @@ impl AppConfig {
                 .map_err(|_| "ES_SPENT_TYPE not found in environment".to_string())?,
             socket_path: env::var("SOCKET_PATH")
                 .unwrap_or_else(|_| "./socket/consume_batch.sock".to_string()),
+            public_data_api_key: env::var("PUBLIC_DATA_API_KEY").ok(),
         };
 
         APP_CONFIG

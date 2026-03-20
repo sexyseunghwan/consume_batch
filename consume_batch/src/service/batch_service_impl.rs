@@ -106,6 +106,8 @@ macro_rules! batch_log {
     }};
 }
 
+use std::collections::HashSet;
+
 use crate::enums::IndexingType;
 
 use crate::models::{
@@ -115,6 +117,7 @@ use crate::models::{
 
 use crate::service_trait::{
     batch_service::*, consume_service::*, elastic_service::*, mysql_service::*, producer_service::*,
+    public_data_service::PublicDataService,
 };
 
 /// Concrete implementation of the batch processing service.
@@ -153,12 +156,13 @@ use crate::service_trait::{
 /// ```
 #[derive(Debug, Getters)]
 #[getset(get = "pub")]
-pub struct BatchServiceImpl<M, E, C, P>
+pub struct BatchServiceImpl<M, E, C, P, D>
 where
     M: MysqlService,
     E: ElasticService,
     C: ConsumeService,
     P: ProducerService,
+    D: PublicDataService,
 {
     /// Service for MySQL database operations.
     mysql_service: Arc<M>,
@@ -173,15 +177,19 @@ where
     schedule_config: BatchScheduleConfig,
 
     producer_service: Arc<P>,
+
+    /// Service for fetching public data (e.g. Korean holidays).
+    public_data_service: Arc<D>,
 }
 
 // Manual Clone impl: Arc<T> is always Clone regardless of T: Clone
-impl<M, E, C, P> Clone for BatchServiceImpl<M, E, C, P>
+impl<M, E, C, P, D> Clone for BatchServiceImpl<M, E, C, P, D>
 where
     M: MysqlService,
     E: ElasticService,
     C: ConsumeService,
     P: ProducerService,
+    D: PublicDataService,
 {
     fn clone(&self) -> Self {
         Self {
@@ -190,16 +198,18 @@ where
             consume_service: Arc::clone(&self.consume_service),
             schedule_config: self.schedule_config.clone(),
             producer_service: Arc::clone(&self.producer_service),
+            public_data_service: Arc::clone(&self.public_data_service),
         }
     }
 }
 
-impl<M, E, C, P> BatchServiceImpl<M, E, C, P>
+impl<M, E, C, P, D> BatchServiceImpl<M, E, C, P, D>
 where
     M: MysqlService + Send + Sync + 'static,
     E: ElasticService + Send + Sync + 'static,
     C: ConsumeService + Send + Sync + 'static,
     P: ProducerService + Send + Sync + 'static,
+    D: PublicDataService + Send + Sync + 'static,
 {
     /// Creates a new `BatchServiceImpl` instance.
     ///
@@ -238,6 +248,7 @@ where
         elastic_service: E,
         consume_service: C,
         producer_service: P,
+        public_data_service: D,
     ) -> Result<Self> {
         let app_config: &AppConfig = AppConfig::global();
         let batch_schedule: &str = app_config.batch_schedule().as_str();
@@ -260,6 +271,7 @@ where
             consume_service: Arc::new(consume_service),
             schedule_config,
             producer_service: Arc::new(producer_service),
+            public_data_service: Arc::new(public_data_service),
         })
     }
 
@@ -352,6 +364,7 @@ where
             let elastic: Arc<E> = Arc::clone(&self.elastic_service);
             let consume: Arc<C> = Arc::clone(&self.consume_service);
             let produce: Arc<P> = Arc::clone(&self.producer_service);
+            let public_data: Arc<D> = Arc::clone(&self.public_data_service);
             let item: BatchScheduleItem = immediate_item.clone();
 
             batch_log!(info,
@@ -362,7 +375,7 @@ where
             immediate_jobs.spawn(async move {
                 batch_log!(info,"[{}] Immediate job started", item.index_name());
 
-                match Self::process_batch(&item, &mysql, &elastic, &consume, &produce).await {
+                match Self::process_batch(&item, &mysql, &elastic, &consume, &produce, &public_data).await {
                     Ok(()) => {
                         batch_log!(info,
                             "[{}] Immediate job completed successfully",
@@ -405,6 +418,7 @@ where
         let elastic_service: Arc<E> = Arc::clone(&self.elastic_service);
         let consume_service: Arc<C> = Arc::clone(&self.consume_service);
         let producer_service: Arc<P> = Arc::clone(&self.producer_service);
+        let public_data_service: Arc<D> = Arc::clone(&self.public_data_service);
         let schedule_item_move: BatchScheduleItem = schedule_item.clone();
 
         batch_log!(info,
@@ -419,13 +433,14 @@ where
             let elastic: Arc<E> = Arc::clone(&elastic_service);
             let consume: Arc<C> = Arc::clone(&consume_service);
             let produce: Arc<P> = Arc::clone(&producer_service);
+            let public_data: Arc<D> = Arc::clone(&public_data_service);
             let schedule_item: BatchScheduleItem = schedule_item_move.clone();
 
             Box::pin(async move {
                 batch_log!(info,"[{}] Cron job triggered", schedule_item.index_name());
 
                 // Call the batch processing logic with schedule_item
-                match Self::process_batch(&schedule_item, &mysql, &elastic, &consume, &produce)
+                match Self::process_batch(&schedule_item, &mysql, &elastic, &consume, &produce, &public_data)
                     .await
                 {
                     Ok(()) => {
@@ -481,6 +496,7 @@ where
         elastic_service: &Arc<E>,
         consume_service: &Arc<C>,
         producer_service: &Arc<P>,
+        public_data_service: &Arc<D>,
     ) -> Result<()> {
         let start_time: DateTime<Utc> = Utc::now();
         let batch_name: &str = schedule_item.batch_name();
@@ -549,7 +565,7 @@ where
                 })?;
             }
             "dimension_date_table" => {
-                Self::process_update_date_information(schedule_item, mysql_service)
+                Self::process_update_date_information(schedule_item, mysql_service, public_data_service)
                     .await
                     .inspect_err(|e| {
                         error!(
@@ -680,14 +696,16 @@ where
     ///
     /// Iterates day by day, builds a `dim_calendar::ActiveModel` for each date,
     /// then bulk-inserts in chunks of `batch_size`. Duplicate dates (dt PK) are
-    /// silently ignored, so the function is safe to re-run.
+    /// overwritten with the latest data, so the function is safe to re-run.
     ///
-    /// Holiday flags (`is_holiday`, `is_before_holiday`, `is_after_holiday`) are
-    /// initialised to `0`; update them separately once a holiday data source is
-    /// available.
+    /// When `PUBLIC_DATA_API_KEY` is set in the environment, Korean legal holidays
+    /// are fetched from the 공공데이터포털 API and used to populate
+    /// `is_holiday`, `is_before_holiday`, and `is_after_holiday`.
+    /// If the key is absent or the API call fails, all three fields default to `0`.
     async fn process_update_date_information(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
+        public_data_service: &Arc<D>,
     ) -> anyhow::Result<()> {
 
         let start_year: i32 = *schedule_item.start_year();
@@ -698,7 +716,7 @@ where
             "[BatchServiceImpl::process_update_date_information] Starting. range={}-{}, batch_size={}",
             start_year, end_year, batch_size
         );
-
+        
         let start_date: NaiveDate = NaiveDate::from_ymd_opt(start_year, 1, 1)
             .ok_or_else(|| anyhow!("Invalid start_year: {}", start_year))?;
         let end_date: NaiveDate = NaiveDate::from_ymd_opt(end_year, 12, 31)
@@ -714,11 +732,33 @@ where
             .ok_or_else(|| anyhow!("Invalid date: year={} month={}", year, month))?;
 
             let last: NaiveDate = first_of_next
-                .pred_opt()
+                .pred_opt()// previous day
                 .ok_or_else(|| anyhow!("Date underflow at {:?}", first_of_next))?;
-
+            
             Ok(last.day())
         }
+
+        // Fetch Korean holidays for the full year range via the injected service.
+        batch_log!(info,
+            "[BatchServiceImpl::process_update_date_information] Fetching Korean holidays from public data API"
+        );
+        let holiday_set: HashSet<NaiveDate> =
+            match public_data_service.fetch_korea_holiday_set(start_year, end_year).await {
+                Ok(set) => {
+                    batch_log!(info,
+                        "[BatchServiceImpl::process_update_date_information] Fetched {} holiday dates",
+                        set.len()
+                    );
+                    set
+                }
+                Err(e) => {
+                    error!(
+                        "[BatchServiceImpl::process_update_date_information] Holiday API failed, proceeding without holiday data: {:#}",
+                        e
+                    );
+                    HashSet::new()
+                }
+            };
 
         let mut current: NaiveDate = start_date;
         let mut batch: Vec<crate::entity::dim_calendar::ActiveModel> =
@@ -736,6 +776,16 @@ where
             let is_weekend: i8 = if weekday_no >= 5 { 1 } else { 0 };
             let now: chrono::NaiveDateTime = Utc::now().naive_utc();
 
+            let is_holiday: i8 = if holiday_set.contains(&current) { 1 } else { 0 };
+            let is_before_holiday: i8 = current
+                .succ_opt()
+                .map(|next| if holiday_set.contains(&next) { 1 } else { 0 })
+                .unwrap_or(0);
+            let is_after_holiday: i8 = current
+                .pred_opt()
+                .map(|prev| if holiday_set.contains(&prev) { 1 } else { 0 })
+                .unwrap_or(0);
+
             batch.push(crate::entity::dim_calendar::ActiveModel {
                 dt: Set(current),
                 yyyy: Set(yyyy),
@@ -752,15 +802,15 @@ where
                 is_month_start: Set(if dd <= 4 { 1 } else { 0 }),
                 is_month_end: Set(if dd as u32 >= last_day - 3 { 1 } else { 0 }),
                 remaining_days_in_month: Set((last_day - dd as u32) as i8),
-                is_holiday: Set(0),
-                is_before_holiday: Set(0),
-                is_after_holiday: Set(0),
+                is_holiday: Set(is_holiday),
+                is_before_holiday: Set(is_before_holiday),
+                is_after_holiday: Set(is_after_holiday),
                 created_at: Set(now),
                 updated_at: Set(None),
                 created_by: Set("batch".to_string()),
                 updated_by: Set(None),
             });
-
+            
             if batch.len() >= batch_size {
                 let count: usize = batch.len();
                 mysql_service
@@ -1720,12 +1770,13 @@ where
 }
 
 #[async_trait]
-impl<M, E, C, P> BatchService for BatchServiceImpl<M, E, C, P>
+impl<M, E, C, P, D> BatchService for BatchServiceImpl<M, E, C, P, D>
 where
     M: MysqlService + Send + Sync + 'static,
     E: ElasticService + Send + Sync + 'static,
     C: ConsumeService + Send + Sync + 'static,
     P: ProducerService + Send + Sync + 'static,
+    D: PublicDataService + Send + Sync + 'static,
 {
     /// Main entry point for the batch processing service.
     ///
@@ -1827,6 +1878,7 @@ where
             &self.elastic_service,
             &self.consume_service,
             &self.producer_service,
+            &self.public_data_service,
         )
         .await
     }
