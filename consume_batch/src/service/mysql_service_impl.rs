@@ -372,9 +372,7 @@ where
     /// Bulk-inserts DIM_CALENDAR rows within a transaction.
     ///
     /// All rows are inserted atomically — if any insert fails the entire batch
-    /// is rolled back. Duplicate `dt` PKs are handled via
-    /// `ON DUPLICATE KEY UPDATE created_by = VALUES(created_by)` (a no-op update)
-    /// since MySQL does not support `ON CONFLICT DO NOTHING`.
+    /// is rolled back. Duplicate `dt` PKs are fully overwritten with the new data.
     async fn insert_dim_calendar_bulk(
         &self,
         rows: Vec<dim_calendar::ActiveModel>,
@@ -393,10 +391,32 @@ where
             );
         })?;
 
+        let now_dt: chrono::NaiveDateTime = Utc::now().naive_utc();
+
         let result: std::result::Result<u64, DbErr> = dim_calendar::Entity::insert_many(rows)
             .on_conflict(
                 OnConflict::column(dim_calendar::Column::Dt)
-                    .update_column(dim_calendar::Column::CreatedBy)
+                    .update_columns([
+                        dim_calendar::Column::Yyyy,
+                        dim_calendar::Column::Mm,
+                        dim_calendar::Column::Dd,
+                        dim_calendar::Column::Yyyymm,
+                        dim_calendar::Column::Yyyymmdd,
+                        dim_calendar::Column::DayOfMonth,
+                        dim_calendar::Column::QuarterNo,
+                        dim_calendar::Column::HalfNo,
+                        dim_calendar::Column::WeekdayNo,
+                        dim_calendar::Column::IsWeekend,
+                        dim_calendar::Column::IsWeekday,
+                        dim_calendar::Column::IsMonthStart,
+                        dim_calendar::Column::IsMonthEnd,
+                        dim_calendar::Column::RemainingDaysInMonth,
+                        dim_calendar::Column::IsHoliday,
+                        dim_calendar::Column::IsBeforeHoliday,
+                        dim_calendar::Column::IsAfterHoliday,
+                    ])
+                    .value(dim_calendar::Column::UpdatedAt, now_dt)
+                    .value(dim_calendar::Column::UpdatedBy, "batch")
                     .to_owned(),
             )
             .exec_without_returning(&txn)
