@@ -197,7 +197,7 @@ where
             topic,
             group_suffix
         );
-
+        
         let mut results: Vec<T> = Vec::with_capacity(messages.len());
 
         for (index, msg) in messages.into_iter().enumerate() {

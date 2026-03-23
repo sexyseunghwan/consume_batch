@@ -181,11 +181,15 @@ pub trait ElasticService {
     ///
     /// 1. Updates index settings to production values (replicas=1, refresh=1s)
     /// 2. Swaps alias from old index to the new index
+    // async fn finalize_full_index(
+    //     &self,
+    //     index_alias: &str,
+    //     new_index_name: &str,
+    // ) -> anyhow::Result<Vec<String>>;
     async fn finalize_full_index(
         &self,
-        index_alias: &str,
-        new_index_name: &str,
-    ) -> anyhow::Result<Vec<String>>;
+        index_name: &str,
+    ) -> anyhow::Result<()>;
 
     /// Prepares a new Elasticsearch index for full indexing.
     ///

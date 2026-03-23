@@ -1026,7 +1026,7 @@ where
                 batch_count
             );
 
-            // To synchronize with incremental indexing.
+            // To synchronize with incremental indexing. (증분색인과 싱크를 맞추기 위하여...)
             let max_produced_at: Option<DateTime<Utc>> =
                 messages.iter().map(|m| m.produced_at).max();
             set_max_static_spent_detail_index_timestamp(max_produced_at).await;
@@ -1127,7 +1127,7 @@ where
         schedule_item: &BatchScheduleItem,
         elastic_service: &Arc<E>,
         consume_service: &Arc<C>,
-        new_index_name: &str,
+        index_name: &str,
     ) -> anyhow::Result<u64> {
         let relation_topic: &str = schedule_item.relation_topic_sub();
         let batch_size: usize = *schedule_item.batch_size();
@@ -1135,7 +1135,7 @@ where
 
         batch_log!(info,
             "[BatchServiceImpl::process_spent_detail_dynamic] Starting. topic='{}', index='{}'",
-            relation_topic, new_index_name
+            relation_topic, index_name
         );
 
         let mut total_processed: u64 = 0;
@@ -1198,7 +1198,7 @@ where
 
             Self::apply_es_operations(
                 elastic_service,
-                new_index_name,
+                index_name,
                 to_insert,
                 to_update,
                 to_delete,
@@ -1381,6 +1381,7 @@ where
         consume_service: &Arc<C>,
     ) -> anyhow::Result<()> {
         let index_name: &str = schedule_item.index_name();
+
         let read_index_alias: String = format!("read_{}", index_name);
         let write_index_alias: String = format!("write_{}", index_name);
 
@@ -1388,6 +1389,7 @@ where
             "[BatchServiceImpl::process_spent_detail_full] Starting full indexing for '{}'",
             index_name
         );
+        
         batch_log!(info,
             "[BatchServiceImpl::process_spent_detail_full] Read alias: {}, Write alias: {} (unchanged)",
             read_index_alias, write_index_alias
@@ -1400,13 +1402,17 @@ where
             .inspect_err(|e| {
                 error!("[BatchServiceImpl::process_spent_detail_full] prepare_full_index: {:#}", e);
             })?;
-
+        
         batch_log!(info,
             "[BatchServiceImpl::process_spent_detail_full] Created new index: {}",
             new_index_name
         );
 
-        // Step 2: Index full dataset from primary topic
+        // 여기서, 증분색인쪽 kafka topic 의 offset을 저장할 것이다.
+        
+        
+
+        // Step 2: Index full dataset from primary topic -> Full 색인 진행
         let static_indexed: u64 = Self::process_spent_detail_static(
             schedule_item,
             elastic_service,
@@ -1417,24 +1423,25 @@ where
         .inspect_err(|e| {
             error!("[BatchServiceImpl::process_spent_detail_full] Failed during full indexing from primary topic: {:#}", e);
         })?;
-
+        
         batch_log!(info,
             "[BatchServiceImpl::process_spent_detail_full] Full indexing completed: {} documents",
             static_indexed
         );
-
+        
         /*
             Step 3: Revert the index settings to the initial configuration.
                     and Reassign the READ alias to the newly indexed index.
+                    이건 일단 제외해도 될거 같은데...
         */
-        let unused_indexies: Vec<String> = elastic_service
-            .finalize_full_index(&read_index_alias, &new_index_name)
-            .await
-            .inspect_err(|e| {
-                error!("[BatchServiceImpl::process_spent_detail_full] Failed to apply index settings: {:#}", e);
-            })?;
+        // let unused_indexies: Vec<String> = elastic_service
+        //     .finalize_full_index(&read_index_alias, &new_index_name)
+        //     .await
+        //     .inspect_err(|e| {
+        //         error!("[BatchServiceImpl::process_spent_detail_full] Failed to apply index settings: {:#}", e);
+        //     })?;
 
-        // Step 4: Index incremental changes from incremental topic (spent_detail_dev)
+        // Step 3: Index incremental changes from incremental topic (spent_detail_dev)
         // This ensures changes that occurred during full indexing are captured
         let dynamic_indexed: u64 = Self::process_spent_detail_dynamic(
             schedule_item,

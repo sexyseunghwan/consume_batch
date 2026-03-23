@@ -87,6 +87,8 @@ pub struct BatchScheduleItem {
 
     consumer_group: String,
 
+    consumer_group_sub: String,
+
     batch_size: usize,
 
     /// Whether to apply cron scheduling for this batch job.
