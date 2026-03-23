@@ -55,7 +55,6 @@ impl CliClientController {
         let mut writer: tokio::io::WriteHalf<UnixStream> = write_half;
 
         loop {
-            
             if let Err(e) = Self::read_until_prompt(&mut reader).await {
                 eprintln!("[ERROR] Failed to read from server: {}", e);
                 break;
@@ -101,9 +100,10 @@ impl CliClientController {
             print!("{}", buffer);
 
             if let Err(e) = std::io::stdout().flush() {
-                return Err(std::io::Error::other(
-                    format!("Failed to flush stdout: {}", e),
-                ));
+                return Err(std::io::Error::other(format!(
+                    "Failed to flush stdout: {}",
+                    e
+                )));
             }
 
             if buffer.trim_end().ends_with("Input:") {

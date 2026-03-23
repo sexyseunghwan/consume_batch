@@ -108,11 +108,10 @@ pub struct BatchScheduleItem {
     // /// - `1.0`: All traffic to new index (Green)
     // #[serde(default)]
     // traffic_weight: f32,
-
     #[serde(default)]
     start_year: i32,
     #[serde(default)]
-    end_year: i32
+    end_year: i32,
 }
 
 impl BatchScheduleConfig {

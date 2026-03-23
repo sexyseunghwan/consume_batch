@@ -23,7 +23,9 @@
 //! The socket server listens on the path configured in `AppConfig::socket_path`.
 //! CLI clients connect via `--cli` flag and interact through the socket.
 
-use crate::{app_config::AppConfig, common::*, models::batch_schedule::*, utils_module::cli_log::CLI_LOG_TX};
+use crate::{
+    app_config::AppConfig, common::*, models::batch_schedule::*, utils_module::cli_log::CLI_LOG_TX,
+};
 
 use crate::service_trait::{batch_service::BatchService, cli_service::CliService};
 
@@ -78,20 +80,18 @@ where
         batch_service: Arc<B>,
         schedule_config: BatchScheduleConfig,
     ) -> anyhow::Result<()> {
-        
         // reader - Read-only data from the client -> 상대가 보낸 데이터 읽기
         // writer - Write-only data from the client -> 상대에게 데이터 보내기.
         let (reader, writer) = stream.into_split();
-        
+
         let mut reader: tokio::io::BufReader<tokio::net::unix::OwnedReadHalf> =
             tokio::io::BufReader::new(reader);
-        
+
         // Route all socket writes through a channel so the log-forwarding task
         // and the main loop can both write concurrently.
         // socket_tx -> 보내는 쪽
         // socket_rx -> 받는 쪽
         let (socket_tx, mut socket_rx) = mpsc::channel::<String>(256);
-        
 
         // 아래가 파이프라인의 역할을 수행하는 것임
         // socket_tx 로 보낸 것들을 모두 socket_rx 에서 받아서 처리한다.
@@ -104,18 +104,18 @@ where
                 }
             }
         });
-        
+
         let batch_items: Vec<&BatchScheduleItem> = schedule_config.get_enabled_schedules();
-        
+
         loop {
             // Send numbered batch menu to client
             let mut menu: String =
                 String::from("\n==============================\nSelect a batch to execute:\n");
-            
+
             for (i, item) in batch_items.iter().enumerate() {
                 menu.push_str(&format!("  {}. {}\n", i + 1, item.batch_name()));
             }
-            
+
             menu.push_str("  0. Exit\n");
             menu.push_str("==============================\n");
             menu.push_str("Input:\n");
@@ -146,34 +146,35 @@ where
                         "[CliServiceImpl::handle_socket_connection] CLI triggered: {}",
                         batch_name
                     );
-                    
+
                     socket_tx
-                        .send(format!("\n[{}] Batch execution in progress...\n", batch_name))
+                        .send(format!(
+                            "\n[{}] Batch execution in progress...\n",
+                            batch_name
+                        ))
                         .await?;
-                    
+
                     // Create per-session log channel so only this batch's logs
                     // are forwarded to this CLI connection.
                     let (log_tx, mut log_rx) = mpsc::channel::<String>(256);
 
                     // Forward log messages to the socket writer concurrently.
                     let socket_tx_log: mpsc::Sender<String> = socket_tx.clone();
-                    
+
                     // 아래의 채널은 log 관련해서 처리를 한번에 하려고 받는 것이다.
                     tokio::spawn(async move {
                         while let Some(msg) = log_rx.recv().await {
-                            let _ = socket_tx_log
-                                .send(format!("[LOG] {}\n", msg))
-                                .await;
+                            let _ = socket_tx_log.send(format!("[LOG] {}\n", msg)).await;
                         }
                     });
-                    
+
                     // Run batch with the log sender stored in task-local storage.
                     // When the scope exits, log_tx is dropped, which closes log_rx
                     // and causes the forwarding task above to exit cleanly.
                     let result: std::result::Result<(), anyhow::Error> = CLI_LOG_TX
                         .scope(Some(log_tx), batch_service.run_batch(schedule_item))
                         .await;
-                    
+
                     match result {
                         Ok(()) => {
                             socket_tx
@@ -211,41 +212,45 @@ where
     ///
     /// Listens on the path configured in `AppConfig::socket_path` and
     /// spawns a separate task for each incoming connection.
-    async fn start_socket_server(&self) -> anyhow::Result<()> {        
+    async fn start_socket_server(&self) -> anyhow::Result<()> {
         let socket_path: &str = AppConfig::global().socket_path();
 
         // [1] Remove existing socket file to handle unclean shutdowns
-        std::fs::remove_file(socket_path)
-            .inspect_err(|e| {
-                error!("[CliServiceImpl::start_socket_server] {:#}", e);
-            })?;
-        
+        std::fs::remove_file(socket_path).inspect_err(|e| {
+            error!("[CliServiceImpl::start_socket_server] {:#}", e);
+        })?;
+
         // [2] Create the socket file and bind the listner
         // 해당 시점에 Unix domain socket 이 생성된다.
         // 커널에 listen 상태로 등록됨.
-        // 내부적으로 backlog queue 생성됨. 
-        let listener: UnixListener = UnixListener::bind(socket_path)
-            .inspect_err(|e| {
-                error!("[CliServiceImpl::start_socket_server] Failed to bind socket: {:#}", e);
-            })?;
-        
+        // 내부적으로 backlog queue 생성됨.
+        let listener: UnixListener = UnixListener::bind(socket_path).inspect_err(|e| {
+            error!(
+                "[CliServiceImpl::start_socket_server] Failed to bind socket: {:#}",
+                e
+            );
+        })?;
+
         info!(
             "[CliServiceImpl::start_socket_server] CLI socket server listening on {}",
             socket_path
         );
-        
+
         // [3] Start the connection accept loop
         loop {
             let (stream, _) = listener
                 .accept() // accept queue 에서 하나 꺼내기
                 .await
                 .inspect_err(|e| {
-                    error!("[CliServiceImpl::start_socket_server] Failed to accept connection: {:#}", e);
+                    error!(
+                        "[CliServiceImpl::start_socket_server] Failed to accept connection: {:#}",
+                        e
+                    );
                 })?;
 
             let batch: Arc<B> = Arc::clone(&self.batch_service);
             let config: BatchScheduleConfig = self.schedule_config.clone();
-            
+
             // accept queue에서 꺼낸 연결 처리를 task로 넘겨주기.
             tokio::spawn(async move {
                 if let Err(e) = Self::handle_socket_connection(stream, batch, config).await {

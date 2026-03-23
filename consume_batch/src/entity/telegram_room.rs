@@ -14,7 +14,7 @@ pub struct Model {
     pub updated_at: Option<DateTime>,
     pub created_by: String,
     pub updated_by: Option<String>,
-    pub user_seq: i64
+    pub user_seq: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

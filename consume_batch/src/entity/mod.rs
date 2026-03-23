@@ -3,11 +3,11 @@
 pub mod prelude;
 
 pub mod common_consume_keyword_type;
-pub mod dim_calendar;
 pub mod common_consume_prodt_keyword;
 pub mod consume_prodt_detail;
 pub mod consume_prodt_keyword;
 pub mod consumue_keyword_type;
+pub mod dim_calendar;
 pub mod spent_detail;
 pub mod spent_group_info;
 pub mod telegram_room;

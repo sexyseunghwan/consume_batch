@@ -859,7 +859,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
                     e
                 )
             })?;
-        
+
         // 메타데이터에서 해당 토픽 정보를 찾는다
         let topic_metadata: &rdkafka::metadata::MetadataTopic = metadata
             .topics()
@@ -966,7 +966,6 @@ impl KafkaRepository for KafkaRepositoryImpl {
         source_group: &str,
         target_group: &str,
     ) -> anyhow::Result<()> {
-        
         info!(
             "[KafkaRepositoryImpl::copy_consumer_group_offsets] Copying offsets: '{}' → '{}' (topic: '{}')",
             source_group, target_group, topic
@@ -1025,7 +1024,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
                     topic
                 )
             })?;
-        
+
         // 특정 토픽에 파티션이 없는것은 말이되지 않으므로 에러발생 시킨다.
         if topic_metadata.partitions().is_empty() {
             return Err(anyhow!(
@@ -1033,7 +1032,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
                 topic
             ));
         }
-        
+
         // ──────────────────────────────────────────────────────────────
         // [3단계] source 그룹의 committed offset 조회
         // ──────────────────────────────────────────────────────────────
@@ -1045,7 +1044,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
         for partition in topic_metadata.partitions() {
             tpl.add_partition(topic, partition.id());
         }
-        
+
         // ** committed() 는 현재 assign 된 파티션에 대해서만 동작하므로, 먼저 assign 한다. **
         source_consumer.assign(&tpl).map_err(|e| {
             anyhow!(

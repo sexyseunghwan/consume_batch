@@ -197,7 +197,7 @@ where
             topic,
             group_suffix
         );
-        
+
         let mut results: Vec<T> = Vec::with_capacity(messages.len());
 
         for (index, msg) in messages.into_iter().enumerate() {
@@ -296,6 +296,50 @@ where
         );
 
         Ok(results)
+    }
+
+    /// Replicates committed offsets from one consumer group to another for a given topic.
+    ///
+    /// Reads the committed offsets of `source_group` and applies them to `target_group`,
+    /// allowing `target_group` to resume consumption from the exact same position as `source_group`.
+    ///
+    /// # Arguments
+    ///
+    /// * `topic`        - The Kafka topic whose offsets are being replicated
+    /// * `source_group` - The consumer group to read offsets from
+    /// * `target_group` - The consumer group to apply offsets to
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` if offsets were successfully replicated.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Topic metadata fetch fails
+    /// - Source group committed offset fetch fails
+    /// - Target group offset commit fails
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// service
+    ///     .replicate_consumer_group_offsets("orders_topic", "batch-group", "replay-group")
+    ///     .await?;
+    /// // "replay-group" now starts consuming from where "batch-group" left off
+    /// ```
+    async fn replicate_consumer_group_offsets(
+        &self,
+        topic: &str,
+        source_group: &str,
+        target_group: &str,
+    ) -> anyhow::Result<()> {
+        self.kafka_conn
+            .copy_consumer_group_offsets(topic, source_group, target_group)
+            .await
+            .inspect_err(|e| {
+                error!("[ConsumeServiceImpl::replicate_consumer_group_offsets] Failed to copy consumer group offsets from source to target. {:#}", e);
+            })
     }
 }
 

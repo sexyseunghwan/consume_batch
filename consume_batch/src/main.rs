@@ -9,7 +9,7 @@ History     : 2025-01-01 Seunghwan Shin       # [v.1.0.0] first create.
               2025-06-09 Seunghwan Shin       # [v.1.1.2] Unindexable issues exist when duplicate documents exist.
               2026-03-05 Seunghwan Shin       # [v.2.0.0] 1) Refactor code architecture.
                                                           2) Add CLI mode and scheduler mode support.
-                                                          3) Improve code structure by seperation responsibilities.  
+                                                          3) Improve code structure by seperation responsibilities.
 */
 
 mod common;
@@ -52,7 +52,8 @@ type MysqlService = MysqlServiceImpl<MysqlRepositoryImpl>;
 type ConsumeService = ConsumeServiceImpl<KafkaRepositoryImpl>;
 type ProducerService = ProducerServiceImpl<KafkaRepositoryImpl>;
 type PublicDataSvc = PublicDataServiceImpl;
-type BatchSvc = BatchServiceImpl<MysqlService, ElasticService, ConsumeService, ProducerService, PublicDataSvc>;
+type BatchSvc =
+    BatchServiceImpl<MysqlService, ElasticService, ConsumeService, ProducerService, PublicDataSvc>;
 type CliSvc = CliServiceImpl<BatchSvc>;
 type Controller = MainController<BatchSvc, CliSvc>;
 
@@ -95,13 +96,17 @@ async fn main() {
 
     // Option to run the application in CLI mode.
     // Check before AppConfig::init() so CLI client does not require all service env vars.
-    if args.get(1).map(|s| s == "--cli" || s == "-cli").unwrap_or(false) {
+    if args
+        .get(1)
+        .map(|s| s == "--cli" || s == "-cli")
+        .unwrap_or(false)
+    {
         let socket_path: String = std::env::var("SOCKET_PATH")
             .unwrap_or_else(|_| "./socket/consume_batch.sock".to_string());
         CliClientController::run(&socket_path).await;
         return;
     }
-    
+
     AppConfig::init().expect("Failed to initialize AppConfig");
     set_global_logger();
 
@@ -143,7 +148,10 @@ async fn main() {
         ProducerServiceImpl::new(Arc::clone(&shared_kafka_repo));
 
     let public_data_service: PublicDataSvc = PublicDataServiceImpl::new(
-        AppConfig::global().public_data_api_key().clone().unwrap_or_default(),
+        AppConfig::global()
+            .public_data_api_key()
+            .clone()
+            .unwrap_or_default(),
     );
 
     // Create batch service with all dependencies
@@ -160,13 +168,13 @@ async fn main() {
             panic!("[main] batch_service: {:#}", e);
         }
     };
-    
+
     // Create CLI service: shares the batch service via Arc for on-demand execution
     let cli_service: CliSvc = CliServiceImpl::new(
         Arc::new(batch_service.clone()),
         batch_service.schedule_config().clone(),
     );
-    
+
     // Create main controller with both services
     let main_controller: Controller = MainController::new(batch_service, Arc::new(cli_service));
 

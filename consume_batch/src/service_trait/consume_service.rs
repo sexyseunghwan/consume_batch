@@ -79,4 +79,11 @@ pub trait ConsumeService: Send + Sync {
     ) -> Result<Vec<T>, anyhow::Error>
     where
         T: DeserializeOwned;
+
+    async fn replicate_consumer_group_offsets(
+        &self,
+        topic: &str,
+        source_group: &str,
+        target_group: &str,
+    ) -> anyhow::Result<()>;
 }

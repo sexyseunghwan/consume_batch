@@ -614,7 +614,7 @@ impl EsRepository for EsRepositoryImpl {
             // Add the document
             body.push(doc_json.into());
         }
-        
+
         let response: Response = self
             .es_client
             .bulk(BulkParts::None)
@@ -627,12 +627,13 @@ impl EsRepository for EsRepositoryImpl {
 
             // Check if there were any errors in the bulk response
             if let Some(errors) = response_body.get("errors")
-                && errors.as_bool() == Some(true) {
-                    warn!(
-                        "[EsRepositoryImpl::bulk_index] Some documents failed to index: {:?}",
-                        response_body.get("items")
-                    );
-                }
+                && errors.as_bool() == Some(true)
+            {
+                warn!(
+                    "[EsRepositoryImpl::bulk_index] Some documents failed to index: {:?}",
+                    response_body.get("items")
+                );
+            }
 
             info!(
                 "[EsRepositoryImpl::bulk_index] Successfully bulk indexed documents to: {}",
@@ -708,12 +709,13 @@ impl EsRepository for EsRepositoryImpl {
             let response_body: Value = response.json().await?;
 
             if let Some(errors) = response_body.get("errors")
-                && errors.as_bool() == Some(true) {
-                    warn!(
-                        "[EsRepositoryImpl::bulk_update] Some documents failed to update: {:?}",
-                        response_body.get("items")
-                    );
-                }
+                && errors.as_bool() == Some(true)
+            {
+                warn!(
+                    "[EsRepositoryImpl::bulk_update] Some documents failed to update: {:?}",
+                    response_body.get("items")
+                );
+            }
 
             info!(
                 "[EsRepositoryImpl::bulk_update] Successfully bulk updated documents in: {}",
@@ -763,12 +765,13 @@ impl EsRepository for EsRepositoryImpl {
             let response_body: Value = response.json().await?;
 
             if let Some(errors) = response_body.get("errors")
-                && errors.as_bool() == Some(true) {
-                    warn!(
-                        "[EsRepositoryImpl::bulk_delete] Some documents failed to delete: {:?}",
-                        response_body.get("items")
-                    );
-                }
+                && errors.as_bool() == Some(true)
+            {
+                warn!(
+                    "[EsRepositoryImpl::bulk_delete] Some documents failed to delete: {:?}",
+                    response_body.get("items")
+                );
+            }
 
             info!(
                 "[EsRepositoryImpl::bulk_delete] Successfully bulk deleted documents from: {}",
@@ -822,21 +825,22 @@ impl EsRepository for EsRepositoryImpl {
 
         // If alias exists, remove it from the old index
         if let Ok(response) = get_alias_response
-            && response.status_code().is_success() {
-                let body: Value = response.json().await?;
+            && response.status_code().is_success()
+        {
+            let body: Value = response.json().await?;
 
-                // Add remove actions for all indices currently using this alias
-                if let Some(obj) = body.as_object() {
-                    for old_index in obj.keys() {
-                        actions.push(json!({
-                            "remove": {
-                                "index": old_index,
-                                "alias": alias_name
-                            }
-                        }));
-                    }
+            // Add remove actions for all indices currently using this alias
+            if let Some(obj) = body.as_object() {
+                for old_index in obj.keys() {
+                    actions.push(json!({
+                        "remove": {
+                            "index": old_index,
+                            "alias": alias_name
+                        }
+                    }));
                 }
             }
+        }
 
         // Add the alias to the new index
         actions.push(json!({
@@ -890,12 +894,12 @@ impl EsRepository for EsRepositoryImpl {
             return Ok(vec![]);
         }
 
-        let body: Value = response
-            .json()
-            .await
-            .inspect_err(|e| {
-                error!("[EsRepositoryImpl::get_index_by_alias] Failed to parse response body: {:#}", e);
-            })?;
+        let body: Value = response.json().await.inspect_err(|e| {
+            error!(
+                "[EsRepositoryImpl::get_index_by_alias] Failed to parse response body: {:#}",
+                e
+            );
+        })?;
 
         let indices: Vec<String> = body
             .as_object()
@@ -919,7 +923,10 @@ impl EsRepository for EsRepositoryImpl {
             .send()
             .await
             .inspect_err(|e| {
-                error!("[EsRepositoryImpl::delete_indices] Failed to send delete request: {:#}", e);
+                error!(
+                    "[EsRepositoryImpl::delete_indices] Failed to send delete request: {:#}",
+                    e
+                );
             })?;
 
         if response.status_code().is_success() {

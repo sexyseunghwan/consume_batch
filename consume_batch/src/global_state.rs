@@ -58,9 +58,7 @@ pub static MAX_DYNAMIC_SPENT_DETAIL_INDEX_TIMESTAMP: once_lazy<RwLock<DateTime<U
     once_lazy::new(|| RwLock::new(Utc::now()));
 
 pub async fn get_max_dynamic_spent_detail_index_timestamp() -> DateTime<Utc> {
-    *MAX_DYNAMIC_SPENT_DETAIL_INDEX_TIMESTAMP
-        .read()
-        .await
+    *MAX_DYNAMIC_SPENT_DETAIL_INDEX_TIMESTAMP.read().await
 }
 
 pub async fn set_max_dynamic_spent_detail_index_timestamp(value: Option<DateTime<Utc>>) {

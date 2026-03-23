@@ -56,7 +56,7 @@ use crate::{app_config::*, common::*, global_state::*, utils_module::cli_log::CL
 ///
 /// `try_send` is used to avoid blocking if the channel is full.
 macro_rules! batch_log {
-    
+
     // INFO level logging
     // Example: batch_log!(info, "Processing batch {}", id);
     (info, $($arg:tt)*) => {{
@@ -89,7 +89,7 @@ macro_rules! batch_log {
             }
         });
     }};
-    
+
     // WARN level logging
     (warn, $($arg:tt)*) => {{
         let msg = format!($($arg)*);
@@ -116,8 +116,8 @@ use crate::models::{
 };
 
 use crate::service_trait::{
-    batch_service::*, consume_service::*, elastic_service::*, mysql_service::*, producer_service::*,
-    public_data_service::PublicDataService,
+    batch_service::*, consume_service::*, elastic_service::*, mysql_service::*,
+    producer_service::*, public_data_service::PublicDataService,
 };
 
 /// Concrete implementation of the batch processing service.
@@ -254,12 +254,12 @@ where
         let batch_schedule: &str = app_config.batch_schedule().as_str();
 
         let schedule_config: BatchScheduleConfig =
-            BatchScheduleConfig::load_from_file(batch_schedule)
-                .inspect_err(|e| {
-                    error!("[BatchServiceImpl::new] schedule_config: {:#}", e);
-                })?;
+            BatchScheduleConfig::load_from_file(batch_schedule).inspect_err(|e| {
+                error!("[BatchServiceImpl::new] schedule_config: {:#}", e);
+            })?;
 
-        batch_log!(info,
+        batch_log!(
+            info,
             "Loaded {} batch schedules ({} enabled)",
             schedule_config.batch_schedule().len(),
             schedule_config.get_enabled_schedules().len()
@@ -314,7 +314,8 @@ where
             .filter(|item| *item.cron_schedule_apply())
             .collect();
 
-        batch_log!(info,
+        batch_log!(
+            info,
             "[BatchServiceImpl::build_and_start_cron_scheduler] Registering {} cron job(s)",
             cron_schedules.len()
         );
@@ -323,7 +324,8 @@ where
             let job: Job = self.create_index_job(schedule_item)?;
             scheduler.add(job).await?;
 
-            batch_log!(info,
+            batch_log!(
+                info,
                 "[BatchServiceImpl::build_and_start_cron_scheduler] {} Cron job registered (schedule: {})",
                 schedule_item.index_name(),
                 schedule_item.cron_schedule()
@@ -332,7 +334,10 @@ where
 
         scheduler.start().await?;
 
-        batch_log!(info,"[BatchServiceImpl::build_and_start_cron_scheduler] Cron scheduler started successfully");
+        batch_log!(
+            info,
+            "[BatchServiceImpl::build_and_start_cron_scheduler] Cron scheduler started successfully"
+        );
 
         Ok(scheduler)
     }
@@ -354,7 +359,8 @@ where
             .filter(|item| *item.immediate_apply())
             .collect();
 
-        batch_log!(info,
+        batch_log!(
+            info,
             "[BatchServiceImpl::spawn_immediate_jobs] Spawning {} immediate job(s)",
             immediate_schedules.len()
         );
@@ -367,23 +373,27 @@ where
             let public_data: Arc<D> = Arc::clone(&self.public_data_service);
             let item: BatchScheduleItem = immediate_item.clone();
 
-            batch_log!(info,
+            batch_log!(
+                info,
                 "[BatchServiceImpl::spawn_immediate_jobs] {} Spawning immediate job (one-time execution)",
                 immediate_item.index_name()
             );
 
             immediate_jobs.spawn(async move {
-                batch_log!(info,"[{}] Immediate job started", item.index_name());
+                batch_log!(info, "[{}] Immediate job started", item.index_name());
 
-                match Self::process_batch(&item, &mysql, &elastic, &consume, &produce, &public_data).await {
+                match Self::process_batch(&item, &mysql, &elastic, &consume, &produce, &public_data)
+                    .await
+                {
                     Ok(()) => {
-                        batch_log!(info,
+                        batch_log!(
+                            info,
                             "[{}] Immediate job completed successfully",
                             item.index_name()
                         );
                     }
                     Err(e) => {
-                        batch_log!(error,"[{}] Immediate job failed: {}", item.index_name(), e);
+                        batch_log!(error, "[{}] Immediate job failed: {}", item.index_name(), e);
                     }
                 }
             });
@@ -421,9 +431,11 @@ where
         let public_data_service: Arc<D> = Arc::clone(&self.public_data_service);
         let schedule_item_move: BatchScheduleItem = schedule_item.clone();
 
-        batch_log!(info,
+        batch_log!(
+            info,
             "[BatchServiceImpl::create_index_job] {} Registering cron job with schedule: {}",
-            index_name, cron_expr
+            index_name,
+            cron_expr
         );
 
         // Process multiple tasks in parallel
@@ -437,20 +449,29 @@ where
             let schedule_item: BatchScheduleItem = schedule_item_move.clone();
 
             Box::pin(async move {
-                batch_log!(info,"[{}] Cron job triggered", schedule_item.index_name());
+                batch_log!(info, "[{}] Cron job triggered", schedule_item.index_name());
 
                 // Call the batch processing logic with schedule_item
-                match Self::process_batch(&schedule_item, &mysql, &elastic, &consume, &produce, &public_data)
-                    .await
+                match Self::process_batch(
+                    &schedule_item,
+                    &mysql,
+                    &elastic,
+                    &consume,
+                    &produce,
+                    &public_data,
+                )
+                .await
                 {
                     Ok(()) => {
-                        batch_log!(info,
+                        batch_log!(
+                            info,
                             "[{}] Cron job completed successfully",
                             schedule_item.index_name()
                         );
                     }
                     Err(e) => {
-                        batch_log!(error,
+                        batch_log!(
+                            error,
                             "[{}] Batch processing failed: {}",
                             schedule_item.index_name(),
                             e
@@ -502,7 +523,8 @@ where
         let batch_name: &str = schedule_item.batch_name();
         let index_name: &str = schedule_item.index_name();
 
-        batch_log!(info,
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_index_batch] {} Starting batch indexing job",
             index_name
         );
@@ -517,7 +539,8 @@ where
                 )
                 .await
                 {
-                    batch_log!(error,
+                    batch_log!(
+                        error,
                         "[BatchServiceImpl::process_index_batch] spent_detail_full: migration to kafka failed: {:#}",
                         e
                     );
@@ -528,7 +551,8 @@ where
                     Self::process_spent_detail_full(schedule_item, elastic_service, consume_service)
                         .await
                 {
-                    batch_log!(error,
+                    batch_log!(
+                        error,
                         "[BatchServiceImpl::process_index_batch] spent_detail_full: full indexing failed: {:#}",
                         e
                     );
@@ -565,17 +589,22 @@ where
                 })?;
             }
             "dimension_date_table" => {
-                Self::process_update_date_information(schedule_item, mysql_service, public_data_service)
-                    .await
-                    .inspect_err(|e| {
-                        error!(
-                            "[BatchServiceImpl::process_batch] dimension_date_table failed: {:#}",
-                            e
-                        );
-                    })?;
+                Self::process_update_date_information(
+                    schedule_item,
+                    mysql_service,
+                    public_data_service,
+                )
+                .await
+                .inspect_err(|e| {
+                    error!(
+                        "[BatchServiceImpl::process_batch] dimension_date_table failed: {:#}",
+                        e
+                    );
+                })?;
             }
             _ => {
-                batch_log!(warn,
+                batch_log!(
+                    warn,
                     "[BatchServiceImpl::process_index_batch] Unknown batch_name: {}, skipping",
                     batch_name
                 );
@@ -584,7 +613,8 @@ where
 
         let elapsed: chrono::TimeDelta = Utc::now() - start_time;
 
-        batch_log!(info,
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_index_batch] {} Batch indexing completed successfully in {}ms",
             index_name,
             elapsed.num_milliseconds()
@@ -621,7 +651,8 @@ where
     ) -> anyhow::Result<()> {
         let batch_size: u64 = *schedule_item.batch_size() as u64;
 
-        batch_log!(info,
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_update_all_check_type_detail] Starting. batch_size={}",
             batch_size
         );
@@ -631,13 +662,15 @@ where
         let mut total_processed: u64 = 0;
 
         loop {
-            
-            let details: Vec<SpentDetail> = match mysql_service
-                .fetch_spent_details(offset, batch_size)
-                .await {
+            let details: Vec<SpentDetail> =
+                match mysql_service.fetch_spent_details(offset, batch_size).await {
                     Ok(details) => details,
                     Err(e) => {
-                        batch_log!(error,"[BatchServiceImpl::process_update_all_check_type_detail] {:#}", e);
+                        batch_log!(
+                            error,
+                            "[BatchServiceImpl::process_update_all_check_type_detail] {:#}",
+                            e
+                        );
                         break;
                     }
                 };
@@ -645,7 +678,7 @@ where
             if details.is_empty() {
                 break;
             }
-            
+
             let batch_count: usize = details.len();
             total_processed += batch_count as u64;
 
@@ -670,23 +703,31 @@ where
                     .update_spent_detail_type_batch(updates)
                     .await
                     .inspect_err(|e| {
-                        error!("[process_update_all_check_type_detail] Failed to update batch: {:#}", e);
+                        error!(
+                            "[process_update_all_check_type_detail] Failed to update batch: {:#}",
+                            e
+                        );
                     })?;
 
                 total_updated += updated;
-                
-                batch_log!(info,
+
+                batch_log!(
+                    info,
                     "[process_update_all_check_type_detail] Batch offset={}, updated {}/{} records",
-                    offset, update_count, batch_count
+                    offset,
+                    update_count,
+                    batch_count
                 );
             }
 
             offset += batch_size;
         }
 
-        batch_log!(info,
+        batch_log!(
+            info,
             "[process_update_all_check_type_detail] Completed. processed={}, updated={}",
-            total_processed, total_updated
+            total_processed,
+            total_updated
         );
 
         Ok(())
@@ -707,16 +748,18 @@ where
         mysql_service: &Arc<M>,
         public_data_service: &Arc<D>,
     ) -> anyhow::Result<()> {
-
         let start_year: i32 = *schedule_item.start_year();
         let end_year: i32 = *schedule_item.end_year();
         let batch_size: usize = *schedule_item.batch_size();
 
-        batch_log!(info,
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_update_date_information] Starting. range={}-{}, batch_size={}",
-            start_year, end_year, batch_size
+            start_year,
+            end_year,
+            batch_size
         );
-        
+
         let start_date: NaiveDate = NaiveDate::from_ymd_opt(start_year, 1, 1)
             .ok_or_else(|| anyhow!("Invalid start_year: {}", start_year))?;
         let end_date: NaiveDate = NaiveDate::from_ymd_opt(end_year, 12, 31)
@@ -732,33 +775,37 @@ where
             .ok_or_else(|| anyhow!("Invalid date: year={} month={}", year, month))?;
 
             let last: NaiveDate = first_of_next
-                .pred_opt()// previous day
+                .pred_opt() // previous day
                 .ok_or_else(|| anyhow!("Date underflow at {:?}", first_of_next))?;
-            
+
             Ok(last.day())
         }
 
         // Fetch Korean holidays for the full year range via the injected service.
-        batch_log!(info,
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_update_date_information] Fetching Korean holidays from public data API"
         );
-        let holiday_set: HashSet<NaiveDate> =
-            match public_data_service.fetch_korea_holiday_set(start_year, end_year).await {
-                Ok(set) => {
-                    batch_log!(info,
-                        "[BatchServiceImpl::process_update_date_information] Fetched {} holiday dates",
-                        set.len()
-                    );
-                    set
-                }
-                Err(e) => {
-                    error!(
-                        "[BatchServiceImpl::process_update_date_information] Holiday API failed, proceeding without holiday data: {:#}",
-                        e
-                    );
-                    HashSet::new()
-                }
-            };
+        let holiday_set: HashSet<NaiveDate> = match public_data_service
+            .fetch_korea_holiday_set(start_year, end_year)
+            .await
+        {
+            Ok(set) => {
+                batch_log!(
+                    info,
+                    "[BatchServiceImpl::process_update_date_information] Fetched {} holiday dates",
+                    set.len()
+                );
+                set
+            }
+            Err(e) => {
+                error!(
+                    "[BatchServiceImpl::process_update_date_information] Holiday API failed, proceeding without holiday data: {:#}",
+                    e
+                );
+                HashSet::new()
+            }
+        };
 
         let mut current: NaiveDate = start_date;
         let mut batch: Vec<crate::entity::dim_calendar::ActiveModel> =
@@ -810,7 +857,7 @@ where
                 created_by: Set("batch".to_string()),
                 updated_by: Set(None),
             });
-            
+
             if batch.len() >= batch_size {
                 let count: usize = batch.len();
                 mysql_service
@@ -823,9 +870,11 @@ where
                         );
                     })?;
                 total_inserted += count as u64;
-                batch_log!(info,
+                batch_log!(
+                    info,
                     "[BatchServiceImpl::process_update_date_information] Inserted {} rows (total so far: {})",
-                    count, total_inserted
+                    count,
+                    total_inserted
                 );
             }
 
@@ -849,7 +898,8 @@ where
             total_inserted += count as u64;
         }
 
-        batch_log!(info,
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_update_date_information] Completed. total_inserted={}",
             total_inserted
         );
@@ -886,7 +936,8 @@ where
         let produce_topic: &str = schedule_item.relation_topic().as_str();
         let batch_size: u64 = *schedule_item.batch_size() as u64;
 
-        batch_log!(info,
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_migration_spent_detail_to_kafka] Starting. batch_size={}",
             batch_size
         );
@@ -899,14 +950,18 @@ where
             .purge_topic(produce_topic)
             .await
             .inspect_err(|e| {
-                error!("[BatchServiceImpl::process_migration_spent_detail_to_kafka]: {:#}", e);
+                error!(
+                    "[BatchServiceImpl::process_migration_spent_detail_to_kafka]: {:#}",
+                    e
+                );
             })?;
 
-        batch_log!(info,
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_migration_spent_detail_to_kafka] All data for the `{}` topic has been deleted.",
             produce_topic
         );
-        
+
         loop {
             let produce_spent_details: Vec<SpentDetailWithRelations> = match mysql_service
                 .fetch_spent_details_for_indexing(offset, batch_size)
@@ -914,18 +969,19 @@ where
             {
                 Ok(produce_spent_details) => produce_spent_details,
                 Err(e) => {
-                    batch_log!(error,
+                    batch_log!(
+                        error,
                         "[BatchServiceImpl::process_migration_spent_detail_to_kafka] Failed to load vector for `produce_spent_details` from DB.: {:?}",
                         e
                     );
                     continue;
                 }
             };
-            
+
             if produce_spent_details.is_empty() {
                 break;
             }
-            
+
             for spent_detail in &produce_spent_details {
                 let spent_detail_json: Value = serde_json::to_value(spent_detail)
                     .inspect_err(|e| {
@@ -938,7 +994,8 @@ where
                 {
                     Ok(_) => (),
                     Err(e) => {
-                        batch_log!(error,
+                        batch_log!(
+                            error,
                             "[BatchServiceImpl::process_migration_spent_detail_to_kafka] Failed to produce data to Kafka. {:#}",
                             e
                         );
@@ -951,7 +1008,8 @@ where
             total_selected += produce_spent_details.len();
         }
 
-        batch_log!(info,
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_migration_spent_detail_to_kafka] Successfully produced {} data points",
             total_selected
         );
@@ -1012,7 +1070,8 @@ where
                 })?;
 
             if messages.is_empty() {
-                batch_log!(info,
+                batch_log!(
+                    info,
                     "[BatchServiceImpl::process_spent_detail_static] No more messages in topic '{}', finishing",
                     relation_topic
                 );
@@ -1021,7 +1080,8 @@ where
 
             let batch_count: usize = messages.len();
 
-            batch_log!(info,
+            batch_log!(
+                info,
                 "[BatchServiceImpl::process_spent_detail_static] Consumed {} messages, converting for ES indexing",
                 batch_count
             );
@@ -1035,9 +1095,11 @@ where
             let es_messages: Vec<SpentDetailWithRelationsEs> =
                 messages.into_iter().map(|msg| msg.into()).collect();
 
-            batch_log!(info,
+            batch_log!(
+                info,
                 "[BatchServiceImpl::process_spent_detail_static] Indexing {} documents to {}",
-                batch_count, new_index_name
+                batch_count,
+                new_index_name
             );
 
             elastic_service
@@ -1049,7 +1111,8 @@ where
 
             total_indexed += batch_count as u64;
 
-            batch_log!(info,
+            batch_log!(
+                info,
                 "[BatchServiceImpl::process_spent_detail_static] Indexed {} documents so far",
                 total_indexed
             );
@@ -1079,12 +1142,14 @@ where
         cur_max_produced_at: DateTime<Utc>,
     ) -> bool {
         if cur_max_produced_at > max_dynamic_produced_at {
-            batch_log!(info,
+            batch_log!(
+                info,
                 "[BatchServiceImpl::check_catch_up_status] \
                 Catch-up surpassed dynamic incremental progress. \
                 cur_max_produced_at={}, max_dynamic_produced_at={}. \
                 Finishing catch-up phase after this batch.",
-                cur_max_produced_at, max_dynamic_produced_at
+                cur_max_produced_at,
+                max_dynamic_produced_at
             );
             true
         } else {
@@ -1096,14 +1161,15 @@ where
             let ok: bool = produced_diff_secs <= 5;
 
             if ok {
-                batch_log!(info,
+                batch_log!(
+                    info,
                     "[BatchServiceImpl::check_catch_up_status] \
                     Within 5s of dynamic incremental progress. \
                     produced_diff={}s.",
                     produced_diff_secs
                 );
             }
-            
+
             ok
         }
     }
@@ -1133,9 +1199,11 @@ where
         let batch_size: usize = *schedule_item.batch_size();
         let consumer_group: &str = schedule_item.consumer_group();
 
-        batch_log!(info,
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_spent_detail_dynamic] Starting. topic='{}', index='{}'",
-            relation_topic, index_name
+            relation_topic,
+            index_name
         );
 
         let mut total_processed: u64 = 0;
@@ -1148,7 +1216,7 @@ where
                 .inspect_err(|e| {
                     error!("[BatchServiceImpl::process_spent_detail_dynamic] Failed to consume messages: {:#}", e);
                 })?;
-            
+
             // *** Incremental indexing starts based on the timestamp of the last full indexing. ***
             let max_static_produced_at: DateTime<Utc> =
                 get_max_static_spent_detail_index_timestamp().await;
@@ -1159,12 +1227,14 @@ where
 
             if filtered.is_empty() {
                 empty_count += 1;
-                batch_log!(info,
+                batch_log!(
+                    info,
                     "[BatchServiceImpl::process_spent_detail_dynamic] No new messages ({}/3 empty batches)",
                     empty_count
                 );
                 if empty_count > 3 {
-                    batch_log!(info,
+                    batch_log!(
+                        info,
                         "[BatchServiceImpl::process_spent_detail_dynamic] Terminating after {} consecutive empty batches",
                         empty_count
                     );
@@ -1173,7 +1243,7 @@ where
                 tokio::time::sleep(Duration::from_secs(3)).await;
                 continue;
             }
-            
+
             empty_count = 0;
             let batch_count: usize = filtered.len();
 
@@ -1189,34 +1259,32 @@ where
             let catch_up_complete: bool =
                 Self::check_catch_up_status(max_dynamic_produced_at, cur_max_produced_at).await;
 
-            batch_log!(info,
+            batch_log!(
+                info,
                 "[BatchServiceImpl::process_spent_detail_dynamic] Processing {} messages (catch_up_complete={})",
-                batch_count, catch_up_complete
+                batch_count,
+                catch_up_complete
             );
 
             let (to_insert, to_update, to_delete) = Self::partition_by_indexing_type(filtered);
 
-            Self::apply_es_operations(
-                elastic_service,
-                index_name,
-                to_insert,
-                to_update,
-                to_delete,
-            )
-            .await?;
+            Self::apply_es_operations(elastic_service, index_name, to_insert, to_update, to_delete)
+                .await?;
 
             total_processed += batch_count as u64;
 
             if catch_up_complete {
                 set_spent_detail_indexing(false).await;
-                batch_log!(info,
+                batch_log!(
+                    info,
                     "[BatchServiceImpl::process_spent_detail_dynamic] Catch-up complete. total_processed={}",
                     total_processed
                 );
                 break;
             }
 
-            batch_log!(info,
+            batch_log!(
+                info,
                 "[BatchServiceImpl::process_spent_detail_dynamic] total_processed={} so far",
                 total_processed
             );
@@ -1224,7 +1292,8 @@ where
             tokio::time::sleep(Duration::from_secs(10)).await;
         }
 
-        batch_log!(info,
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_spent_detail_dynamic] Done. total_processed={}",
             total_processed
         );
@@ -1296,7 +1365,8 @@ where
         to_delete: Vec<i64>,
     ) -> anyhow::Result<()> {
         if !to_insert.is_empty() {
-            batch_log!(info,
+            batch_log!(
+                info,
                 "[BatchServiceImpl::apply_es_operations] Inserting {} docs into '{}'",
                 to_insert.len(),
                 index_name
@@ -1305,12 +1375,16 @@ where
                 .bulk_index(index_name, to_insert)
                 .await
                 .inspect_err(|e| {
-                    error!("[BatchServiceImpl::apply_es_operations] bulk_index failed: {:#}", e);
+                    error!(
+                        "[BatchServiceImpl::apply_es_operations] bulk_index failed: {:#}",
+                        e
+                    );
                 })?;
         }
 
         if !to_update.is_empty() {
-            batch_log!(info,
+            batch_log!(
+                info,
                 "[BatchServiceImpl::apply_es_operations] Updating {} docs in '{}'",
                 to_update.len(),
                 index_name
@@ -1319,12 +1393,16 @@ where
                 .bulk_update(index_name, to_update, "spent_idx")
                 .await
                 .inspect_err(|e| {
-                    error!("[BatchServiceImpl::apply_es_operations] bulk_update failed: {:#}", e);
+                    error!(
+                        "[BatchServiceImpl::apply_es_operations] bulk_update failed: {:#}",
+                        e
+                    );
                 })?;
         }
 
         if !to_delete.is_empty() {
-            batch_log!(info,
+            batch_log!(
+                info,
                 "[BatchServiceImpl::apply_es_operations] Deleting {} docs from '{}'",
                 to_delete.len(),
                 index_name
@@ -1333,7 +1411,10 @@ where
                 .bulk_delete(index_name, to_delete)
                 .await
                 .inspect_err(|e| {
-                    error!("[BatchServiceImpl::apply_es_operations] bulk_delete failed: {:#}", e);
+                    error!(                                                                                                                                                                  
+                        "[BatchServiceImpl::apply_es_operations] bulk_delete failed: {:#}",
+                        e
+                    );
                 })?;
         }
 
@@ -1385,14 +1466,21 @@ where
         let read_index_alias: String = format!("read_{}", index_name);
         let write_index_alias: String = format!("write_{}", index_name);
 
-        batch_log!(info,
+        let incre_topic_name: &str = schedule_item.relation_topic_sub();
+        let incre_source_group_name: &str = schedule_item.consumer_group_sub();
+        let incre_target_group_name: &str = schedule_item.consumer_group();
+
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_spent_detail_full] Starting full indexing for '{}'",
             index_name
         );
-        
-        batch_log!(info,
+
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_spent_detail_full] Read alias: {}, Write alias: {} (unchanged)",
-            read_index_alias, write_index_alias
+            read_index_alias,
+            write_index_alias
         );
 
         // Step 1: Create new index with optimized bulk indexing settings
@@ -1400,17 +1488,30 @@ where
             .prepare_full_index(index_name, schedule_item.mapping_schema())
             .await
             .inspect_err(|e| {
-                error!("[BatchServiceImpl::process_spent_detail_full] prepare_full_index: {:#}", e);
+                error!(
+                    "[BatchServiceImpl::process_spent_detail_full] prepare_full_index: {:#}",
+                    e
+                );
             })?;
-        
-        batch_log!(info,
+
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_spent_detail_full] Created new index: {}",
             new_index_name
         );
 
         // 여기서, 증분색인쪽 kafka topic 의 offset을 저장할 것이다.
-        
-        
+        match consume_service
+            .replicate_consumer_group_offsets(
+                incre_topic_name,
+                incre_source_group_name,
+                incre_target_group_name,
+            )
+            .await
+        {
+            Ok(_) => (),
+            Err(e) => {}
+        };
 
         // Step 2: Index full dataset from primary topic -> Full 색인 진행
         let static_indexed: u64 = Self::process_spent_detail_static(
@@ -1423,12 +1524,13 @@ where
         .inspect_err(|e| {
             error!("[BatchServiceImpl::process_spent_detail_full] Failed during full indexing from primary topic: {:#}", e);
         })?;
-        
-        batch_log!(info,
+
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_spent_detail_full] Full indexing completed: {} documents",
             static_indexed
         );
-        
+
         /*
             Step 3: Revert the index settings to the initial configuration.
                     and Reassign the READ alias to the newly indexed index.
@@ -1453,22 +1555,27 @@ where
         .inspect_err(|e| {
             error!("[BatchServiceImpl::process_spent_detail_full] Failed during incremental catch-up indexing: {:#}", e);
         })?;
-        
-        batch_log!(info,
+
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_spent_detail_full] Incremental catch-up completed: {} documents",
             dynamic_indexed
         );
 
         let total_indexed: u64 = static_indexed + dynamic_indexed;
 
-        batch_log!(info,
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_spent_detail_full] Finalizing index settings for: {}",
             new_index_name
         );
 
-        batch_log!(info,
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_spent_detail_full]   - Total indexed: {} documents ({} full + {} incremental)",
-            total_indexed, static_indexed, dynamic_indexed
+            total_indexed,
+            static_indexed,
+            dynamic_indexed
         );
 
         // Step 5: Set the new index as the write index for the alias.
@@ -1476,7 +1583,10 @@ where
             .update_write_alias(&write_index_alias, &new_index_name)
             .await
             .inspect_err(|e| {
-                error!("[BatchServiceImpl::process_spent_detail_full] Failed to write alias: {:#}", e);
+                error!(
+                    "[BatchServiceImpl::process_spent_detail_full] Failed to write alias: {:#}",
+                    e
+                );
             })?;
 
         // Step 6: Resume the incremental indexing process after alias reassignment.
@@ -1487,7 +1597,10 @@ where
             .delete_indices(&unused_indexies)
             .await
             .inspect_err(|e| {
-                error!("[BatchServiceImpl::process_spent_detail_full] Index deletion failed: {:#}", e);
+                error!(
+                    "[BatchServiceImpl::process_spent_detail_full] Index deletion failed: {:#}",
+                    e
+                );
             })?;
 
         Ok(())
@@ -1527,17 +1640,20 @@ where
     ) -> anyhow::Result<()> {
         let index_alias: &str = schedule_item.index_name();
         let write_index_alias: String = format!("write_{}", index_alias);
-        
+
         let relation_topic: &str = schedule_item.relation_topic();
         let batch_size: usize = *schedule_item.batch_size();
         let consumer_group: &str = schedule_item.consumer_group();
 
-        batch_log!(info,
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_spent_detail_incremental] Starting continuous incremental indexing"
         );
-        batch_log!(info,
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_spent_detail_incremental] Topic: {}, Write alias: {}",
-            relation_topic, write_index_alias
+            relation_topic,
+            write_index_alias
         );
 
         let mut total_processed: u64 = 0;
@@ -1550,19 +1666,27 @@ where
                 tokio::time::sleep(Duration::from_secs(10)).await;
                 continue;
             }
-             
+
             let messages: Vec<SpentDetailWithRelations> = match consume_service
                 .consume_messages_as_with_group(relation_topic, batch_size, consumer_group)
-                .await {
-                    Ok(messages) => messages,
-                    Err(e) => {
-                        batch_log!(error,"[BatchServiceImpl::process_spent_detail_incremental] Failed to consume messages {:#}", e);
-                        continue;
-                    }
-                };
-            
+                .await
+            {
+                Ok(messages) => messages,
+                Err(e) => {
+                    batch_log!(
+                        error,
+                        "[BatchServiceImpl::process_spent_detail_incremental] Failed to consume messages {:#}",
+                        e
+                    );
+                    continue;
+                }
+            };
+
             if messages.is_empty() {
-                batch_log!(info,"[BatchServiceImpl::process_spent_detail_incremental] No messages available, wait before next poll...");
+                batch_log!(
+                    info,
+                    "[BatchServiceImpl::process_spent_detail_incremental] No messages available, wait before next poll..."
+                );
                 tokio::time::sleep(Duration::from_secs(10)).await;
                 continue;
             }
@@ -1573,9 +1697,11 @@ where
 
             let batch_count: usize = messages.len();
 
-            batch_log!(info,
+            batch_log!(
+                info,
                 "[BatchServiceImpl::process_spent_detail_incremental] Consumed {} messages from '{}', processing by indexing_type",
-                batch_count, relation_topic
+                batch_count,
+                relation_topic
             );
 
             // Separate messages by indexing_type
@@ -1596,10 +1722,11 @@ where
                     }
                 }
             }
-            
+
             // Process inserts
             if !to_insert.is_empty() {
-                batch_log!(info,
+                batch_log!(
+                    info,
                     "[BatchServiceImpl::process_spent_detail_incremental] Inserting {} documents to write alias '{}'",
                     to_insert.len(),
                     write_index_alias
@@ -1614,7 +1741,8 @@ where
 
             // Process updates
             if !to_update.is_empty() {
-                batch_log!(info,
+                batch_log!(
+                    info,
                     "[BatchServiceImpl::process_spent_detail_incremental] Updating {} documents in write alias '{}'",
                     to_update.len(),
                     write_index_alias
@@ -1626,10 +1754,11 @@ where
                         error!("[BatchServiceImpl::process_spent_detail_incremental] Failed to bulk update: {:#}", e);
                     })?;
             }
-            
+
             // Process deletes
             if !to_delete.is_empty() {
-                batch_log!(info,
+                batch_log!(
+                    info,
                     "[BatchServiceImpl::process_spent_detail_incremental] Deleting {} documents from write alias '{}'",
                     to_delete.len(),
                     write_index_alias
@@ -1644,9 +1773,11 @@ where
 
             total_processed += batch_count as u64;
 
-            batch_log!(info,
+            batch_log!(
+                info,
                 "[BatchServiceImpl::process_spent_detail_incremental] Successfully processed {} messages (total: {})",
-                batch_count, total_processed
+                batch_count,
+                total_processed
             );
 
             // Small delay to prevent tight loop when continuously processing
@@ -1694,7 +1825,8 @@ where
         let index_alias: &str = schedule_item.index_name();
         let batch_size: usize = *schedule_item.batch_size();
 
-        batch_log!(info,
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_spent_type_full] Processing {} (index: {})",
             schedule_item.batch_name(),
             index_alias
@@ -1705,7 +1837,10 @@ where
             .prepare_full_index(index_alias, schedule_item.mapping_schema())
             .await
             .inspect_err(|e| {
-                error!("[BatchServiceImpl::process_spent_type_full] prepare_full_index: {:#}", e);
+                error!(
+                    "[BatchServiceImpl::process_spent_type_full] prepare_full_index: {:#}",
+                    e
+                );
             })?;
 
         // Step 3: MySQL에서 배치 단위로 조회하여 ES에 색인
@@ -1713,11 +1848,13 @@ where
         let mut total_indexed: u64 = 0;
 
         loop {
-            batch_log!(info,
+            batch_log!(
+                info,
                 "[BatchServiceImpl::process_spent_type_full] Fetching batch at offset: {}, batch_size: {}",
-                offset, batch_size
+                offset,
+                batch_size
             );
-            
+
             let keywords: Vec<SpentTypeKeyword> = mysql_service
                 .fetch_spent_type_keywords_batch(offset, batch_size as u64)
                 .await
@@ -1726,12 +1863,16 @@ where
                 })?;
 
             if keywords.is_empty() {
-                batch_log!(info,"[BatchServiceImpl::process_spent_type_full] No more data to index");
+                batch_log!(
+                    info,
+                    "[BatchServiceImpl::process_spent_type_full] No more data to index"
+                );
                 break;
             }
 
             let batch_count: usize = keywords.len();
-            batch_log!(info,
+            batch_log!(
+                info,
                 "[BatchServiceImpl::process_spent_type_full] Indexing {} documents",
                 batch_count
             );
@@ -1740,13 +1881,17 @@ where
                 .bulk_index(&new_index_name, keywords)
                 .await
                 .inspect_err(|e| {
-                    error!("[BatchServiceImpl::process_spent_type_full] Failed to bulk index: {:#}", e);
+                    error!(
+                        "[BatchServiceImpl::process_spent_type_full] Failed to bulk index: {:#}",
+                        e
+                    );
                 })?;
 
             total_indexed += batch_count as u64;
             offset += batch_size as u64;
 
-            batch_log!(info,
+            batch_log!(
+                info,
                 "[BatchServiceImpl::process_spent_type_full] Indexed {} documents so far",
                 total_indexed
             );
@@ -1767,7 +1912,8 @@ where
                 error!("[BatchServiceImpl::process_spent_type_full] Failed to delete the old index: {:#}", e);
             })?;
 
-        batch_log!(info,
+        batch_log!(
+            info,
             "[BatchServiceImpl::process_spent_type_full] Completed successfully. Total indexed: {}",
             total_indexed
         );
@@ -1827,14 +1973,18 @@ where
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     async fn main_batch_task(&self) -> anyhow::Result<()> {
-        batch_log!(info,"[BatchServiceImpl::main_batch_task] Starting batch service main task");
+        batch_log!(
+            info,
+            "[BatchServiceImpl::main_batch_task] Starting batch service main task"
+        );
 
-        /* 1. Start scheduler tasks */ 
+        /* 1. Start scheduler tasks */
         let mut scheduler: JobScheduler = self.build_and_start_cron_scheduler().await?;
-        /* 2. Start immediate job tasks */ 
+        /* 2. Start immediate job tasks */
         let mut immediate_jobs: JoinSet<()> = self.spawn_immediate_jobs();
-        
-        batch_log!(info,
+
+        batch_log!(
+            info,
             "[BatchServiceImpl::main_batch_task] Scheduler is running. Press Ctrl+C to shutdown gracefully."
         );
 
@@ -1857,27 +2007,30 @@ where
                 }
 
                 batch_log!(info,"[BatchServiceImpl::main_batch_task] All immediate jobs completed, keeping service alive until Ctrl+C...");
-                
+
                 // Always keep running until Ctrl+C (socket server + cron jobs may still be active)
                 // pending -> std::future::pending returns a `Future` that never resolves to `Ready`.
                 //         -> Never complete.
                 std::future::pending::<()>().await;
             } => {}
         }
-        
+
         // Gracefully shutdown the scheduler
-        scheduler
-            .shutdown()
-            .await
-            .inspect_err(|e| {
-                error!("[BatchServiceImpl::main_batch_task] Failed to shutdown scheduler: {:#}", e);
-            })?;
-        
-        batch_log!(info,"[BatchServiceImpl::main_batch_task] Scheduler stopped gracefully. Goodbye!");
-        
+        scheduler.shutdown().await.inspect_err(|e| {
+            error!(
+                "[BatchServiceImpl::main_batch_task] Failed to shutdown scheduler: {:#}",
+                e
+            );
+        })?;
+
+        batch_log!(
+            info,
+            "[BatchServiceImpl::main_batch_task] Scheduler stopped gracefully. Goodbye!"
+        );
+
         Ok(())
     }
-    
+
     async fn run_batch(&self, schedule_item: &BatchScheduleItem) -> anyhow::Result<()> {
         Self::process_batch(
             schedule_item,

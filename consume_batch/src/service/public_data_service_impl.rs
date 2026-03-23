@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 
 use crate::common::*;
 use crate::models::holiday::{HolidayApiResponse, HolidayBodyContent};
@@ -49,7 +49,9 @@ impl PublicDataService for PublicDataServiceImpl {
                     .with_context(|| format!("Holiday API request failed for {year}-{month:02}"))?
                     .text()
                     .await
-                    .with_context(|| format!("Holiday API read body failed for {year}-{month:02}"))?;
+                    .with_context(|| {
+                        format!("Holiday API read body failed for {year}-{month:02}")
+                    })?;
 
                 let parsed: HolidayApiResponse =
                     quick_xml::de::from_str(&xml).with_context(|| {

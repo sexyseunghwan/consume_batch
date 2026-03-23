@@ -144,7 +144,6 @@ where
         Ok(results)
     }
 
-    
     // async fn finalize_full_index(
     //     &self,
     //     index_name: &str
@@ -163,7 +162,7 @@ where
     //     index_alias: &str,
     //     new_index_name: &str,
     // ) -> anyhow::Result<Vec<String>> {
-        
+
     //     info!(
     //         "[ElasticServiceImpl::finalize_full_index] Updating index settings for production: {}",
     //         new_index_name
@@ -226,17 +225,18 @@ where
         index_name: &str,
         mapping_schema_path: &str,
     ) -> anyhow::Result<String> {
-
         let schema_content: String = tokio::fs::read_to_string(mapping_schema_path)
             .await
             .inspect_err(|e| {
                 error!("[ElasticServiceImpl::prepare_full_index] Failed to read mapping schema file: {}: {:#}", mapping_schema_path, e);
             })?;
 
-        let schema: Value = serde_json::from_str(&schema_content)
-            .inspect_err(|e| {
-                error!("[ElasticServiceImpl::prepare_full_index] Failed to parse mapping schema: {:#}", e);
-            })?;
+        let schema: Value = serde_json::from_str(&schema_content).inspect_err(|e| {
+            error!(
+                "[ElasticServiceImpl::prepare_full_index] Failed to parse mapping schema: {:#}",
+                e
+            );
+        })?;
 
         let mappings: Value = schema
             .get("mappings")
@@ -271,7 +271,10 @@ where
         self.create_index(&new_index_name, &settings, &mappings)
             .await
             .inspect_err(|e| {
-                error!("[ElasticServiceImpl::prepare_full_index] Failed to create index: {:#}", e);
+                error!(
+                    "[ElasticServiceImpl::prepare_full_index] Failed to create index: {:#}",
+                    e
+                );
             })?;
 
         Ok(new_index_name)

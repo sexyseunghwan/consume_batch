@@ -91,7 +91,7 @@ where
                 }
             });
         }
-        
+
         // Run batch scheduler in the foreground (blocks until Ctrl+C)
         match self.batch_service.main_batch_task().await {
             Ok(_) => (),

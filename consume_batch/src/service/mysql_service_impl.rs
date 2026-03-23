@@ -9,8 +9,7 @@ use crate::entity::{
 use crate::models::{SpentDetail, SpentDetailWithRelations, SpentTypeKeyword};
 
 use sea_orm::{
-    ColumnTrait, JoinType, QueryFilter, QuerySelect,
-    RelationTrait,
+    ColumnTrait, JoinType, QueryFilter, QuerySelect, RelationTrait,
     sea_query::{CaseStatement, Expr, OnConflict},
 };
 
@@ -182,9 +181,12 @@ where
             .all(db)
             .await
             .inspect_err(|e| {
-                error!("[MysqlServiceImpl::fetch_spent_details] Failed to execute query: {:#}", e);
+                error!(
+                    "[MysqlServiceImpl::fetch_spent_details] Failed to execute query: {:#}",
+                    e
+                );
             })?;
-            
+
         Ok(results)
     }
 
@@ -377,7 +379,6 @@ where
         &self,
         rows: Vec<dim_calendar::ActiveModel>,
     ) -> anyhow::Result<()> {
-
         if rows.is_empty() {
             return Ok(());
         }

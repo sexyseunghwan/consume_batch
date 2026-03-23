@@ -13,9 +13,7 @@ pub use log::{error, info, warn};
 
 pub use flexi_logger::{Age, Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming, Record};
 
-pub use chrono::{
-    DateTime, Utc, Datelike, NaiveDate
-};
+pub use chrono::{DateTime, Datelike, NaiveDate, Utc};
 
 pub use serde::{Deserialize, Serialize};
 
@@ -30,10 +28,7 @@ pub use elasticsearch::{
     auth::Credentials as EsCredentials,
     http::Url,
     http::response::Response,
-    http::transport::{
-        ConnectionPool, MultiNodeConnectionPool, Transport,
-        TransportBuilder,
-    },
+    http::transport::{ConnectionPool, MultiNodeConnectionPool, Transport, TransportBuilder},
 };
 
 pub use anyhow::{Context, Result, anyhow};
@@ -42,9 +37,6 @@ pub use derive_new::new;
 pub use getset::{Getters, Setters};
 
 pub use teloxide::prelude::*;
-
-
-
 
 pub use rdkafka::{
     ClientConfig, Message as KafkaMessage,
@@ -67,14 +59,11 @@ pub use strsim::levenshtein;
 pub use rayon::prelude::*;
 
 pub use sea_orm::{
-    ActiveModelBehavior, ActiveModelTrait, ColumnTrait, Database,
-    DatabaseConnection, DatabaseTransaction, DbErr, EntityTrait, FromQueryResult,
-    QueryFilter, QueryOrder, QueryResult, TransactionTrait, Set
+    ActiveModelBehavior, ActiveModelTrait, ColumnTrait, Database, DatabaseConnection,
+    DatabaseTransaction, DbErr, EntityTrait, FromQueryResult, QueryFilter, QueryOrder, QueryResult,
+    Set, TransactionTrait,
 };
 
 pub use tokio_cron_scheduler::{Job, JobScheduler};
 
-pub use tokio::{
-    net::UnixStream,
-    task::JoinSet,
-};
+pub use tokio::{net::UnixStream, task::JoinSet};

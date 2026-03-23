@@ -65,7 +65,7 @@ pub struct SpentDetailWithRelations {
     /// User identifier
     pub user_seq: i64,
 
-    /// Keyword type identifier 
+    /// Keyword type identifier
     pub consume_keyword_type_id: i64,
 
     /// The type/category of the keyword
@@ -79,7 +79,7 @@ pub struct SpentDetailWithRelations {
 
     /// Current UTC timestamp when indexing was triggered
     pub produced_at: DateTime<Utc>,
-    
+
     /// User id
     pub user_id: String,
 }
@@ -137,7 +137,7 @@ impl From<SpentDetailWithRelations> for SpentDetailWithRelationsEs {
             consume_keyword_type: src.consume_keyword_type,
             room_seq: src.room_seq,
             produced_at: src.produced_at,
-            user_id: src.user_id
+            user_id: src.user_id,
         }
     }
 }
@@ -157,7 +157,7 @@ impl From<SpentDetailWithRelationsRaw> for SpentDetailWithRelations {
             indexing_type: IndexingType::from_str(&raw.indexing_type)
                 .unwrap_or(IndexingType::Insert),
             produced_at: raw.produced_at,
-            user_id: raw.user_id
+            user_id: raw.user_id,
         }
     }
 }

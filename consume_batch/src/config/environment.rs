@@ -246,7 +246,6 @@ pub struct BatchConfig {
     ///
     /// Environment variable: `BATCH_SIZE`
     batch_size: usize,
-
 }
 
 impl BatchConfig {
