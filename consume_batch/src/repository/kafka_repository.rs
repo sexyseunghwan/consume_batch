@@ -248,6 +248,43 @@ pub trait KafkaRepository: Send + Sync {
         source_group: &str,
         target_group: &str,
     ) -> Result<(), anyhow::Error>;
+
+    /// Returns the total committed offset summed across all partitions for a consumer group.
+    ///
+    /// Used for comparing lag between two consumer groups on the same topic.
+    ///
+    /// # Arguments
+    ///
+    /// * `topic`    - The Kafka topic to query
+    /// * `group_id` - The consumer group whose committed offsets are fetched
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(total)` where `total` is the sum of committed offsets across all partitions.
+    /// Partitions with no committed offset (e.g. `OffsetBeginning`) are counted as 0.
+    async fn get_committed_offsets_total(
+        &self,
+        topic: &str,
+        group_id: &str,
+    ) -> anyhow::Result<i64>;
+
+    /// Returns committed offsets per partition for a consumer group.
+    ///
+    /// # Arguments
+    ///
+    /// * `topic`    - The Kafka topic to query
+    /// * `group_id` - The consumer group whose committed offsets are fetched
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(HashMap<partition_id, offset>)` where each entry represents
+    /// the committed offset for a specific partition.
+    /// Partitions with no committed offset (e.g. `OffsetBeginning`) are set to 0.
+    async fn get_committed_offsets_by_partition(
+        &self,
+        topic: &str,
+        group_id: &str,
+    ) -> anyhow::Result<HashMap<i32, i64>>;
 }
 
 /// Concrete implementation of the Kafka repository (consumer and producer).
@@ -1123,5 +1160,192 @@ impl KafkaRepository for KafkaRepositoryImpl {
         );
 
         Ok(())
+    }
+
+    async fn get_committed_offsets_total(
+        &self,
+        topic: &str,
+        group_id: &str,
+    ) -> anyhow::Result<i64> {
+        let mut config: ClientConfig = ClientConfig::new();
+        
+        config
+            .set("bootstrap.servers", &self.kafka_brokers)
+            .set("group.id", group_id);
+
+        if let (Some(protocol), Some(mechanism), Some(username), Some(password)) = (
+            &self.security_protocol,
+            &self.sasl_mechanism,
+            &self.sasl_username,
+            &self.sasl_password,
+        ) {
+            config
+                .set("security.protocol", protocol)
+                .set("sasl.mechanism", mechanism)
+                .set("sasl.username", username)
+                .set("sasl.password", password);
+        }
+
+        let consumer: BaseConsumer = config.create().map_err(|e| {
+            anyhow!(
+                "[KafkaRepositoryImpl::get_committed_offsets_total] Failed to create consumer for group '{}': {:?}",
+                group_id, e
+            )
+        })?;
+
+        let metadata: rdkafka::metadata::Metadata = consumer
+            .fetch_metadata(Some(topic), Duration::from_secs(10))
+            .map_err(|e| {
+                anyhow!(
+                    "[KafkaRepositoryImpl::get_committed_offsets_total] Failed to fetch metadata for topic '{}': {:?}",
+                    topic, e
+                )
+            })?;
+
+        let topic_metadata: &rdkafka::metadata::MetadataTopic = metadata
+            .topics()
+            .iter()
+            .find(|t| t.name() == topic)
+            .ok_or_else(|| {
+                anyhow!(
+                    "[KafkaRepositoryImpl::get_committed_offsets_total] Topic '{}' not found in metadata",
+                    topic
+                )
+            })?;
+
+        if topic_metadata.partitions().is_empty() {
+            return Ok(0);
+        }
+
+        let mut tpl: TopicPartitionList = TopicPartitionList::new();
+        for partition in topic_metadata.partitions() {
+            tpl.add_partition(topic, partition.id());
+        }
+
+        consumer.assign(&tpl).map_err(|e| {
+            anyhow!(
+                "[KafkaRepositoryImpl::get_committed_offsets_total] Failed to assign partitions: {:?}",
+                e
+            )
+        })?;
+
+        let committed_tpl: TopicPartitionList = consumer
+            .committed(Duration::from_secs(10))
+            .map_err(|e| {
+                anyhow!(
+                    "[KafkaRepositoryImpl::get_committed_offsets_total] Failed to fetch committed offsets for group '{}': {:?}",
+                    group_id, e
+                )
+            })?;
+
+        let total: i64 = committed_tpl
+            .elements()
+            .iter()
+            .map(|elem| match elem.offset() {
+                Offset::Offset(o) => o,
+                _ => 0,
+            })
+            .sum();
+
+        info!(
+            "[KafkaRepositoryImpl::get_committed_offsets_total] group='{}' topic='{}' total_offset={}",
+            group_id, topic, total
+        );
+
+        Ok(total)
+    }
+
+    async fn get_committed_offsets_by_partition(
+        &self,
+        topic: &str,
+        group_id: &str,
+    ) -> anyhow::Result<HashMap<i32, i64>> {
+        let mut config: ClientConfig = ClientConfig::new();
+
+        config
+            .set("bootstrap.servers", &self.kafka_brokers)
+            .set("group.id", group_id);
+
+        if let (Some(protocol), Some(mechanism), Some(username), Some(password)) = (
+            &self.security_protocol,
+            &self.sasl_mechanism,
+            &self.sasl_username,
+            &self.sasl_password,
+        ) {
+            config
+                .set("security.protocol", protocol)
+                .set("sasl.mechanism", mechanism)
+                .set("sasl.username", username)
+                .set("sasl.password", password);
+        }
+
+        let consumer: BaseConsumer = config.create().map_err(|e| {
+            anyhow!(
+                "[KafkaRepositoryImpl::get_committed_offsets_by_partition] Failed to create consumer for group '{}': {:?}",
+                group_id, e
+            )
+        })?;
+
+        let metadata: rdkafka::metadata::Metadata = consumer
+            .fetch_metadata(Some(topic), Duration::from_secs(10))
+            .map_err(|e| {
+                anyhow!(
+                    "[KafkaRepositoryImpl::get_committed_offsets_by_partition] Failed to fetch metadata for topic '{}': {:?}",
+                    topic, e
+                )
+            })?;
+
+        let topic_metadata: &rdkafka::metadata::MetadataTopic = metadata
+            .topics()
+            .iter()
+            .find(|t| t.name() == topic)
+            .ok_or_else(|| {
+                anyhow!(
+                    "[KafkaRepositoryImpl::get_committed_offsets_by_partition] Topic '{}' not found in metadata",
+                    topic
+                )
+            })?;
+
+        if topic_metadata.partitions().is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let mut tpl: TopicPartitionList = TopicPartitionList::new();
+        for partition in topic_metadata.partitions() {
+            tpl.add_partition(topic, partition.id());
+        }
+
+        consumer.assign(&tpl).map_err(|e| {
+            anyhow!(
+                "[KafkaRepositoryImpl::get_committed_offsets_by_partition] Failed to assign partitions: {:?}",
+                e
+            )
+        })?;
+
+        let committed_tpl: TopicPartitionList = consumer
+            .committed(Duration::from_secs(10))
+            .map_err(|e| {
+                anyhow!(
+                    "[KafkaRepositoryImpl::get_committed_offsets_by_partition] Failed to fetch committed offsets for group '{}': {:?}",
+                    group_id, e
+                )
+            })?;
+
+        let mut partition_offsets: HashMap<i32, i64> = HashMap::new();
+        
+        for elem in committed_tpl.elements() {
+            let offset: i64 = match elem.offset() {
+                Offset::Offset(o) => o,
+                _ => 0,
+            };
+            partition_offsets.insert(elem.partition(), offset);
+        }
+
+        info!(
+            "[KafkaRepositoryImpl::get_committed_offsets_by_partition] group='{}' topic='{}' partition_offsets={:?}",
+            group_id, topic, partition_offsets
+        );
+
+        Ok(partition_offsets)
     }
 }

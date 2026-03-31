@@ -186,7 +186,7 @@ pub trait ElasticService {
     //     index_alias: &str,
     //     new_index_name: &str,
     // ) -> anyhow::Result<Vec<String>>;
-    async fn finalize_full_index(&self, index_name: &str) -> anyhow::Result<()>;
+    async fn finalize_full_index(&self, index_name: &str, new_index_name: &str) -> anyhow::Result<Vec<String>>;
 
     /// Prepares a new Elasticsearch index for full indexing.
     ///

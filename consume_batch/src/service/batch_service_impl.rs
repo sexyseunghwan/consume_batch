@@ -116,8 +116,12 @@ use crate::models::{
 };
 
 use crate::service_trait::{
-    batch_service::*, consume_service::*, elastic_service::*, mysql_service::*,
-    producer_service::*, public_data_service::PublicDataService,
+    batch_service::*,
+    consume_service::{ConsumerGroupLag, ConsumeService},
+    elastic_service::*,
+    mysql_service::*,
+    producer_service::*,
+    public_data_service::PublicDataService,
 };
 
 /// Concrete implementation of the batch processing service.
@@ -528,7 +532,7 @@ where
             "[BatchServiceImpl::process_index_batch] {} Starting batch indexing job",
             index_name
         );
-
+        
         // Route to specific handler based on batch_name
         match batch_name {
             "spent_detail_full" => {
@@ -1120,8 +1124,8 @@ where
 
         Ok(total_indexed)
     }
-
-    /// Determines whether the static catch-up phase has sufficiently caught up
+    
+    /// Determines whether the static catch-up phase has sufficiently caught up -> deprecated 될 거 같은데...
     /// with the dynamic incremental indexing progress.
     ///
     /// Returns `true` (catch-up complete) if either:
@@ -1195,101 +1199,148 @@ where
         consume_service: &Arc<C>,
         index_name: &str,
     ) -> anyhow::Result<u64> {
+
         let relation_topic: &str = schedule_item.relation_topic_sub();
         let batch_size: usize = *schedule_item.batch_size();
         let consumer_group: &str = schedule_item.consumer_group();
+        let consumer_group_sub: &str = schedule_item.consumer_group_sub();
+        let base_alias: &str = schedule_item.index_name();
+        let write_alias: String = format!("write_{}", base_alias);
+        let read_alias: String = format!("read_{}", base_alias);
 
         batch_log!(
             info,
-            "[BatchServiceImpl::process_spent_detail_dynamic] Starting. topic='{}', index='{}'",
+            "[BatchServiceImpl::process_spent_detail_dynamic] Starting. topic='{}', index='{}', ref_group='{}', catchup_group='{}'",
             relation_topic,
-            index_name
+            index_name,
+            consumer_group,
+            consumer_group_sub
         );
 
         let mut total_processed: u64 = 0;
-        let mut empty_count: i32 = 0;
+        let mut indexing_paused: bool = false;
 
         loop {
+            // Step 1: consumer_group(기준) vs consumer_group_sub(catch-up) offset 비교 (파티션별)
+            let lag_info: ConsumerGroupLag = consume_service
+                .get_consumer_group_lag_by_partition(relation_topic, consumer_group, consumer_group_sub)
+                .await
+                .inspect_err(|e| {
+                    error!("[BatchServiceImpl::process_spent_detail_dynamic] Failed to get consumer group lag: {:#}", e);
+                })?;
+
+            let lag: i64 = lag_info.total_lag;
+
+            batch_log!(
+                info,
+                "[BatchServiceImpl::process_spent_detail_dynamic] Current lag: {} messages (batch_size={}, partitions={})",
+                lag,
+                batch_size,
+                lag_info.partition_lags.len()
+            );
+
+            // 파티션별 lag 상세 로그 (디버깅용)
+            for partition_lag in &lag_info.partition_lags {
+                if partition_lag.lag > 0 {
+                    info!(
+                        "[BatchServiceImpl::process_spent_detail_dynamic] Partition {}: lag={} (ref={}, catchup={})",
+                        partition_lag.partition,
+                        partition_lag.lag,
+                        partition_lag.reference_offset,
+                        partition_lag.catchup_offset
+                    );
+                }
+            }
+
+            // Step 2 & 3: lag <= batch_size 이면 catch-up 완료 직전 → 기존 증분 색인 일시 중지
+            if !indexing_paused && lag <= batch_size as i64 {
+                batch_log!(
+                    info,
+                    "[BatchServiceImpl::process_spent_detail_dynamic] Almost caught up (lag={}). Pausing incremental indexing.",
+                    lag
+                );
+                set_spent_detail_indexing(false).await;
+                indexing_paused = true;
+            }
+
+            // Step 4: 일시 중지 이후 lag == 0 이면 완전 catch-up 완료
+            if indexing_paused && lag == 0 {
+                batch_log!(
+                    info,
+                    "[BatchServiceImpl::process_spent_detail_dynamic] Fully caught up. total_processed={}. Proceeding to alias swap.",
+                    total_processed
+                );
+
+                // Step 5: alias(write, read) 를 신규 인덱스로 전환
+                batch_log!(
+                    info,
+                    "[BatchServiceImpl::process_spent_detail_dynamic] Swapping write alias '{}' -> '{}'",
+                    write_alias,
+                    index_name
+                );
+
+                elastic_service
+                    .update_write_alias(&write_alias, index_name)
+                    .await
+                    .inspect_err(|e| {
+                        error!("[BatchServiceImpl::process_spent_detail_dynamic] Failed to update write alias: {:#}", e);
+                    })?;
+
+                batch_log!(
+                    info,
+                    "[BatchServiceImpl::process_spent_detail_dynamic] Swapping read alias '{}' -> '{}'",
+                    read_alias,
+                    index_name
+                );
+
+                elastic_service
+                    .update_read_alias(&read_alias, index_name)
+                    .await
+                    .inspect_err(|e| {
+                        error!("[BatchServiceImpl::process_spent_detail_dynamic] Failed to update read alias: {:#}", e);
+                    })?;
+
+                // Step 6: alias 전환 완료 후 증분 색인 재개
+                // Step 7: 이후 신규 증분 데이터는 전환된 write alias 기준 인덱스에 적재됨
+                batch_log!(
+                    info,
+                    "[BatchServiceImpl::process_spent_detail_dynamic] Alias swap complete. Resuming incremental indexing on '{}'.",
+                    write_alias
+                );
+                
+                set_spent_detail_indexing(true).await;
+
+                break;
+            }
+
+            // catch-up 메시지 소비 및 신규 인덱스에 색인
             let messages: Vec<SpentDetailWithRelations> = consume_service
-                .consume_messages_as_with_group(relation_topic, batch_size, consumer_group)
+                .consume_messages_as_with_group(relation_topic, batch_size, consumer_group_sub)
                 .await
                 .inspect_err(|e| {
                     error!("[BatchServiceImpl::process_spent_detail_dynamic] Failed to consume messages: {:#}", e);
                 })?;
 
-            // *** Incremental indexing starts based on the timestamp of the last full indexing. ***
-            let max_static_produced_at: DateTime<Utc> =
-                get_max_static_spent_detail_index_timestamp().await;
-            let filtered: Vec<SpentDetailWithRelations> = messages
-                .into_iter()
-                .filter(|msg| msg.produced_at > max_static_produced_at)
-                .collect();
+            let batch_count: usize = messages.len();
 
-            if filtered.is_empty() {
-                empty_count += 1;
-                batch_log!(
-                    info,
-                    "[BatchServiceImpl::process_spent_detail_dynamic] No new messages ({}/3 empty batches)",
-                    empty_count
-                );
-                if empty_count > 3 {
-                    batch_log!(
-                        info,
-                        "[BatchServiceImpl::process_spent_detail_dynamic] Terminating after {} consecutive empty batches",
-                        empty_count
-                    );
-                    break;
-                }
-                tokio::time::sleep(Duration::from_secs(3)).await;
+            if messages.is_empty() {
+                tokio::time::sleep(Duration::from_millis(500)).await;
                 continue;
             }
 
-            empty_count = 0;
-            let batch_count: usize = filtered.len();
-
-            let max_dynamic_produced_at: DateTime<Utc> =
-                get_max_dynamic_spent_detail_index_timestamp().await;
-
-            let cur_max_produced_at: DateTime<Utc> = filtered
-                .iter()
-                .map(|m| m.produced_at)
-                .max()
-                .unwrap_or_else(Utc::now);
-
-            let catch_up_complete: bool =
-                Self::check_catch_up_status(max_dynamic_produced_at, cur_max_produced_at).await;
-
-            batch_log!(
-                info,
-                "[BatchServiceImpl::process_spent_detail_dynamic] Processing {} messages (catch_up_complete={})",
-                batch_count,
-                catch_up_complete
-            );
-
-            let (to_insert, to_update, to_delete) = Self::partition_by_indexing_type(filtered);
-
+            let (to_insert, to_update, to_delete) = Self::partition_by_indexing_type(messages);
             Self::apply_es_operations(elastic_service, index_name, to_insert, to_update, to_delete)
                 .await?;
 
             total_processed += batch_count as u64;
 
-            if catch_up_complete {
-                set_spent_detail_indexing(false).await;
-                batch_log!(
-                    info,
-                    "[BatchServiceImpl::process_spent_detail_dynamic] Catch-up complete. total_processed={}",
-                    total_processed
-                );
-                break;
-            }
-
             batch_log!(
                 info,
-                "[BatchServiceImpl::process_spent_detail_dynamic] total_processed={} so far",
+                "[BatchServiceImpl::process_spent_detail_dynamic] Indexed {} catch-up docs into '{}' (total={})",
+                batch_count,
+                index_name,
                 total_processed
             );
-
-            tokio::time::sleep(Duration::from_secs(10)).await;
         }
 
         batch_log!(
@@ -1500,7 +1551,7 @@ where
             new_index_name
         );
 
-        // 여기서, 증분색인쪽 kafka topic 의 offset을 저장할 것이다.
+        // 여기서, 현재 증분색인쪽 kafka topic 의 offset을 저장할 것.
         match consume_service
             .replicate_consumer_group_offsets(
                 incre_topic_name,
@@ -1510,9 +1561,11 @@ where
             .await
         {
             Ok(_) => (),
-            Err(e) => {}
+            Err(e) => {
+                error!("[BatchServiceImpl::process_spent_detail_full] {:#}", e);
+            }
         };
-
+        
         // Step 2: Index full dataset from primary topic -> Full 색인 진행
         let static_indexed: u64 = Self::process_spent_detail_static(
             schedule_item,
@@ -1524,7 +1577,7 @@ where
         .inspect_err(|e| {
             error!("[BatchServiceImpl::process_spent_detail_full] Failed during full indexing from primary topic: {:#}", e);
         })?;
-
+        
         batch_log!(
             info,
             "[BatchServiceImpl::process_spent_detail_full] Full indexing completed: {} documents",
@@ -1593,15 +1646,15 @@ where
         set_spent_detail_indexing(true).await;
 
         // Option -> Delete Old index...
-        elastic_service
-            .delete_indices(&unused_indexies)
-            .await
-            .inspect_err(|e| {
-                error!(
-                    "[BatchServiceImpl::process_spent_detail_full] Index deletion failed: {:#}",
-                    e
-                );
-            })?;
+        // elastic_service
+        //     .delete_indices(&unused_indexies)
+        //     .await
+        //     .inspect_err(|e| {
+        //         error!(
+        //             "[BatchServiceImpl::process_spent_detail_full] Index deletion failed: {:#}",
+        //             e
+        //         );
+        //     })?;
 
         Ok(())
     }
@@ -1822,6 +1875,7 @@ where
         mysql_service: &Arc<M>,
         elastic_service: &Arc<E>,
     ) -> anyhow::Result<()> {
+
         let index_alias: &str = schedule_item.index_name();
         let batch_size: usize = *schedule_item.batch_size();
 
@@ -1846,7 +1900,7 @@ where
         // Step 3: MySQL에서 배치 단위로 조회하여 ES에 색인
         let mut offset: u64 = 0;
         let mut total_indexed: u64 = 0;
-
+        
         loop {
             batch_log!(
                 info,
@@ -1871,6 +1925,7 @@ where
             }
 
             let batch_count: usize = keywords.len();
+            
             batch_log!(
                 info,
                 "[BatchServiceImpl::process_spent_type_full] Indexing {} documents",
@@ -1904,7 +1959,8 @@ where
             .inspect_err(|e| {
                 error!("[BatchServiceImpl::process_spent_type_full] Index post-processing has failed: {:#}", e);
             })?;
-
+        
+        // 기존 index alias 제거
         elastic_service
             .delete_indices(&unused_indexies)
             .await

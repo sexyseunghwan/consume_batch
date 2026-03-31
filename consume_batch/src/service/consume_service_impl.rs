@@ -341,6 +341,112 @@ where
                 error!("[ConsumeServiceImpl::replicate_consumer_group_offsets] Failed to copy consumer group offsets from source to target. {:#}", e);
             })
     }
+
+    async fn get_consumer_group_lag(
+        &self,
+        topic: &str,
+        reference_group: &str,
+        catchup_group: &str,
+    ) -> anyhow::Result<i64> {
+        let ref_offset: i64 = self
+            .kafka_conn
+            .get_committed_offsets_total(topic, reference_group)
+            .await
+            .inspect_err(|e| {
+                error!("[ConsumeServiceImpl::get_consumer_group_lag] Failed to get reference offset for '{}': {:#}", reference_group, e);
+            })?;
+
+        let catchup_offset: i64 = self
+            .kafka_conn
+            .get_committed_offsets_total(topic, catchup_group)
+            .await
+            .inspect_err(|e| {
+                error!("[ConsumeServiceImpl::get_consumer_group_lag] Failed to get catchup offset for '{}': {:#}", catchup_group, e);
+            })?;
+
+        Ok((ref_offset - catchup_offset).max(0))
+    }
+
+    async fn get_consumer_group_lag_by_partition(
+        &self,
+        topic: &str,
+        reference_group: &str,
+        catchup_group: &str,
+    ) -> anyhow::Result<ConsumerGroupLag> {
+        info!(
+            "[ConsumeServiceImpl::get_consumer_group_lag_by_partition] Calculating lag for topic '{}': reference='{}', catchup='{}'",
+            topic, reference_group, catchup_group
+        );
+
+        // Fetch per-partition offsets for both groups
+        let ref_offsets: HashMap<i32, i64> = self
+            .kafka_conn
+            .get_committed_offsets_by_partition(topic, reference_group)
+            .await
+            .inspect_err(|e| {
+                error!(
+                    "[ConsumeServiceImpl::get_consumer_group_lag_by_partition] Failed to get reference offsets for '{}': {:#}",
+                    reference_group, e
+                );
+            })?;
+
+        let catchup_offsets: HashMap<i32, i64> = self
+            .kafka_conn
+            .get_committed_offsets_by_partition(topic, catchup_group)
+            .await
+            .inspect_err(|e| {
+                error!(
+                    "[ConsumeServiceImpl::get_consumer_group_lag_by_partition] Failed to get catchup offsets for '{}': {:#}",
+                    catchup_group, e
+                );
+            })?;
+
+        // Calculate per-partition lag
+        let mut partition_lags: Vec<PartitionLag> = Vec::new();
+        let mut total_lag: i64 = 0;
+
+        // Get all unique partition IDs from both groups
+        let mut all_partitions: HashSet<i32> = ref_offsets.keys().copied().collect(); // partition 번호의 집합 -> 0,1,2..
+        all_partitions.extend(catchup_offsets.keys().copied());
+        /*
+            extend() 는 기존 Set에 새로운 값들을 추가하는 것. (HashSet 은 중복을 허용하지 않기 때문.)
+            {0, 1, 2}.extend(0, 1, 3) -> {0, 1, 2, 3}
+        */
+        
+        // Sort partition IDs for consistent ordering -> Hash Set 은 순서가 없으므로 정렬을 해서 벡터로 변환하고 싶은것.
+        let mut sorted_partitions: Vec<i32> = all_partitions.into_iter().collect();
+        sorted_partitions.sort();
+
+        for partition_id in sorted_partitions {
+            let ref_offset: i64 = *ref_offsets.get(&partition_id).unwrap_or(&0);
+            let catchup_offset: i64 = *catchup_offsets.get(&partition_id).unwrap_or(&0);
+            let lag: i64 = (ref_offset - catchup_offset).max(0);
+
+            partition_lags.push(PartitionLag {
+                partition: partition_id,
+                reference_offset: ref_offset,
+                catchup_offset,
+                lag,
+            });
+
+            total_lag += lag;
+        }
+
+        let result: ConsumerGroupLag = ConsumerGroupLag {
+            topic: topic.to_string(),
+            reference_group: reference_group.to_string(),
+            catchup_group: catchup_group.to_string(),
+            partition_lags,
+            total_lag,
+        };
+
+        info!(
+            "[ConsumeServiceImpl::get_consumer_group_lag_by_partition] Calculated lag for topic '{}': total_lag={}, partitions={}",
+            topic, result.total_lag, result.partition_lags.len()
+        );
+
+        Ok(result)
+    }
 }
 
 impl<K> ConsumeServiceImpl<K> where K: KafkaRepository + Sync + Send {}

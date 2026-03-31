@@ -1,6 +1,34 @@
 #![allow(dead_code)]
 use crate::common::*;
 
+/// Represents the lag information for a single partition.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PartitionLag {
+    /// Partition ID
+    pub partition: i32,
+    /// Reference group's committed offset for this partition
+    pub reference_offset: i64,
+    /// Catchup group's committed offset for this partition
+    pub catchup_offset: i64,
+    /// Calculated lag (reference_offset - catchup_offset), always >= 0
+    pub lag: i64,
+}
+
+/// Represents the overall lag status for a topic across all partitions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsumerGroupLag {
+    /// Topic name
+    pub topic: String,
+    /// Reference consumer group name
+    pub reference_group: String,
+    /// Catchup consumer group name
+    pub catchup_group: String,
+    /// Per-partition lag information
+    pub partition_lags: Vec<PartitionLag>,
+    /// Total lag across all partitions
+    pub total_lag: i64,
+}
+
 /// Trait defining consume service operations.
 ///
 /// This trait provides an abstraction layer for Kafka message consumption,
@@ -86,4 +114,57 @@ pub trait ConsumeService: Send + Sync {
         source_group: &str,
         target_group: &str,
     ) -> anyhow::Result<()>;
+
+    /// Returns how many messages `catchup_group` is behind `reference_group` on the given topic.
+    ///
+    /// lag = sum(reference_group committed offsets) - sum(catchup_group committed offsets)
+    ///
+    /// Returns 0 if `catchup_group` has reached or exceeded `reference_group`.
+    ///
+    /// # Deprecated
+    ///
+    /// This method sums all partition offsets and compares totals, which can be misleading.
+    /// Use `get_consumer_group_lag_by_partition` instead for accurate per-partition lag tracking.
+    async fn get_consumer_group_lag(
+        &self,
+        topic: &str,
+        reference_group: &str,
+        catchup_group: &str,
+    ) -> anyhow::Result<i64>;
+
+    /// Returns detailed lag information per partition for a consumer group.
+    ///
+    /// Compares committed offsets between `reference_group` and `catchup_group`
+    /// on a per-partition basis, providing accurate lag tracking for each partition.
+    ///
+    /// # Arguments
+    ///
+    /// * `topic`           - The Kafka topic to analyze
+    /// * `reference_group` - The consumer group to use as reference (usually the primary consumer)
+    /// * `catchup_group`   - The consumer group to measure lag for (usually a replica or backup)
+    ///
+    /// # Returns
+    ///
+    /// Returns a `ConsumerGroupLag` struct containing:
+    /// - Per-partition lag information (partition ID, offsets, and lag)
+    /// - Total lag across all partitions
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// let lag_info = service
+    ///     .get_consumer_group_lag_by_partition("orders_topic", "primary-group", "backup-group")
+    ///     .await?;
+    ///
+    /// for partition_lag in &lag_info.partition_lags {
+    ///     println!("Partition {}: lag = {}", partition_lag.partition, partition_lag.lag);
+    /// }
+    /// println!("Total lag: {}", lag_info.total_lag);
+    /// ```
+    async fn get_consumer_group_lag_by_partition(
+        &self,
+        topic: &str,
+        reference_group: &str,
+        catchup_group: &str,
+    ) -> anyhow::Result<ConsumerGroupLag>;
 }

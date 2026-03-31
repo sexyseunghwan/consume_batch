@@ -157,68 +157,68 @@ where
     //     Ok(())
     // }
 
-    // async fn finalize_full_index(
-    //     &self,
-    //     index_alias: &str,
-    //     new_index_name: &str,
-    // ) -> anyhow::Result<Vec<String>> {
+    async fn finalize_full_index(
+        &self,
+        index_alias: &str,
+        new_index_name: &str,
+    ) -> anyhow::Result<Vec<String>> {
 
-    //     info!(
-    //         "[ElasticServiceImpl::finalize_full_index] Updating index settings for production: {}",
-    //         new_index_name
-    //     );
+        info!(
+            "[ElasticServiceImpl::finalize_full_index] Updating index settings for production: {}",
+            new_index_name
+        );
 
-    //     let production_settings: Value = json!({
-    //         "index": {
-    //             "number_of_replicas": 1,
-    //             "refresh_interval": "1s"
-    //         }
-    //     });
+        let production_settings: Value = json!({
+            "index": {
+                "number_of_replicas": 1,
+                "refresh_interval": "1s"
+            }
+        });
 
-    //     self.update_index_settings(new_index_name, &production_settings)
-    //         .await
-    //         .inspect_err(|e| {
-    //             error!("[ElasticServiceImpl::finalize_full_index] Failed to update index settings: {:#}", e);
-    //         })?;
+        self.update_index_settings(new_index_name, &production_settings)
+            .await
+            .inspect_err(|e| {
+                error!("[ElasticServiceImpl::finalize_full_index] Failed to update index settings: {:#}", e);
+            })?;
 
-    //     self.elastic_conn
-    //         .refresh_index(new_index_name)
-    //         .await
-    //         .inspect_err(|e| {
-    //             error!("[ElasticServiceImpl::finalize_full_index] Failed to refresh index: {:#}", e);
-    //         })?;
+        self.elastic_conn
+            .refresh_index(new_index_name)
+            .await
+            .inspect_err(|e| {
+                error!("[ElasticServiceImpl::finalize_full_index] Failed to refresh index: {:#}", e);
+            })?;
 
-    //     info!(
-    //         "[ElasticServiceImpl::finalize_full_index] Refreshing index '{}' before alias swap",
-    //         new_index_name
-    //     );
+        info!(
+            "[ElasticServiceImpl::finalize_full_index] Refreshing index '{}' before alias swap",
+            new_index_name
+        );
 
-    //     let old_indices: Vec<String> = self
-    //         .elastic_conn
-    //         .get_index_by_alias(index_alias)
-    //         .await
-    //         .inspect_err(|e| {
-    //             error!("[ElasticServiceImpl::finalize_full_index] Failed to resolve alias to index: {:#}", e);
-    //         })?;
+        let old_indices: Vec<String> = self
+            .elastic_conn
+            .get_index_by_alias(index_alias)
+            .await
+            .inspect_err(|e| {
+                error!("[ElasticServiceImpl::finalize_full_index] Failed to resolve alias to index: {:#}", e);
+            })?;
 
-    //     info!(
-    //         "[ElasticServiceImpl::finalize_full_index] Current indices for alias '{}': {:?}",
-    //         index_alias, old_indices
-    //     );
+        info!(
+            "[ElasticServiceImpl::finalize_full_index] Current indices for alias '{}': {:?}",
+            index_alias, old_indices
+        );
+        
+        self.swap_alias(index_alias, new_index_name)
+            .await
+            .inspect_err(|e| {
+                error!("[ElasticServiceImpl::finalize_full_index] Failed to swap alias: {:#}", e);
+            })?;
 
-    //     self.swap_alias(index_alias, new_index_name)
-    //         .await
-    //         .inspect_err(|e| {
-    //             error!("[ElasticServiceImpl::finalize_full_index] Failed to swap alias: {:#}", e);
-    //         })?;
+        info!(
+            "[ElasticServiceImpl::finalize_full_index] Swapping alias '{}': {:?} -> '{}'",
+            index_alias, old_indices, new_index_name
+        );
 
-    //     info!(
-    //         "[ElasticServiceImpl::finalize_full_index] Swapping alias '{}': {:?} -> '{}'",
-    //         index_alias, old_indices, new_index_name
-    //     );
-
-    //     Ok(old_indices)
-    // }
+        Ok(old_indices)
+    }
 
     async fn prepare_full_index(
         &self,
