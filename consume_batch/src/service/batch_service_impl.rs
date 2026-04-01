@@ -111,13 +111,13 @@ use std::collections::HashSet;
 use crate::enums::IndexingType;
 
 use crate::models::{
-    ConsumingIndexProdtType, SpentDetail, SpentDetailWithRelations, SpentDetailWithRelationsEs,
-    batch_schedule::*, spent_type_keyword::*,
+    ConsumerGroupLag, ConsumingIndexProdtType, SpentDetail, SpentDetailWithRelations,
+    SpentDetailWithRelationsEs, batch_schedule::*, spent_type_keyword::*,
 };
 
 use crate::service_trait::{
     batch_service::*,
-    consume_service::{ConsumerGroupLag, ConsumeService},
+    consume_service::ConsumeService,
     elastic_service::*,
     mysql_service::*,
     producer_service::*,
@@ -1228,7 +1228,7 @@ where
                 .inspect_err(|e| {
                     error!("[BatchServiceImpl::process_spent_detail_dynamic] Failed to get consumer group lag: {:#}", e);
                 })?;
-
+            
             let lag: i64 = lag_info.total_lag;
 
             batch_log!(
@@ -1239,7 +1239,7 @@ where
                 lag_info.partition_lags.len()
             );
 
-            // 파티션별 lag 상세 로그 (디버깅용)
+            // 파티션별 lag 상세 로그 (디버깅용) -> 어떤 파티션에서 lag 가 발생하는지 알아보기 위함.
             for partition_lag in &lag_info.partition_lags {
                 if partition_lag.lag > 0 {
                     info!(
@@ -1415,6 +1415,7 @@ where
         to_update: Vec<SpentDetailWithRelationsEs>,
         to_delete: Vec<i64>,
     ) -> anyhow::Result<()> {
+        
         if !to_insert.is_empty() {
             batch_log!(
                 info,

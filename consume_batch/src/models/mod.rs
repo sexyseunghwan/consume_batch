@@ -18,3 +18,6 @@ pub use document_with_id::*;
 pub mod score_manager;
 
 pub mod holiday;
+
+pub mod consumer_group_lag;
+pub use consumer_group_lag::*;

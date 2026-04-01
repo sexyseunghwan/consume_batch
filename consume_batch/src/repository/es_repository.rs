@@ -615,6 +615,8 @@ impl EsRepository for EsRepositoryImpl {
             body.push(doc_json.into());
         }
 
+        info!("[EsRepositoryImpl::bulk_index] {:?}", debug_body);
+
         let response: Response = self
             .es_client
             .bulk(BulkParts::None)
@@ -639,6 +641,7 @@ impl EsRepository for EsRepositoryImpl {
                 "[EsRepositoryImpl::bulk_index] Successfully bulk indexed documents to: {}",
                 index_name
             );
+            
             Ok(())
         } else {
             let error_body: String = response.text().await?;
@@ -696,7 +699,7 @@ impl EsRepository for EsRepositoryImpl {
             body.push(update_doc.into());
         }
 
-        info!("{:?}", debug_body);
+        info!("[EsRepositoryImpl::bulk_update] {:?}", debug_body);
 
         let response: Response = self
             .es_client
@@ -751,8 +754,8 @@ impl EsRepository for EsRepositoryImpl {
             debug_body.push(delete_action.clone());
             body.push(delete_action.into());
         }
-
-        info!("{:?}", debug_body);
+        
+        info!("[EsRepositoryImpl::bulk_delete] {:?}", debug_body);
 
         let response: Response = self
             .es_client
@@ -772,7 +775,7 @@ impl EsRepository for EsRepositoryImpl {
                     response_body.get("items")
                 );
             }
-
+            
             info!(
                 "[EsRepositoryImpl::bulk_delete] Successfully bulk deleted documents from: {}",
                 index_name

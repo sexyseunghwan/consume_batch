@@ -41,7 +41,7 @@
 //! ```
 
 use crate::common::*;
-
+use crate::models::{ConsumerGroupLag, PartitionLag};
 use crate::repository::kafka_repository::*;
 use crate::service_trait::consume_service::*;
 
@@ -412,7 +412,6 @@ where
             extend() 는 기존 Set에 새로운 값들을 추가하는 것. (HashSet 은 중복을 허용하지 않기 때문.)
             {0, 1, 2}.extend(0, 1, 3) -> {0, 1, 2, 3}
         */
-        
         // Sort partition IDs for consistent ordering -> Hash Set 은 순서가 없으므로 정렬을 해서 벡터로 변환하고 싶은것.
         let mut sorted_partitions: Vec<i32> = all_partitions.into_iter().collect();
         sorted_partitions.sort();
