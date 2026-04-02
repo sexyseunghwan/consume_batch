@@ -85,8 +85,8 @@ impl PublicDataService for PublicDataServiceImpl {
                     }
                     let locdate = item.locdate;
                     let y = (locdate / 10000) as i32;
-                    let m = ((locdate % 10000) / 100) as u32;
-                    let d = (locdate % 100) as u32;
+                    let m = (locdate % 10000) / 100;
+                    let d = locdate % 100;
                     if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
                         holidays.insert(date);
                     }

@@ -778,7 +778,7 @@ where
             if batch.len() >= batch_size {
                 let count: usize = batch.len();
                 mysql_service
-                    .insert_dim_calendar_bulk(batch.drain(..).collect())
+                    .insert_dim_calendar_bulk(std::mem::take(&mut batch))
                     .await
                     .inspect_err(|e| {
                         error!(
