@@ -3,6 +3,7 @@ use crate::common::*;
 
 #[async_trait]
 pub trait ProducerService {
+    /// Produces a raw JSON payload to a Kafka topic.
     async fn produce_message(
         &self,
         topic: &str,

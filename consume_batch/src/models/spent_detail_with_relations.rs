@@ -125,6 +125,7 @@ pub struct SpentDetailWithRelationsEs {
 }
 
 impl From<SpentDetailWithRelations> for SpentDetailWithRelationsEs {
+    /// Converts a relational spent-detail model into its Elasticsearch document form.
     fn from(src: SpentDetailWithRelations) -> Self {
         Self {
             spent_idx: src.spent_idx,
@@ -143,6 +144,7 @@ impl From<SpentDetailWithRelations> for SpentDetailWithRelationsEs {
 }
 
 impl From<SpentDetailWithRelationsRaw> for SpentDetailWithRelations {
+    /// Converts a raw query result model into the normalized domain model.
     fn from(raw: SpentDetailWithRelationsRaw) -> Self {
         Self {
             spent_idx: raw.spent_idx,
@@ -163,6 +165,7 @@ impl From<SpentDetailWithRelationsRaw> for SpentDetailWithRelations {
 }
 
 impl FromQueryResult for SpentDetailWithRelations {
+    /// Builds a `SpentDetailWithRelations` from a SeaORM query result row.
     fn from_query_result(res: &QueryResult, pre: &str) -> Result<Self, DbErr> {
         let raw: SpentDetailWithRelationsRaw =
             SpentDetailWithRelationsRaw::from_query_result(res, pre)?;

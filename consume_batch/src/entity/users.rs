@@ -30,12 +30,14 @@ pub enum Relation {
 }
 
 impl Related<super::spent_detail::Entity> for Entity {
+    /// Returns the relation definition to `SPENT_DETAIL`.
     fn to() -> RelationDef {
         Relation::SpentDetail.def()
     }
 }
 
 impl Related<super::telegram_room::Entity> for Entity {
+    /// Returns the relation definition to `TELEGRAM_ROOM`.
     fn to() -> RelationDef {
         Relation::TelegramRoom.def()
     }

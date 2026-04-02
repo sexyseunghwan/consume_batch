@@ -1,6 +1,6 @@
 use crate::common::*;
 
-#[doc = "Function responsible for logging"]
+/// Initializes the global application logger.
 pub fn set_global_logger() {
     let log_directory: &str = "logs"; /* Directory to store log files */
     let file_prefix: &str = ""; /* Prefixes for log files */
@@ -25,7 +25,7 @@ pub fn set_global_logger() {
         .unwrap_or_else(|e| panic!("Logger initialization failed: {}", e));
 }
 
-#[doc = "Custom Log Format Function"]
+/// Formats a single log record for file and stdout output.
 fn custom_format(
     w: &mut dyn Write,
     now: &mut flexi_logger::DeferredNow,

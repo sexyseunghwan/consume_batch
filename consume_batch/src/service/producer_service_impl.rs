@@ -14,7 +14,7 @@ impl<K> ProducerService for ProducerServiceImpl<K>
 where
     K: KafkaRepository + Send + Sync,
 {
-    #[doc = "Produce JSON message to specified Kafka topic"]
+    /// Produces a raw JSON payload to a Kafka topic.
     async fn produce_message(
         &self,
         topic: &str,

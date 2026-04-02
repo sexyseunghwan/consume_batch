@@ -123,6 +123,7 @@ where
     D: PublicDataService,
     I: IndexingService,
 {
+    /// Clones the batch service by cloning its shared dependency handles.
     fn clone(&self) -> Self {
         Self {
             mysql_service: Arc::clone(&self.mysql_service),
@@ -935,6 +936,7 @@ where
         Ok(())
     }
 
+    /// Runs a single batch schedule immediately.
     async fn run_batch(&self, schedule_item: &BatchScheduleItem) -> anyhow::Result<()> {
         Self::process_batch(
             schedule_item,

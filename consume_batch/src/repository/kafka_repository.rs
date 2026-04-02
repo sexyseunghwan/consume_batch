@@ -165,6 +165,7 @@ pub trait KafkaRepository: Send + Sync {
     /// # Returns
     ///
     /// Returns `Ok(Vec<Value>)` containing the consumed messages as JSON values.
+    /// Consumes messages from a topic using a dedicated consumer-group suffix.
     async fn consume_messages_with_group(
         &self,
         topic: &str,
@@ -658,6 +659,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
         Ok(messages)
     }
 
+    /// Consumes messages from a topic using a dedicated consumer-group suffix.
     async fn consume_messages_with_group(
         &self,
         topic: &str,
@@ -1182,6 +1184,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
         Ok(())
     }
 
+    /// Returns the sum of committed offsets across all partitions for a group.
     async fn get_committed_offsets_total(
         &self,
         topic: &str,
@@ -1275,6 +1278,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
         Ok(total)
     }
 
+    /// Returns committed offsets per partition for a group.
     async fn get_committed_offsets_by_partition(
         &self,
         topic: &str,

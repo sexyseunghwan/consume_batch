@@ -16,6 +16,7 @@ pub struct PublicDataServiceImpl {
 }
 
 impl PublicDataServiceImpl {
+    /// Creates a new public-data client with the provided API key.
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
             api_key: api_key.into(),
@@ -26,6 +27,7 @@ impl PublicDataServiceImpl {
 
 #[async_trait::async_trait]
 impl PublicDataService for PublicDataServiceImpl {
+    /// Fetches Korean public holiday dates for the inclusive year range.
     async fn fetch_korea_holiday_set(
         &self,
         start_year: i32,

@@ -177,6 +177,7 @@ pub trait ElasticService {
     /// Returns `Ok(())` on successful alias update.
     async fn update_read_alias(&self, read_alias: &str, new_index: &str) -> anyhow::Result<()>;
 
+    /// Restores production settings on an index after bulk loading completes.
     async fn revert_index_setting(&self, index_name: &str) -> anyhow::Result<()>;
 
     /// Finalizes a full index after bulk indexing is complete.
@@ -188,11 +189,12 @@ pub trait ElasticService {
     //     index_alias: &str,
     //     new_index_name: &str,
     // ) -> anyhow::Result<Vec<String>>;
-    async fn finalize_full_index(
-        &self,
-        index_name: &str,
-        new_index_name: &str,
-    ) -> anyhow::Result<Vec<String>>;
+    /// Finalizes a full index build and returns the previously aliased indices.
+    // async fn finalize_full_index(
+    //     &self,
+    //     index_name: &str,
+    //     new_index_name: &str,
+    // ) -> anyhow::Result<Vec<String>>;
 
     /// Prepares a new Elasticsearch index for full indexing.
     ///
@@ -247,11 +249,13 @@ pub trait ElasticService {
     /// Returns an error if the Elasticsearch request fails.
     async fn get_index_name_by_alias(&self, alias: &str) -> anyhow::Result<Vec<String>>;
 
+    /// Predicts the consume keyword type for a given product name.
     async fn get_consume_type_judgement(
         &self,
         prodt_name: &str,
     ) -> Result<ConsumingIndexProdtType, anyhow::Error>;
 
+    /// Converts a raw Elasticsearch response into typed search results.
     async fn get_query_result_vec<T: DeserializeOwned>(
         &self,
         response_body: &Value,

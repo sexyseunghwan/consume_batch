@@ -35,6 +35,7 @@ pub trait ConsumeService: Send + Sync {
     /// Returns `Ok(Some(Value))` if a message is available, `Ok(None)` if no message.
     async fn consume_one(&self, topic: &str) -> Result<Option<Value>, anyhow::Error>;
 
+    /// Consumes messages from a Kafka topic and deserializes them into `T`.
     async fn consume_messages_as<T>(
         &self,
         topic: &str,
@@ -81,6 +82,7 @@ pub trait ConsumeService: Send + Sync {
     where
         T: DeserializeOwned;
 
+    /// Copies committed offsets from one consumer group to another.
     async fn replicate_consumer_group_offsets(
         &self,
         topic: &str,

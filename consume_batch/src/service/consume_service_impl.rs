@@ -146,6 +146,7 @@ where
         Ok(message)
     }
 
+    /// Consumes messages from a Kafka topic using a custom consumer-group suffix.
     async fn consume_messages_with_group(
         &self,
         topic: &str,
@@ -172,6 +173,7 @@ where
         Ok(messages)
     }
 
+    /// Consumes and deserializes messages using a custom consumer-group suffix.
     async fn consume_messages_as_with_group<T>(
         &self,
         topic: &str,
@@ -342,6 +344,7 @@ where
             })
     }
 
+    /// Computes total lag by comparing summed committed offsets for two groups.
     async fn get_consumer_group_lag(
         &self,
         topic: &str,
@@ -367,6 +370,7 @@ where
         Ok((ref_offset - catchup_offset).max(0))
     }
 
+    /// Computes per-partition lag information between two consumer groups.
     async fn get_consumer_group_lag_by_partition(
         &self,
         topic: &str,

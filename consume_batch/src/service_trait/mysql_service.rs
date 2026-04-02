@@ -60,6 +60,7 @@ pub trait MysqlService {
         limit: u64,
     ) -> anyhow::Result<Vec<SpentDetailWithRelations>>;
 
+    /// Fetches raw spent-detail rows without joining related tables.
     async fn fetch_spent_details(
         &self,
         offset: u64,

@@ -18,6 +18,7 @@ impl<R> ElasticService for ElasticServiceImpl<R>
 where
     R: EsRepository + Sync + Send,
 {
+    /// Creates a new Elasticsearch index using the repository layer.
     async fn create_index(
         &self,
         index_name: &str,
@@ -29,6 +30,7 @@ where
             .await
     }
 
+    /// Updates settings for an existing Elasticsearch index.
     async fn update_index_settings(
         &self,
         index_name: &str,
@@ -39,6 +41,7 @@ where
             .await
     }
 
+    /// Bulk-indexes documents into the target Elasticsearch index.
     async fn bulk_index<T: Serialize + Send + Sync>(
         &self,
         index_name: &str,
@@ -47,6 +50,7 @@ where
         self.elastic_conn.bulk_index(index_name, documents).await
     }
 
+    /// Bulk-updates documents in the target Elasticsearch index.
     async fn bulk_update<T: Serialize + Send + Sync>(
         &self,
         index_name: &str,
@@ -58,16 +62,19 @@ where
             .await
     }
 
+    /// Bulk-deletes documents from the target Elasticsearch index.
     async fn bulk_delete(&self, index_name: &str, doc_ids: Vec<i64>) -> anyhow::Result<()> {
         self.elastic_conn.bulk_delete(index_name, doc_ids).await
     }
 
+    /// Repoints an alias to a new Elasticsearch index.
     async fn swap_alias(&self, alias_name: &str, new_index_name: &str) -> anyhow::Result<()> {
         self.elastic_conn
             .swap_alias(alias_name, new_index_name)
             .await
     }
 
+    /// Updates the write alias so new writes target `target_index`.
     async fn update_write_alias(
         &self,
         write_alias: &str,
@@ -87,6 +94,7 @@ where
             })
     }
 
+    /// Updates the read alias so queries resolve to `target_index`.
     async fn update_read_alias(&self, read_alias: &str, target_index: &str) -> anyhow::Result<()> {
         info!(
             "[ElasticServiceImpl::update_read_alias] Updating read alias '{}' to point to '{}'",
@@ -102,6 +110,7 @@ where
             })
     }
 
+    /// Converts an Elasticsearch search response into typed documents with IDs and scores.
     async fn get_query_result_vec<T: DeserializeOwned>(
         &self,
         response_body: &Value,
@@ -144,6 +153,7 @@ where
         Ok(results)
     }
 
+    /// Restores production-oriented settings on a completed index and refreshes it.
     async fn revert_index_setting(&self, index_name: &str) -> anyhow::Result<()> {
         info!(
             "[ElasticServiceImpl::revert_index_setting] Updating index settings for production: {}",
@@ -177,74 +187,76 @@ where
     }
 
     // 애 안쓰려고 함...
-    async fn finalize_full_index(
-        &self,
-        index_alias: &str,
-        new_index_name: &str,
-    ) -> anyhow::Result<Vec<String>> {
-        info!(
-            "[ElasticServiceImpl::finalize_full_index] Updating index settings for production: {}",
-            new_index_name
-        );
+    /// Finalizes a full reindex by restoring settings and swapping the live alias.
+    // async fn finalize_full_index(
+    //     &self,
+    //     index_alias: &str,
+    //     new_index_name: &str,
+    // ) -> anyhow::Result<Vec<String>> {
+    //     info!(
+    //         "[ElasticServiceImpl::finalize_full_index] Updating index settings for production: {}",
+    //         new_index_name
+    //     );
 
-        let production_settings: Value = json!({
-            "index": {
-                "number_of_replicas": 2,
-                "refresh_interval": "1s"
-            }
-        });
+    //     let production_settings: Value = json!({
+    //         "index": {
+    //             "number_of_replicas": 2,
+    //             "refresh_interval": "1s"
+    //         }
+    //     });
 
-        self.update_index_settings(new_index_name, &production_settings)
-            .await
-            .inspect_err(|e| {
-                error!("[ElasticServiceImpl::finalize_full_index] Failed to update index settings: {:#}", e);
-            })?;
+    //     self.update_index_settings(new_index_name, &production_settings)
+    //         .await
+    //         .inspect_err(|e| {
+    //             error!("[ElasticServiceImpl::finalize_full_index] Failed to update index settings: {:#}", e);
+    //         })?;
 
-        self.elastic_conn
-            .refresh_index(new_index_name)
-            .await
-            .inspect_err(|e| {
-                error!(
-                    "[ElasticServiceImpl::finalize_full_index] Failed to refresh index: {:#}",
-                    e
-                );
-            })?;
+    //     self.elastic_conn
+    //         .refresh_index(new_index_name)
+    //         .await
+    //         .inspect_err(|e| {
+    //             error!(
+    //                 "[ElasticServiceImpl::finalize_full_index] Failed to refresh index: {:#}",
+    //                 e
+    //             );
+    //         })?;
 
-        info!(
-            "[ElasticServiceImpl::finalize_full_index] Refreshing index '{}' before alias swap",
-            new_index_name
-        );
+    //     info!(
+    //         "[ElasticServiceImpl::finalize_full_index] Refreshing index '{}' before alias swap",
+    //         new_index_name
+    //     );
 
-        let old_indices: Vec<String> = self
-            .elastic_conn
-            .get_index_by_alias(index_alias)
-            .await
-            .inspect_err(|e| {
-                error!("[ElasticServiceImpl::finalize_full_index] Failed to resolve alias to index: {:#}", e);
-            })?;
+    //     let old_indices: Vec<String> = self
+    //         .elastic_conn
+    //         .get_index_by_alias(index_alias)
+    //         .await
+    //         .inspect_err(|e| {
+    //             error!("[ElasticServiceImpl::finalize_full_index] Failed to resolve alias to index: {:#}", e);
+    //         })?;
 
-        info!(
-            "[ElasticServiceImpl::finalize_full_index] Current indices for alias '{}': {:?}",
-            index_alias, old_indices
-        );
+    //     info!(
+    //         "[ElasticServiceImpl::finalize_full_index] Current indices for alias '{}': {:?}",
+    //         index_alias, old_indices
+    //     );
 
-        self.swap_alias(index_alias, new_index_name)
-            .await
-            .inspect_err(|e| {
-                error!(
-                    "[ElasticServiceImpl::finalize_full_index] Failed to swap alias: {:#}",
-                    e
-                );
-            })?;
+    //     self.swap_alias(index_alias, new_index_name)
+    //         .await
+    //         .inspect_err(|e| {
+    //             error!(
+    //                 "[ElasticServiceImpl::finalize_full_index] Failed to swap alias: {:#}",
+    //                 e
+    //             );
+    //         })?;
 
-        info!(
-            "[ElasticServiceImpl::finalize_full_index] Swapping alias '{}': {:?} -> '{}'",
-            index_alias, old_indices, new_index_name
-        );
+    //     info!(
+    //         "[ElasticServiceImpl::finalize_full_index] Swapping alias '{}': {:?} -> '{}'",
+    //         index_alias, old_indices, new_index_name
+    //     );
 
-        Ok(old_indices)
-    }
+    //     Ok(old_indices)
+    // }
 
+    /// Prepares a new timestamped index for a full indexing run.
     async fn prepare_full_index(
         &self,
         index_name: &str,
@@ -305,10 +317,12 @@ where
         Ok(new_index_name)
     }
 
+    /// Deletes Elasticsearch indices that are no longer needed.
     async fn delete_indices(&self, index_names: &[String]) -> anyhow::Result<()> {
         self.elastic_conn.delete_indices(index_names).await
     }
 
+    /// Resolves an alias to the list of Elasticsearch indices behind it.
     async fn get_index_name_by_alias(&self, alias: &str) -> anyhow::Result<Vec<String>> {
         self.elastic_conn
             .get_index_by_alias(alias)
@@ -321,6 +335,7 @@ where
             })
     }
 
+    /// Predicts the consume keyword type for a given product name.
     async fn get_consume_type_judgement(
         &self,
         prodt_name: &str,

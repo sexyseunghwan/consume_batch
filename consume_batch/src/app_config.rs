@@ -128,6 +128,7 @@ mod tests {
     use super::*;
 
     #[test]
+    /// Verifies that the global configuration can be initialized and accessed in tests.
     fn test_config_access() {
         // Note: This test requires .env file to be present
         if AppConfig::try_global().is_none() {

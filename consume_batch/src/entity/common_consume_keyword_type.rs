@@ -22,6 +22,7 @@ pub enum Relation {
 }
 
 impl Related<super::common_consume_prodt_keyword::Entity> for Entity {
+    /// Returns the relation definition to `COMMON_CONSUME_PRODT_KEYWORD`.
     fn to() -> RelationDef {
         Relation::CommonConsumeProdtKeyword.def()
     }

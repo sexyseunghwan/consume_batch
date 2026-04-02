@@ -156,6 +156,7 @@ where
         Ok(results)
     }
 
+    /// Fetches raw `SPENT_DETAIL` rows in ascending primary-key order.
     async fn fetch_spent_details(
         &self,
         offset: u64,

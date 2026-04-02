@@ -50,24 +50,28 @@ pub enum Relation {
 }
 
 impl Related<super::spent_group_info::Entity> for Entity {
+    /// Returns the relation definition to `SPENT_GROUP_INFO`.
     fn to() -> RelationDef {
         Relation::SpentGroupInfo.def()
     }
 }
 
 impl Related<super::users::Entity> for Entity {
+    /// Returns the relation definition to `USERS`.
     fn to() -> RelationDef {
         Relation::Users.def()
     }
 }
 
 impl Related<super::common_consume_prodt_keyword::Entity> for Entity {
+    /// Returns the relation definition to `COMMON_CONSUME_PRODT_KEYWORD`.
     fn to() -> RelationDef {
         Relation::CommonConsumeKeywordType.def()
     }
 }
 
 impl Related<super::telegram_room::Entity> for Entity {
+    /// Returns the relation definition to `TELEGRAM_ROOM`.
     fn to() -> RelationDef {
         Relation::TelegramRoom.def()
     }

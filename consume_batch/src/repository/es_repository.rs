@@ -131,6 +131,9 @@ pub trait EsRepository {
     /// # Returns
     ///
     /// Returns `Ok(())` on successful index creation.
+    /// Creates a new Elasticsearch index with the provided settings and mappings.
+    /// Creates a new Elasticsearch index with the provided settings and mappings.
+    /// Creates a new Elasticsearch index with the provided settings and mappings.
     async fn create_index(
         &self,
         index_name: &str,
@@ -148,6 +151,7 @@ pub trait EsRepository {
     /// # Returns
     ///
     /// Returns `Ok(())` on successful update.
+    /// Updates settings on an existing Elasticsearch index.
     async fn update_index_settings(
         &self,
         index_name: &str,
@@ -164,6 +168,7 @@ pub trait EsRepository {
     /// # Returns
     ///
     /// Returns `Ok(())` on successful bulk indexing.
+    /// Sends a bulk-index request for the provided documents.
     async fn bulk_index<T: Serialize + Send + Sync>(
         &self,
         index_name: &str,
@@ -181,6 +186,7 @@ pub trait EsRepository {
     /// # Returns
     ///
     /// Returns `Ok(())` on successful bulk update.
+    /// Sends a bulk-update request for the provided documents.
     async fn bulk_update<T: Serialize + Send + Sync>(
         &self,
         index_name: &str,
@@ -526,6 +532,7 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
+    /// Creates a new Elasticsearch index with the provided settings and mappings.
     async fn create_index(
         &self,
         index_name: &str,
@@ -561,6 +568,7 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
+    /// Updates settings on an existing Elasticsearch index.
     async fn update_index_settings(
         &self,
         index_name: &str,
@@ -590,6 +598,7 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
+    /// Sends a bulk-index request for the provided documents.
     async fn bulk_index<T: Serialize + Send + Sync>(
         &self,
         index_name: &str,
@@ -653,6 +662,7 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
+    /// Sends a bulk-update request for the provided documents.
     async fn bulk_update<T: Serialize + Send + Sync>(
         &self,
         index_name: &str,
@@ -735,6 +745,7 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
+    /// Sends a bulk-delete request for the provided document IDs.
     async fn bulk_delete(&self, index_name: &str, doc_ids: Vec<i64>) -> anyhow::Result<()> {
         if doc_ids.is_empty() {
             return Ok(());
@@ -792,6 +803,7 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
+    /// Refreshes an Elasticsearch index so recent writes become searchable.
     async fn refresh_index(&self, index_name: &str) -> anyhow::Result<()> {
         let response: Response = self
             .es_client
@@ -816,6 +828,7 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
+    /// Atomically removes an alias from old indices and adds it to `new_index_name`.
     async fn swap_alias(&self, alias_name: &str, new_index_name: &str) -> anyhow::Result<()> {
         // First, check if the alias exists and get the old index
         let get_alias_response: std::result::Result<Response, elasticsearch::Error> = self
@@ -885,6 +898,7 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
+    /// Looks up all index names currently bound to an alias.
     async fn get_index_by_alias(&self, alias_name: &str) -> anyhow::Result<Vec<String>> {
         let response: Response = self
             .es_client
@@ -915,6 +929,7 @@ impl EsRepository for EsRepositoryImpl {
         Ok(indices)
     }
 
+    /// Deletes the given Elasticsearch indices.
     async fn delete_indices(&self, index_names: &[String]) -> anyhow::Result<()> {
         if index_names.is_empty() {
             return Ok(());

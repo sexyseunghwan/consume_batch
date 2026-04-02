@@ -39,6 +39,7 @@ pub struct PathConfig {
 }
 
 impl PathConfig {
+    /// Loads path-related configuration from environment variables.
     fn from_env() -> Result<Self> {
         Ok(Self {
             batch_schedule: env::var("BATCH_SCHEDULE")
@@ -78,6 +79,7 @@ pub struct ElasticsearchConfig {
 }
 
 impl ElasticsearchConfig {
+    /// Loads Elasticsearch connection settings from environment variables.
     fn from_env() -> Result<Self> {
         Ok(Self {
             url: env::var("ES_DB_URL").context("ES_DB_URL must be set")?,
@@ -152,6 +154,7 @@ pub struct KafkaConfig {
 }
 
 impl KafkaConfig {
+    /// Loads Kafka connection settings from environment variables.
     fn from_env() -> Result<Self> {
         Ok(Self {
             host: env::var("KAFKA_HOST")
@@ -200,6 +203,7 @@ pub struct MySqlConfig {
 }
 
 impl MySqlConfig {
+    /// Loads MySQL connection settings from environment variables.
     fn from_env() -> Result<Self> {
         Ok(Self {
             host: env::var("MY_SQL_HOST").context("MY_SQL_HOST must be set")?,
@@ -225,6 +229,7 @@ pub struct TelegramConfig {
 }
 
 impl TelegramConfig {
+    /// Loads Telegram bot settings from environment variables.
     fn from_env() -> Result<Self> {
         Ok(Self {
             token: env::var("TELOXIDE_TOKEN").context("TELOXIDE_TOKEN must be set")?,
@@ -249,6 +254,7 @@ pub struct BatchConfig {
 }
 
 impl BatchConfig {
+    /// Loads batch-processing settings from environment variables.
     fn from_env() -> Result<Self> {
         Ok(Self {
             batch_size: env::var("BATCH_SIZE")

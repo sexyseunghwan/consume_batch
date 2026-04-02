@@ -30,12 +30,14 @@ pub enum Relation {
 }
 
 impl Related<super::common_consume_keyword_type::Entity> for Entity {
+    /// Returns the relation definition to `COMMON_CONSUME_KEYWORD_TYPE`.
     fn to() -> RelationDef {
         Relation::CommonConsumeKeywordType.def()
     }
 }
 
 impl Related<super::spent_detail::Entity> for Entity {
+    /// Returns the relation definition to `SPENT_DETAIL`.
     fn to() -> RelationDef {
         Relation::SpentDetail.def()
     }
