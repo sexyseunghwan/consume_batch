@@ -1,15 +1,16 @@
 /*
-Author      : Seunghwan Shin
-Create date : 2025-01-01
+Author      :   Seunghwan Shin
+Create date :   2025-01-01
 Description :
 
-History     : 2025-01-01 Seunghwan Shin       # [v.1.0.0] first create.
-              2025-03-22 Seunghwan Shin       # [v.1.1.0] Change the RDB-related crate (Diesel -> Sear-orm)
-              2025-05-28 Seunghwan Shin       # [v.1.1.1] Correct duplicate index problem.
-              2025-06-09 Seunghwan Shin       # [v.1.1.2] Unindexable issues exist when duplicate documents exist.
-              2026-03-05 Seunghwan Shin       # [v.2.0.0] 1) Refactor code architecture.
-                                                          2) Add CLI mode and scheduler mode support.
-                                                          3) Improve code structure by seperation responsibilities.
+History     :   2025-01-01 Seunghwan Shin       # [v.1.0.0] first create.
+                2025-03-22 Seunghwan Shin       # [v.1.1.0] Change the RDB-related crate (Diesel -> Sear-orm)
+                2025-05-28 Seunghwan Shin       # [v.1.1.1] Correct duplicate index problem.
+                2025-06-09 Seunghwan Shin       # [v.1.1.2] Unindexable issues exist when duplicate documents exist.
+                2026-03-05 Seunghwan Shin       # [v.2.0.0] 1) Refactor code architecture.
+                                                            2) Add CLI mode and scheduler mode support.
+                                                            3) Improve code structure by seperation responsibilities.
+                2026-04-02 Seunghwan Shin       # [v.2.1.0] Updated the indexing structure and added dependency injection for the service.
 */
 
 mod common;
