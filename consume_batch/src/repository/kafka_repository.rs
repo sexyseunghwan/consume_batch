@@ -1102,6 +1102,22 @@ impl KafkaRepository for KafkaRepositoryImpl {
             source_group, committed_tpl
         );
 
+        // source 그룹이 한 번도 commit한 적 없으면 모든 partition offset 이 Invalid 로 반환된다.
+        // Invalid offset 이 포함된 TPL 을 assign() 에 넘기면 librdkafka assertion crash 가 발생하므로,
+        // 유효한 offset 이 하나도 없으면 복사를 건너뛴다.
+        let has_valid_offset: bool = committed_tpl
+            .elements()
+            .iter()
+            .any(|e| e.offset() != rdkafka::Offset::Invalid);
+
+        if !has_valid_offset {
+            info!(
+                "[KafkaRepositoryImpl::copy_consumer_group_offsets] Source group '{}' has no committed offsets yet. Skipping copy.",
+                source_group
+            );
+            return Ok(());
+        }
+
         // ──────────────────────────────────────────────────────────────
         // [4단계] target 그룹의 BaseConsumer 에 offset 을 직접 commit
         // ──────────────────────────────────────────────────────────────
@@ -1134,8 +1150,15 @@ impl KafkaRepository for KafkaRepositoryImpl {
             )
         })?;
 
-        // commit 은 assign 된 파티션에 대해서만 동작하므로 먼저 assign
-        target_consumer.assign(&committed_tpl).map_err(|e| {
+        // assign() 에는 offset 없는 순수 파티션 TPL 을 넘겨야 한다.
+        // committed_tpl 에는 offset 값이 포함되어 있어 그대로 넘기면
+        // librdkafka 내부 assertion 이 실패할 수 있으므로 별도로 생성한다.
+        let mut assign_tpl: TopicPartitionList = TopicPartitionList::new();
+        for partition in topic_metadata.partitions() {
+            assign_tpl.add_partition(topic, partition.id());
+        }
+
+        target_consumer.assign(&assign_tpl).map_err(|e| {
             anyhow!(
                 "[KafkaRepositoryImpl::copy_consumer_group_offsets] Failed to assign partitions to target consumer: {:?}",
                 e
