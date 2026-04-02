@@ -39,89 +39,13 @@
 //! - Each job triggers `process_index_batch` for its specific index
 //! - Multiple indices can be processed concurrently without blocking each other
 
-use crate::{app_config::*, common::*, global_state::*, utils_module::cli_log::CLI_LOG_TX};
+use crate::{app_config::*, batch_log, common::*};
 
-/// A helper macro that logs messages using the standard `log` crate
-/// and optionally forwards the same message to a CLI logging channel.
-///
-/// This macro supports different log levels (`info`, `warn`, `error`).
-/// For each log entry:
-/// 1. The message is formatted using `format!`.
-/// 2. The message is logged via the `log` crate.
-/// 3. If a CLI log channel (`CLI_LOG_TX`) is available, the message is
-///    sent through the channel so that CLI clients can receive real-time logs.
-///
-/// `try_with` is used to safely access the thread-local sender without
-/// causing a panic if it is not initialized.
-///
-/// `try_send` is used to avoid blocking if the channel is full.
-macro_rules! batch_log {
-
-    // INFO level logging
-    // Example: batch_log!(info, "Processing batch {}", id);
-    (info, $($arg:tt)*) => {{
-        // Format the log message from the provided arguments
-        let msg = format!($($arg)*);
-
-        // Write the message to the standard logging system
-        log::info!("{}", msg);
-
-        // Attempt to send the log message to the CLI log channel
-        let _ = CLI_LOG_TX.try_with(|opt| {
-            if let Some(tx) = opt {
-                // Non-blocking send to avoid stalling the main process
-                let _ = tx.try_send(msg);
-            }
-        });
-    }};
-
-    // ERROR level logging
-    (error, $($arg:tt)*) => {{
-        let msg = format!($($arg)*);
-
-        // Log the error using the standard logger
-        log::error!("{}", msg);
-
-        // Forward the error message to CLI clients with an [ERROR] prefix
-        let _ = CLI_LOG_TX.try_with(|opt| {
-            if let Some(tx) = opt {
-                let _ = tx.try_send(format!("[ERROR] {}", msg));
-            }
-        });
-    }};
-
-    // WARN level logging
-    (warn, $($arg:tt)*) => {{
-        let msg = format!($($arg)*);
-
-        // Log the warning message
-        log::warn!("{}", msg);
-
-        // Forward the warning message to CLI clients with a [WARN] prefix
-        let _ = CLI_LOG_TX.try_with(|opt| {
-            if let Some(tx) = opt {
-                let _ = tx.try_send(format!("[WARN] {}", msg));
-            }
-        });
-    }};
-}
-
-use std::collections::HashSet;
-
-use crate::enums::IndexingType;
-
-use crate::models::{
-    ConsumerGroupLag, ConsumingIndexProdtType, SpentDetail, SpentDetailWithRelations,
-    SpentDetailWithRelationsEs, batch_schedule::*, spent_type_keyword::*,
-};
+use crate::models::{ConsumingIndexProdtType, SpentDetail, batch_schedule::*};
 
 use crate::service_trait::{
-    batch_service::*,
-    consume_service::ConsumeService,
-    elastic_service::*,
-    mysql_service::*,
-    producer_service::*,
-    public_data_service::PublicDataService,
+    batch_service::*, consume_service::ConsumeService, elastic_service::*, indexing_service::*,
+    mysql_service::*, producer_service::ProducerService, public_data_service::PublicDataService,
 };
 
 /// Concrete implementation of the batch processing service.
@@ -160,13 +84,14 @@ use crate::service_trait::{
 /// ```
 #[derive(Debug, Getters)]
 #[getset(get = "pub")]
-pub struct BatchServiceImpl<M, E, C, P, D>
+pub struct BatchServiceImpl<M, E, C, P, D, I>
 where
     M: MysqlService,
     E: ElasticService,
     C: ConsumeService,
     P: ProducerService,
     D: PublicDataService,
+    I: IndexingService,
 {
     /// Service for MySQL database operations.
     mysql_service: Arc<M>,
@@ -184,16 +109,19 @@ where
 
     /// Service for fetching public data (e.g. Korean holidays).
     public_data_service: Arc<D>,
+
+    indexing_service: Arc<I>,
 }
 
 // Manual Clone impl: Arc<T> is always Clone regardless of T: Clone
-impl<M, E, C, P, D> Clone for BatchServiceImpl<M, E, C, P, D>
+impl<M, E, C, P, D, I> Clone for BatchServiceImpl<M, E, C, P, D, I>
 where
     M: MysqlService,
     E: ElasticService,
     C: ConsumeService,
     P: ProducerService,
     D: PublicDataService,
+    I: IndexingService,
 {
     fn clone(&self) -> Self {
         Self {
@@ -203,17 +131,19 @@ where
             schedule_config: self.schedule_config.clone(),
             producer_service: Arc::clone(&self.producer_service),
             public_data_service: Arc::clone(&self.public_data_service),
+            indexing_service: Arc::clone(&self.indexing_service),
         }
     }
 }
 
-impl<M, E, C, P, D> BatchServiceImpl<M, E, C, P, D>
+impl<M, E, C, P, D, I> BatchServiceImpl<M, E, C, P, D, I>
 where
     M: MysqlService + Send + Sync + 'static,
     E: ElasticService + Send + Sync + 'static,
     C: ConsumeService + Send + Sync + 'static,
     P: ProducerService + Send + Sync + 'static,
     D: PublicDataService + Send + Sync + 'static,
+    I: IndexingService + Send + Sync + 'static,
 {
     /// Creates a new `BatchServiceImpl` instance.
     ///
@@ -248,11 +178,12 @@ where
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn new(
-        mysql_service: M,
-        elastic_service: E,
-        consume_service: C,
-        producer_service: P,
+        mysql_service: Arc<M>,
+        elastic_service: Arc<E>,
+        consume_service: Arc<C>,
+        producer_service: Arc<P>,
         public_data_service: D,
+        indexing_service: I,
     ) -> Result<Self> {
         let app_config: &AppConfig = AppConfig::global();
         let batch_schedule: &str = app_config.batch_schedule().as_str();
@@ -270,12 +201,13 @@ where
         );
 
         Ok(Self {
-            mysql_service: Arc::new(mysql_service),
-            elastic_service: Arc::new(elastic_service),
-            consume_service: Arc::new(consume_service),
+            mysql_service,
+            elastic_service,
+            consume_service,
             schedule_config,
-            producer_service: Arc::new(producer_service),
+            producer_service,
             public_data_service: Arc::new(public_data_service),
+            indexing_service: Arc::new(indexing_service),
         })
     }
 
@@ -372,9 +304,8 @@ where
         for immediate_item in immediate_schedules {
             let mysql: Arc<M> = Arc::clone(&self.mysql_service);
             let elastic: Arc<E> = Arc::clone(&self.elastic_service);
-            let consume: Arc<C> = Arc::clone(&self.consume_service);
-            let produce: Arc<P> = Arc::clone(&self.producer_service);
             let public_data: Arc<D> = Arc::clone(&self.public_data_service);
+            let indexing: Arc<I> = Arc::clone(&self.indexing_service);
             let item: BatchScheduleItem = immediate_item.clone();
 
             batch_log!(
@@ -386,9 +317,7 @@ where
             immediate_jobs.spawn(async move {
                 batch_log!(info, "[{}] Immediate job started", item.index_name());
 
-                match Self::process_batch(&item, &mysql, &elastic, &consume, &produce, &public_data)
-                    .await
-                {
+                match Self::process_batch(&item, &mysql, &elastic, &public_data, &indexing).await {
                     Ok(()) => {
                         batch_log!(
                             info,
@@ -430,9 +359,8 @@ where
         // These clones are necessary because the closure must be 'static
         let mysql_service: Arc<M> = Arc::clone(&self.mysql_service);
         let elastic_service: Arc<E> = Arc::clone(&self.elastic_service);
-        let consume_service: Arc<C> = Arc::clone(&self.consume_service);
-        let producer_service: Arc<P> = Arc::clone(&self.producer_service);
         let public_data_service: Arc<D> = Arc::clone(&self.public_data_service);
+        let indexing_service: Arc<I> = Arc::clone(&self.indexing_service);
         let schedule_item_move: BatchScheduleItem = schedule_item.clone();
 
         batch_log!(
@@ -447,24 +375,16 @@ where
             // Clone again for each job execution (closure is FnMut, called multiple times)
             let mysql: Arc<M> = Arc::clone(&mysql_service);
             let elastic: Arc<E> = Arc::clone(&elastic_service);
-            let consume: Arc<C> = Arc::clone(&consume_service);
-            let produce: Arc<P> = Arc::clone(&producer_service);
             let public_data: Arc<D> = Arc::clone(&public_data_service);
+            let indexing: Arc<I> = Arc::clone(&indexing_service);
             let schedule_item: BatchScheduleItem = schedule_item_move.clone();
 
             Box::pin(async move {
                 batch_log!(info, "[{}] Cron job triggered", schedule_item.index_name());
 
                 // Call the batch processing logic with schedule_item
-                match Self::process_batch(
-                    &schedule_item,
-                    &mysql,
-                    &elastic,
-                    &consume,
-                    &produce,
-                    &public_data,
-                )
-                .await
+                match Self::process_batch(&schedule_item, &mysql, &elastic, &public_data, &indexing)
+                    .await
                 {
                     Ok(()) => {
                         batch_log!(
@@ -519,9 +439,8 @@ where
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
         elastic_service: &Arc<E>,
-        consume_service: &Arc<C>,
-        producer_service: &Arc<P>,
         public_data_service: &Arc<D>,
+        indexing_service: &Arc<I>,
     ) -> Result<()> {
         let start_time: DateTime<Utc> = Utc::now();
         let batch_name: &str = schedule_item.batch_name();
@@ -529,56 +448,47 @@ where
 
         batch_log!(
             info,
-            "[BatchServiceImpl::process_index_batch] {} Starting batch indexing job",
+            "[BatchServiceImpl::process_batch] {} Starting batch indexing job",
             index_name
         );
-        
-        // Route to specific handler based on batch_name
+
         match batch_name {
             "spent_detail_full" => {
-                if let Err(e) = Self::process_migration_spent_detail_to_kafka(
-                    schedule_item,
-                    mysql_service,
-                    producer_service,
-                )
-                .await
-                {
-                    batch_log!(
-                        error,
-                        "[BatchServiceImpl::process_index_batch] spent_detail_full: migration to kafka failed: {:#}",
-                        e
-                    );
-                    return Ok(());
-                }
-
-                if let Err(e) =
-                    Self::process_spent_detail_full(schedule_item, elastic_service, consume_service)
-                        .await
-                {
-                    batch_log!(
-                        error,
-                        "[BatchServiceImpl::process_index_batch] spent_detail_full: full indexing failed: {:#}",
-                        e
-                    );
-                }
-            }
-            "spent_detail_incremental" => {
-                Self::process_spent_detail_incremental(
-                    schedule_item,
-                    elastic_service,
-                    consume_service,
-                )
-                .await?;
-            }
-            "spent_type" => {
-                Self::process_spent_type_full(schedule_item, mysql_service, elastic_service)
-                    .await?;
-            }
-            "spent_detail_migration_to_kafka" => {
-                Self::process_migration_spent_detail_to_kafka(schedule_item, mysql_service, producer_service)
+                indexing_service
+                    .run_spent_detail_full(schedule_item)
                     .await
                     .inspect_err(|e| {
-                        error!("[BatchServiceImpl::process_index_batch] process_migration_spent_detail_to_kafka: {:#}", e);
+                        error!(
+                            "[BatchServiceImpl::process_batch] spent_detail_full: {:#}",
+                            e
+                        );
+                    })?;
+            }
+            "spent_detail_incremental" => {
+                indexing_service
+                    .run_spent_detail_incremental(schedule_item)
+                    .await
+                    .inspect_err(|e| {
+                        error!(
+                            "[BatchServiceImpl::process_batch] spent_detail_incremental: {:#}",
+                            e
+                        );
+                    })?;
+            }
+            "spent_detail_migration_to_kafka" => {
+                indexing_service
+                    .run_spent_detail_migration_to_kafka(schedule_item)
+                    .await
+                    .inspect_err(|e| {
+                        error!("[BatchServiceImpl::process_batch] spent_detail_migration_to_kafka: {:#}", e);
+                    })?;
+            }
+            "spent_type" => {
+                indexing_service
+                    .run_spent_type_full(schedule_item)
+                    .await
+                    .inspect_err(|e| {
+                        error!("[BatchServiceImpl::process_batch] spent_type: {:#}", e);
                     })?;
             }
             "all_change_spent_detail_type" => {
@@ -589,7 +499,10 @@ where
                 )
                 .await
                 .inspect_err(|e| {
-                    error!("[BatchServiceImpl::process_index_batch] all_change_spent_detail_type: {:#}", e);
+                    error!(
+                        "[BatchServiceImpl::process_batch] all_change_spent_detail_type: {:#}",
+                        e
+                    );
                 })?;
             }
             "dimension_date_table" => {
@@ -601,7 +514,7 @@ where
                 .await
                 .inspect_err(|e| {
                     error!(
-                        "[BatchServiceImpl::process_batch] dimension_date_table failed: {:#}",
+                        "[BatchServiceImpl::process_batch] dimension_date_table: {:#}",
                         e
                     );
                 })?;
@@ -609,7 +522,7 @@ where
             _ => {
                 batch_log!(
                     warn,
-                    "[BatchServiceImpl::process_index_batch] Unknown batch_name: {}, skipping",
+                    "[BatchServiceImpl::process_batch] Unknown batch_name: {}, skipping",
                     batch_name
                 );
             }
@@ -619,7 +532,7 @@ where
 
         batch_log!(
             info,
-            "[BatchServiceImpl::process_index_batch] {} Batch indexing completed successfully in {}ms",
+            "[BatchServiceImpl::process_batch] {} completed in {}ms",
             index_name,
             elapsed.num_milliseconds()
         );
@@ -910,1083 +823,17 @@ where
 
         Ok(())
     }
-
-    /// Migrates all spent detail records from MySQL to a Kafka topic.
-    ///
-    /// Purges the target topic first to ensure a clean state, then fetches
-    /// all records from MySQL in batches and produces each record as a JSON
-    /// message to the configured Kafka topic.
-    ///
-    /// # Arguments
-    ///
-    /// * `schedule_item` - The batch schedule configuration (topic, batch size, etc.)
-    /// * `mysql_service` - MySQL service for fetching spent details with relations
-    /// * `producer_service` - Kafka producer service for publishing messages
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` on successful completion.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Topic purge fails
-    /// - JSON serialization of a record fails
-    async fn process_migration_spent_detail_to_kafka(
-        schedule_item: &BatchScheduleItem,
-        mysql_service: &Arc<M>,
-        producer_service: &Arc<P>,
-    ) -> anyhow::Result<()> {
-        let produce_topic: &str = schedule_item.relation_topic().as_str();
-        let batch_size: u64 = *schedule_item.batch_size() as u64;
-
-        batch_log!(
-            info,
-            "[BatchServiceImpl::process_migration_spent_detail_to_kafka] Starting. batch_size={}",
-            batch_size
-        );
-
-        let mut offset: u64 = 0;
-        let mut total_selected: usize = 0;
-
-        // Delete all existing topic data.
-        producer_service
-            .purge_topic(produce_topic)
-            .await
-            .inspect_err(|e| {
-                error!(
-                    "[BatchServiceImpl::process_migration_spent_detail_to_kafka]: {:#}",
-                    e
-                );
-            })?;
-
-        batch_log!(
-            info,
-            "[BatchServiceImpl::process_migration_spent_detail_to_kafka] All data for the `{}` topic has been deleted.",
-            produce_topic
-        );
-
-        loop {
-            let produce_spent_details: Vec<SpentDetailWithRelations> = match mysql_service
-                .fetch_spent_details_for_indexing(offset, batch_size)
-                .await
-            {
-                Ok(produce_spent_details) => produce_spent_details,
-                Err(e) => {
-                    batch_log!(
-                        error,
-                        "[BatchServiceImpl::process_migration_spent_detail_to_kafka] Failed to load vector for `produce_spent_details` from DB.: {:?}",
-                        e
-                    );
-                    continue;
-                }
-            };
-
-            if produce_spent_details.is_empty() {
-                break;
-            }
-
-            for spent_detail in &produce_spent_details {
-                let spent_detail_json: Value = serde_json::to_value(spent_detail)
-                    .inspect_err(|e| {
-                        error!("[BatchServiceImpl::process_migration_spent_detail_to_kafka] Failed to convert `spent_detail` to JSON: {:#}", e);
-                    })?;
-
-                match producer_service
-                    .produce_object_to_topic(produce_topic, &spent_detail_json, None)
-                    .await
-                {
-                    Ok(_) => (),
-                    Err(e) => {
-                        batch_log!(
-                            error,
-                            "[BatchServiceImpl::process_migration_spent_detail_to_kafka] Failed to produce data to Kafka. {:#}",
-                            e
-                        );
-                        break;
-                    }
-                }
-            }
-
-            offset += batch_size;
-            total_selected += produce_spent_details.len();
-        }
-
-        batch_log!(
-            info,
-            "[BatchServiceImpl::process_migration_spent_detail_to_kafka] Successfully produced {} data points",
-            total_selected
-        );
-
-        Ok(())
-    }
-
-    // ============================================================================
-    // Common helper functions for full indexing
-    // ============================================================================
-
-    /* ============================================================================ */
-    /* ============================================================================ */
-    /* ============================================================================ */
-    /* ============================================================================ */
-    /// Consumes the full dataset from the primary Kafka topic and bulk-indexes it into Elasticsearch.
-    ///
-    /// Reads messages in batches from `relation_topic` until the topic is exhausted,
-    /// converting each message to [`SpentDetailWithRelationsEs`] and indexing it into
-    /// `new_index_name`. Also tracks the maximum `produced_at` timestamp across all
-    /// consumed messages via global state, which is used by the dynamic catch-up phase
-    /// to filter out already-indexed incremental messages.
-    ///
-    /// # Arguments
-    ///
-    /// * `schedule_item` - The batch schedule configuration (topic, batch size, consumer group, etc.)
-    /// * `elastic_service` - Elasticsearch service for bulk indexing
-    /// * `consume_service` - Kafka consumer service for reading messages
-    /// * `new_index_name` - The target Elasticsearch index to write into
-    ///
-    /// # Returns
-    ///
-    /// Returns the total number of documents indexed on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Kafka message consumption fails
-    /// - Elasticsearch bulk index fails
-    async fn process_spent_detail_static(
-        schedule_item: &BatchScheduleItem,
-        elastic_service: &Arc<E>,
-        consume_service: &Arc<C>,
-        new_index_name: &str,
-    ) -> anyhow::Result<u64> {
-        let relation_topic: &str = schedule_item.relation_topic();
-        let batch_size: usize = *schedule_item.batch_size();
-        let consumer_group: &str = schedule_item.consumer_group();
-
-        let mut total_indexed: u64 = 0;
-
-        loop {
-            let messages: Vec<SpentDetailWithRelations> = consume_service
-                .consume_messages_as_with_group(relation_topic, batch_size, consumer_group)
-                .await
-                .inspect_err(|e| {
-                    error!("[BatchServiceImpl::process_spent_detail_static] Failed to consume messages: {:#}", e);
-                })?;
-
-            if messages.is_empty() {
-                batch_log!(
-                    info,
-                    "[BatchServiceImpl::process_spent_detail_static] No more messages in topic '{}', finishing",
-                    relation_topic
-                );
-                break;
-            }
-
-            let batch_count: usize = messages.len();
-
-            batch_log!(
-                info,
-                "[BatchServiceImpl::process_spent_detail_static] Consumed {} messages, converting for ES indexing",
-                batch_count
-            );
-
-            // To synchronize with incremental indexing. (증분색인과 싱크를 맞추기 위하여...)
-            let max_produced_at: Option<DateTime<Utc>> =
-                messages.iter().map(|m| m.produced_at).max();
-            set_max_static_spent_detail_index_timestamp(max_produced_at).await;
-
-            // Convert to ES-specific structure (excludes indexing_type field)
-            let es_messages: Vec<SpentDetailWithRelationsEs> =
-                messages.into_iter().map(|msg| msg.into()).collect();
-
-            batch_log!(
-                info,
-                "[BatchServiceImpl::process_spent_detail_static] Indexing {} documents to {}",
-                batch_count,
-                new_index_name
-            );
-
-            elastic_service
-                .bulk_index(new_index_name, es_messages)
-                .await
-                .inspect_err(|e| {
-                    error!("[BatchServiceImpl::process_spent_detail_static] Failed to bulk index: {:#}", e);
-                })?;
-
-            total_indexed += batch_count as u64;
-
-            batch_log!(
-                info,
-                "[BatchServiceImpl::process_spent_detail_static] Indexed {} documents so far",
-                total_indexed
-            );
-        }
-
-        Ok(total_indexed)
-    }
-    
-    /// Determines whether the static catch-up phase has sufficiently caught up -> deprecated 될 거 같은데...
-    /// with the dynamic incremental indexing progress.
-    ///
-    /// Returns `true` (catch-up complete) if either:
-    /// - `cur_max_produced_at` has surpassed `max_dynamic_produced_at`, meaning the
-    ///   static phase has indexed beyond the latest incremental message, or
-    /// - The gap between the two timestamps is within 5 seconds.
-    ///
-    /// # Arguments
-    ///
-    /// * `max_dynamic_produced_at` - The latest `produced_at` seen by the incremental indexer
-    /// * `cur_max_produced_at` - The latest `produced_at` in the current static batch
-    ///
-    /// # Returns
-    ///
-    /// Returns `true` if the catch-up phase is considered complete, `false` otherwise.
-    async fn check_catch_up_status(
-        max_dynamic_produced_at: DateTime<Utc>,
-        cur_max_produced_at: DateTime<Utc>,
-    ) -> bool {
-        if cur_max_produced_at > max_dynamic_produced_at {
-            batch_log!(
-                info,
-                "[BatchServiceImpl::check_catch_up_status] \
-                Catch-up surpassed dynamic incremental progress. \
-                cur_max_produced_at={}, max_dynamic_produced_at={}. \
-                Finishing catch-up phase after this batch.",
-                cur_max_produced_at,
-                max_dynamic_produced_at
-            );
-            true
-        } else {
-            let produced_diff_secs: i64 = cur_max_produced_at
-                .signed_duration_since(max_dynamic_produced_at)
-                .num_seconds()
-                .abs();
-
-            let ok: bool = produced_diff_secs <= 5;
-
-            if ok {
-                batch_log!(
-                    info,
-                    "[BatchServiceImpl::check_catch_up_status] \
-                    Within 5s of dynamic incremental progress. \
-                    produced_diff={}s.",
-                    produced_diff_secs
-                );
-            }
-
-            ok
-        }
-    }
-
-    /// Processes dynamic (incremental) messages from the incremental topic and indexes them.
-    ///
-    /// This handles real-time incremental updates that occur while full indexing is in progress.
-    /// It ensures that changes made during the full indexing window are not lost.
-    ///
-    /// # Arguments
-    ///
-    /// * `schedule_item` - The batch schedule configuration
-    /// * `elastic_service` - Elasticsearch service for indexing
-    /// * `consume_service` - Kafka consumer service
-    /// * `new_index_name` - The new index being built
-    ///
-    /// # Returns
-    ///
-    /// Returns the total number of documents indexed from the incremental topic.
-    async fn process_spent_detail_dynamic(
-        schedule_item: &BatchScheduleItem,
-        elastic_service: &Arc<E>,
-        consume_service: &Arc<C>,
-        index_name: &str,
-    ) -> anyhow::Result<u64> {
-
-        let relation_topic: &str = schedule_item.relation_topic_sub();
-        let batch_size: usize = *schedule_item.batch_size();
-        let consumer_group: &str = schedule_item.consumer_group();
-        let consumer_group_sub: &str = schedule_item.consumer_group_sub();
-        let base_alias: &str = schedule_item.index_name();
-        let write_alias: String = format!("write_{}", base_alias);
-        let read_alias: String = format!("read_{}", base_alias);
-
-        batch_log!(
-            info,
-            "[BatchServiceImpl::process_spent_detail_dynamic] Starting. topic='{}', index='{}', ref_group='{}', catchup_group='{}'",
-            relation_topic,
-            index_name,
-            consumer_group,
-            consumer_group_sub
-        );
-
-        let mut total_processed: u64 = 0;
-        let mut indexing_paused: bool = false;
-
-        loop {
-            // Step 1: consumer_group(기준) vs consumer_group_sub(catch-up) offset 비교 (파티션별)
-            let lag_info: ConsumerGroupLag = consume_service
-                .get_consumer_group_lag_by_partition(relation_topic, consumer_group, consumer_group_sub)
-                .await
-                .inspect_err(|e| {
-                    error!("[BatchServiceImpl::process_spent_detail_dynamic] Failed to get consumer group lag: {:#}", e);
-                })?;
-            
-            let lag: i64 = lag_info.total_lag;
-
-            batch_log!(
-                info,
-                "[BatchServiceImpl::process_spent_detail_dynamic] Current lag: {} messages (batch_size={}, partitions={})",
-                lag,
-                batch_size,
-                lag_info.partition_lags.len()
-            );
-
-            // 파티션별 lag 상세 로그 (디버깅용) -> 어떤 파티션에서 lag 가 발생하는지 알아보기 위함.
-            for partition_lag in &lag_info.partition_lags {
-                if partition_lag.lag > 0 {
-                    info!(
-                        "[BatchServiceImpl::process_spent_detail_dynamic] Partition {}: lag={} (ref={}, catchup={})",
-                        partition_lag.partition,
-                        partition_lag.lag,
-                        partition_lag.reference_offset,
-                        partition_lag.catchup_offset
-                    );
-                }
-            }
-
-            // Step 2 & 3: lag <= batch_size 이면 catch-up 완료 직전 → 기존 증분 색인 일시 중지
-            if !indexing_paused && lag <= batch_size as i64 {
-                batch_log!(
-                    info,
-                    "[BatchServiceImpl::process_spent_detail_dynamic] Almost caught up (lag={}). Pausing incremental indexing.",
-                    lag
-                );
-                set_spent_detail_indexing(false).await;
-                indexing_paused = true;
-            }
-
-            // Step 4: 일시 중지 이후 lag == 0 이면 완전 catch-up 완료
-            if indexing_paused && lag == 0 {
-                batch_log!(
-                    info,
-                    "[BatchServiceImpl::process_spent_detail_dynamic] Fully caught up. total_processed={}. Proceeding to alias swap.",
-                    total_processed
-                );
-
-                // Step 5: alias(write, read) 를 신규 인덱스로 전환
-                batch_log!(
-                    info,
-                    "[BatchServiceImpl::process_spent_detail_dynamic] Swapping write alias '{}' -> '{}'",
-                    write_alias,
-                    index_name
-                );
-
-                elastic_service
-                    .update_write_alias(&write_alias, index_name)
-                    .await
-                    .inspect_err(|e| {
-                        error!("[BatchServiceImpl::process_spent_detail_dynamic] Failed to update write alias: {:#}", e);
-                    })?;
-
-                batch_log!(
-                    info,
-                    "[BatchServiceImpl::process_spent_detail_dynamic] Swapping read alias '{}' -> '{}'",
-                    read_alias,
-                    index_name
-                );
-
-                elastic_service
-                    .update_read_alias(&read_alias, index_name)
-                    .await
-                    .inspect_err(|e| {
-                        error!("[BatchServiceImpl::process_spent_detail_dynamic] Failed to update read alias: {:#}", e);
-                    })?;
-
-                // Step 6: alias 전환 완료 후 증분 색인 재개
-                // Step 7: 이후 신규 증분 데이터는 전환된 write alias 기준 인덱스에 적재됨
-                batch_log!(
-                    info,
-                    "[BatchServiceImpl::process_spent_detail_dynamic] Alias swap complete. Resuming incremental indexing on '{}'.",
-                    write_alias
-                );
-                
-                set_spent_detail_indexing(true).await;
-
-                break;
-            }
-
-            // catch-up 메시지 소비 및 신규 인덱스에 색인
-            let messages: Vec<SpentDetailWithRelations> = consume_service
-                .consume_messages_as_with_group(relation_topic, batch_size, consumer_group_sub)
-                .await
-                .inspect_err(|e| {
-                    error!("[BatchServiceImpl::process_spent_detail_dynamic] Failed to consume messages: {:#}", e);
-                })?;
-
-            let batch_count: usize = messages.len();
-
-            if messages.is_empty() {
-                tokio::time::sleep(Duration::from_millis(500)).await;
-                continue;
-            }
-
-            let (to_insert, to_update, to_delete) = Self::partition_by_indexing_type(messages);
-            Self::apply_es_operations(elastic_service, index_name, to_insert, to_update, to_delete)
-                .await?;
-
-            total_processed += batch_count as u64;
-
-            batch_log!(
-                info,
-                "[BatchServiceImpl::process_spent_detail_dynamic] Indexed {} catch-up docs into '{}' (total={})",
-                batch_count,
-                index_name,
-                total_processed
-            );
-        }
-
-        batch_log!(
-            info,
-            "[BatchServiceImpl::process_spent_detail_dynamic] Done. total_processed={}",
-            total_processed
-        );
-
-        Ok(total_processed)
-    }
-
-    /// Partitions a batch of messages into insert, update, and delete buckets by `indexing_type`.
-    ///
-    /// Consumes the input vector and routes each message to the appropriate bucket
-    /// based on its [`IndexingType`] variant. Delete messages are reduced to their
-    /// `spent_idx` only; insert and update messages are converted to [`SpentDetailWithRelationsEs`].
-    ///
-    /// # Arguments
-    ///
-    /// * `messages` - The batch of messages to partition
-    ///
-    /// # Returns
-    ///
-    /// A tuple of `(to_insert, to_update, to_delete)` where `to_delete` contains
-    /// only the `spent_idx` values of records to be removed.
-    fn partition_by_indexing_type(
-        messages: Vec<SpentDetailWithRelations>,
-    ) -> (
-        Vec<SpentDetailWithRelationsEs>,
-        Vec<SpentDetailWithRelationsEs>,
-        Vec<i64>,
-    ) {
-        let mut to_insert: Vec<SpentDetailWithRelationsEs> = Vec::new();
-        let mut to_update: Vec<SpentDetailWithRelationsEs> = Vec::new();
-        let mut to_delete: Vec<i64> = Vec::new();
-
-        for msg in messages {
-            match msg.indexing_type {
-                IndexingType::Insert => to_insert.push(msg.into()),
-                IndexingType::Update => to_update.push(msg.into()),
-                IndexingType::Delete => to_delete.push(msg.spent_idx),
-            }
-        }
-
-        (to_insert, to_update, to_delete)
-    }
-
-    /// Applies bulk insert, update, and delete operations to the given Elasticsearch index.
-    ///
-    /// Each operation is only executed if its corresponding bucket is non-empty,
-    /// so callers do not need to check for emptiness before calling this function.
-    ///
-    /// # Arguments
-    ///
-    /// * `elastic_service` - Elasticsearch service for bulk operations
-    /// * `index_name` - The target index name (or alias) to operate on
-    /// * `to_insert` - Documents to bulk insert
-    /// * `to_update` - Documents to bulk update (matched by `spent_idx`)
-    /// * `to_delete` - `spent_idx` values of documents to bulk delete
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` on successful completion.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if any of the bulk operations fail.
-    async fn apply_es_operations(
-        elastic_service: &Arc<E>,
-        index_name: &str,
-        to_insert: Vec<SpentDetailWithRelationsEs>,
-        to_update: Vec<SpentDetailWithRelationsEs>,
-        to_delete: Vec<i64>,
-    ) -> anyhow::Result<()> {
-        
-        if !to_insert.is_empty() {
-            batch_log!(
-                info,
-                "[BatchServiceImpl::apply_es_operations] Inserting {} docs into '{}'",
-                to_insert.len(),
-                index_name
-            );
-            elastic_service
-                .bulk_index(index_name, to_insert)
-                .await
-                .inspect_err(|e| {
-                    error!(
-                        "[BatchServiceImpl::apply_es_operations] bulk_index failed: {:#}",
-                        e
-                    );
-                })?;
-        }
-
-        if !to_update.is_empty() {
-            batch_log!(
-                info,
-                "[BatchServiceImpl::apply_es_operations] Updating {} docs in '{}'",
-                to_update.len(),
-                index_name
-            );
-            elastic_service
-                .bulk_update(index_name, to_update, "spent_idx")
-                .await
-                .inspect_err(|e| {
-                    error!(
-                        "[BatchServiceImpl::apply_es_operations] bulk_update failed: {:#}",
-                        e
-                    );
-                })?;
-        }
-
-        if !to_delete.is_empty() {
-            batch_log!(
-                info,
-                "[BatchServiceImpl::apply_es_operations] Deleting {} docs from '{}'",
-                to_delete.len(),
-                index_name
-            );
-            elastic_service
-                .bulk_delete(index_name, to_delete)
-                .await
-                .inspect_err(|e| {
-                    error!(                                                                                                                                                                  
-                        "[BatchServiceImpl::apply_es_operations] bulk_delete failed: {:#}",
-                        e
-                    );
-                })?;
-        }
-
-        Ok(())
-    }
-
-    // ============================================================================
-    // Index-specific handler functions
-    // ============================================================================
-
-    /// Performs full indexing with Blue/Green deployment strategy.
-    ///
-    /// This function implements a zero-downtime full reindex with the following strategy:
-    ///
-    /// # Blue/Green Strategy
-    ///
-    /// 1. **Read/Write Separation**:
-    ///    - `read_{alias}`: Points to the current production index (Blue)
-    ///    - `write_{alias}`: Points to the current production index (Blue)
-    ///    - During full indexing, writes continue to Blue via write_alias
-    ///
-    /// 2. **Full Indexing Process**:
-    ///    - Create new index (Green)
-    ///    - Index full data from Kafka topic (`relation_topic`)
-    ///    - Index incremental data from incremental topic (`relation_topic_sub`)
-    ///    - This ensures changes during indexing are captured
-    ///
-    /// 3. **Traffic Switching**:
-    ///    - Update `read_{alias}` to point to new index (Green)
-    ///    - Optionally use `traffic_weight` for gradual rollout
-    ///    - `write_{alias}` remains on Blue (controlled separately)
-    ///
-    /// 4. **Final Switchover** (Manual):
-    ///    - After validation, update `write_{alias}` to Green
-    ///    - Old Blue index can be deleted after monitoring period
-    ///
-    /// # Arguments
-    ///
-    /// * `schedule_item` - Configuration including topics, batch size, and traffic weight
-    /// * `elastic_service` - Elasticsearch service for indexing operations
-    /// * `consume_service` - Kafka consumer service
-    async fn process_spent_detail_full(
-        schedule_item: &BatchScheduleItem,
-        elastic_service: &Arc<E>,
-        consume_service: &Arc<C>,
-    ) -> anyhow::Result<()> {
-        let index_name: &str = schedule_item.index_name();
-
-        let read_index_alias: String = format!("read_{}", index_name);
-        let write_index_alias: String = format!("write_{}", index_name);
-
-        let incre_topic_name: &str = schedule_item.relation_topic_sub();
-        let incre_source_group_name: &str = schedule_item.consumer_group_sub();
-        let incre_target_group_name: &str = schedule_item.consumer_group();
-
-        batch_log!(
-            info,
-            "[BatchServiceImpl::process_spent_detail_full] Starting full indexing for '{}'",
-            index_name
-        );
-
-        batch_log!(
-            info,
-            "[BatchServiceImpl::process_spent_detail_full] Read alias: {}, Write alias: {} (unchanged)",
-            read_index_alias,
-            write_index_alias
-        );
-
-        // Step 1: Create new index with optimized bulk indexing settings
-        let new_index_name: String = elastic_service
-            .prepare_full_index(index_name, schedule_item.mapping_schema())
-            .await
-            .inspect_err(|e| {
-                error!(
-                    "[BatchServiceImpl::process_spent_detail_full] prepare_full_index: {:#}",
-                    e
-                );
-            })?;
-
-        batch_log!(
-            info,
-            "[BatchServiceImpl::process_spent_detail_full] Created new index: {}",
-            new_index_name
-        );
-
-        // 여기서, 현재 증분색인쪽 kafka topic 의 offset을 저장할 것.
-        match consume_service
-            .replicate_consumer_group_offsets(
-                incre_topic_name,
-                incre_source_group_name,
-                incre_target_group_name,
-            )
-            .await
-        {
-            Ok(_) => (),
-            Err(e) => {
-                error!("[BatchServiceImpl::process_spent_detail_full] {:#}", e);
-            }
-        };
-        
-        // Step 2: Index full dataset from primary topic -> Full 색인 진행
-        let static_indexed: u64 = Self::process_spent_detail_static(
-            schedule_item,
-            elastic_service,
-            consume_service,
-            &new_index_name
-        )
-        .await
-        .inspect_err(|e| {
-            error!("[BatchServiceImpl::process_spent_detail_full] Failed during full indexing from primary topic: {:#}", e);
-        })?;
-        
-        batch_log!(
-            info,
-            "[BatchServiceImpl::process_spent_detail_full] Full indexing completed: {} documents",
-            static_indexed
-        );
-
-        /*
-            Step 3: Revert the index settings to the initial configuration.
-                    and Reassign the READ alias to the newly indexed index.
-                    이건 일단 제외해도 될거 같은데...
-        */
-        // let unused_indexies: Vec<String> = elastic_service
-        //     .finalize_full_index(&read_index_alias, &new_index_name)
-        //     .await
-        //     .inspect_err(|e| {
-        //         error!("[BatchServiceImpl::process_spent_detail_full] Failed to apply index settings: {:#}", e);
-        //     })?;
-
-        // Step 3: Index incremental changes from incremental topic (spent_detail_dev)
-        // This ensures changes that occurred during full indexing are captured
-        let dynamic_indexed: u64 = Self::process_spent_detail_dynamic(
-            schedule_item,
-            elastic_service,
-            consume_service,
-            &new_index_name
-        )
-        .await
-        .inspect_err(|e| {
-            error!("[BatchServiceImpl::process_spent_detail_full] Failed during incremental catch-up indexing: {:#}", e);
-        })?;
-
-        batch_log!(
-            info,
-            "[BatchServiceImpl::process_spent_detail_full] Incremental catch-up completed: {} documents",
-            dynamic_indexed
-        );
-
-        let total_indexed: u64 = static_indexed + dynamic_indexed;
-
-        batch_log!(
-            info,
-            "[BatchServiceImpl::process_spent_detail_full] Finalizing index settings for: {}",
-            new_index_name
-        );
-
-        batch_log!(
-            info,
-            "[BatchServiceImpl::process_spent_detail_full]   - Total indexed: {} documents ({} full + {} incremental)",
-            total_indexed,
-            static_indexed,
-            dynamic_indexed
-        );
-
-        // Step 5: Set the new index as the write index for the alias.
-        elastic_service
-            .update_write_alias(&write_index_alias, &new_index_name)
-            .await
-            .inspect_err(|e| {
-                error!(
-                    "[BatchServiceImpl::process_spent_detail_full] Failed to write alias: {:#}",
-                    e
-                );
-            })?;
-
-        // Step 6: Resume the incremental indexing process after alias reassignment.
-        set_spent_detail_indexing(true).await;
-
-        // Option -> Delete Old index...
-        // elastic_service
-        //     .delete_indices(&unused_indexies)
-        //     .await
-        //     .inspect_err(|e| {
-        //         error!(
-        //             "[BatchServiceImpl::process_spent_detail_full] Index deletion failed: {:#}",
-        //             e
-        //         );
-        //     })?;
-
-        Ok(())
-    }
-
-    /// Performs continuous incremental indexing to the write alias.
-    ///
-    /// This function runs continuously, consuming from the incremental topic and
-    /// indexing to the **write alias** only. This ensures:
-    ///
-    /// # Write Alias Strategy
-    ///
-    /// 1. **Separation of Concerns**:
-    ///    - Incremental updates go to `write_{alias}` (current production index)
-    ///    - Reads come from `read_{alias}` (may point to old or new index during rollout)
-    ///    - This allows full reindexing without affecting incremental updates
-    ///
-    /// 2. **During Full Indexing**:
-    ///    - Full indexing creates a new Green index
-    ///    - Incremental updates continue to Blue index via `write_{alias}`
-    ///    - Full indexing catches up by consuming incremental topic
-    ///
-    /// 3. **After Full Indexing**:
-    ///    - `read_{alias}` points to Green (new full index)
-    ///    - `write_{alias}` still points to Blue (old index)
-    ///    - Manual switchover updates `write_{alias}` to Green after validation
-    ///
-    /// # Arguments
-    ///
-    /// * `schedule_item` - Configuration including topic and batch size
-    /// * `elastic_service` - Elasticsearch service
-    /// * `consume_service` - Kafka consumer service
-    async fn process_spent_detail_incremental(
-        schedule_item: &BatchScheduleItem,
-        elastic_service: &Arc<E>,
-        consume_service: &Arc<C>,
-    ) -> anyhow::Result<()> {
-        let index_alias: &str = schedule_item.index_name();
-        let write_index_alias: String = format!("write_{}", index_alias);
-
-        let relation_topic: &str = schedule_item.relation_topic();
-        let batch_size: usize = *schedule_item.batch_size();
-        let consumer_group: &str = schedule_item.consumer_group();
-
-        batch_log!(
-            info,
-            "[BatchServiceImpl::process_spent_detail_incremental] Starting continuous incremental indexing"
-        );
-        batch_log!(
-            info,
-            "[BatchServiceImpl::process_spent_detail_incremental] Topic: {}, Write alias: {}",
-            relation_topic,
-            write_index_alias
-        );
-
-        let mut total_processed: u64 = 0;
-
-        loop {
-            // To synchronise the incremental index with the full index.
-            let indexing_check: bool = get_spent_detail_indexing().await;
-
-            if !indexing_check {
-                tokio::time::sleep(Duration::from_secs(10)).await;
-                continue;
-            }
-
-            let messages: Vec<SpentDetailWithRelations> = match consume_service
-                .consume_messages_as_with_group(relation_topic, batch_size, consumer_group)
-                .await
-            {
-                Ok(messages) => messages,
-                Err(e) => {
-                    batch_log!(
-                        error,
-                        "[BatchServiceImpl::process_spent_detail_incremental] Failed to consume messages {:#}",
-                        e
-                    );
-                    continue;
-                }
-            };
-
-            if messages.is_empty() {
-                batch_log!(
-                    info,
-                    "[BatchServiceImpl::process_spent_detail_incremental] No messages available, wait before next poll..."
-                );
-                tokio::time::sleep(Duration::from_secs(10)).await;
-                continue;
-            }
-
-            let max_produced_at: Option<DateTime<Utc>> =
-                messages.iter().map(|m| m.produced_at).max();
-            set_max_dynamic_spent_detail_index_timestamp(max_produced_at).await;
-
-            let batch_count: usize = messages.len();
-
-            batch_log!(
-                info,
-                "[BatchServiceImpl::process_spent_detail_incremental] Consumed {} messages from '{}', processing by indexing_type",
-                batch_count,
-                relation_topic
-            );
-
-            // Separate messages by indexing_type
-            let mut to_insert: Vec<SpentDetailWithRelationsEs> = Vec::new();
-            let mut to_update: Vec<SpentDetailWithRelationsEs> = Vec::new();
-            let mut to_delete: Vec<i64> = Vec::new();
-
-            for msg in messages {
-                match msg.indexing_type {
-                    IndexingType::Insert => {
-                        to_insert.push(msg.into());
-                    }
-                    IndexingType::Update => {
-                        to_update.push(msg.into());
-                    }
-                    IndexingType::Delete => {
-                        to_delete.push(msg.spent_idx);
-                    }
-                }
-            }
-
-            // Process inserts
-            if !to_insert.is_empty() {
-                batch_log!(
-                    info,
-                    "[BatchServiceImpl::process_spent_detail_incremental] Inserting {} documents to write alias '{}'",
-                    to_insert.len(),
-                    write_index_alias
-                );
-                elastic_service
-                    .bulk_index(&write_index_alias, to_insert)
-                    .await
-                    .inspect_err(|e| {
-                        error!("[BatchServiceImpl::process_spent_detail_incremental] Failed to bulk insert: {:#}", e);
-                    })?;
-            }
-
-            // Process updates
-            if !to_update.is_empty() {
-                batch_log!(
-                    info,
-                    "[BatchServiceImpl::process_spent_detail_incremental] Updating {} documents in write alias '{}'",
-                    to_update.len(),
-                    write_index_alias
-                );
-                elastic_service
-                    .bulk_update(&write_index_alias, to_update, "spent_idx")
-                    .await
-                    .inspect_err(|e| {
-                        error!("[BatchServiceImpl::process_spent_detail_incremental] Failed to bulk update: {:#}", e);
-                    })?;
-            }
-
-            // Process deletes
-            if !to_delete.is_empty() {
-                batch_log!(
-                    info,
-                    "[BatchServiceImpl::process_spent_detail_incremental] Deleting {} documents from write alias '{}'",
-                    to_delete.len(),
-                    write_index_alias
-                );
-                elastic_service
-                    .bulk_delete(&write_index_alias, to_delete)
-                    .await
-                    .inspect_err(|e| {
-                        error!("[BatchServiceImpl::process_spent_detail_incremental] Failed to bulk delete: {:#}", e);
-                    })?;
-            }
-
-            total_processed += batch_count as u64;
-
-            batch_log!(
-                info,
-                "[BatchServiceImpl::process_spent_detail_incremental] Successfully processed {} messages (total: {})",
-                batch_count,
-                total_processed
-            );
-
-            // Small delay to prevent tight loop when continuously processing
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        }
-    }
-
-    /// Performs full indexing of spent type keywords from MySQL into Elasticsearch.
-    ///
-    /// Fetches all [`SpentTypeKeyword`] records from MySQL in batches and bulk-indexes
-    /// them into a newly created index. After indexing is complete, the index settings
-    /// are finalized and the alias is atomically swapped to the new index.
-    /// The old index is deleted after the swap.
-    ///
-    /// # Steps
-    ///
-    /// 1. Create a new index with bulk-optimized settings via `prepare_full_index`
-    /// 2. Fetch records from MySQL in batches and bulk-index into the new index
-    /// 3. Finalize index settings and swap the alias to the new index
-    /// 4. Delete the old (unused) index
-    ///
-    /// # Arguments
-    ///
-    /// * `schedule_item` - The batch schedule configuration (index name, batch size, mapping schema, etc.)
-    /// * `mysql_service` - MySQL service for fetching spent type keyword records
-    /// * `elastic_service` - Elasticsearch service for indexing and alias management
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` on successful completion.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Index creation or preparation fails
-    /// - MySQL batch fetch fails
-    /// - Elasticsearch bulk indexing fails
-    /// - Index finalization or alias swap fails
-    /// - Old index deletion fails
-    async fn process_spent_type_full(
-        schedule_item: &BatchScheduleItem,
-        mysql_service: &Arc<M>,
-        elastic_service: &Arc<E>,
-    ) -> anyhow::Result<()> {
-
-        let index_alias: &str = schedule_item.index_name();
-        let batch_size: usize = *schedule_item.batch_size();
-
-        batch_log!(
-            info,
-            "[BatchServiceImpl::process_spent_type_full] Processing {} (index: {})",
-            schedule_item.batch_name(),
-            index_alias
-        );
-
-        // Step 1~2: 스키마 로드 + 벌크 인덱스 생성
-        let new_index_name: String = elastic_service
-            .prepare_full_index(index_alias, schedule_item.mapping_schema())
-            .await
-            .inspect_err(|e| {
-                error!(
-                    "[BatchServiceImpl::process_spent_type_full] prepare_full_index: {:#}",
-                    e
-                );
-            })?;
-
-        // Step 3: MySQL에서 배치 단위로 조회하여 ES에 색인
-        let mut offset: u64 = 0;
-        let mut total_indexed: u64 = 0;
-        
-        loop {
-            batch_log!(
-                info,
-                "[BatchServiceImpl::process_spent_type_full] Fetching batch at offset: {}, batch_size: {}",
-                offset,
-                batch_size
-            );
-
-            let keywords: Vec<SpentTypeKeyword> = mysql_service
-                .fetch_spent_type_keywords_batch(offset, batch_size as u64)
-                .await
-                .inspect_err(|e| {
-                    error!("[BatchServiceImpl::process_spent_type_full] Failed to fetch keywords batch: {:#}", e);
-                })?;
-
-            if keywords.is_empty() {
-                batch_log!(
-                    info,
-                    "[BatchServiceImpl::process_spent_type_full] No more data to index"
-                );
-                break;
-            }
-
-            let batch_count: usize = keywords.len();
-            
-            batch_log!(
-                info,
-                "[BatchServiceImpl::process_spent_type_full] Indexing {} documents",
-                batch_count
-            );
-
-            elastic_service
-                .bulk_index(&new_index_name, keywords)
-                .await
-                .inspect_err(|e| {
-                    error!(
-                        "[BatchServiceImpl::process_spent_type_full] Failed to bulk index: {:#}",
-                        e
-                    );
-                })?;
-
-            total_indexed += batch_count as u64;
-            offset += batch_size as u64;
-
-            batch_log!(
-                info,
-                "[BatchServiceImpl::process_spent_type_full] Indexed {} documents so far",
-                total_indexed
-            );
-        }
-
-        // Step 4~5: 운영 설정 적용 + alias 스왑
-        let unused_indexies: Vec<String> = elastic_service
-            .finalize_full_index(index_alias, &new_index_name)
-            .await
-            .inspect_err(|e| {
-                error!("[BatchServiceImpl::process_spent_type_full] Index post-processing has failed: {:#}", e);
-            })?;
-        
-        // 기존 index alias 제거
-        elastic_service
-            .delete_indices(&unused_indexies)
-            .await
-            .inspect_err(|e| {
-                error!("[BatchServiceImpl::process_spent_type_full] Failed to delete the old index: {:#}", e);
-            })?;
-
-        batch_log!(
-            info,
-            "[BatchServiceImpl::process_spent_type_full] Completed successfully. Total indexed: {}",
-            total_indexed
-        );
-
-        Ok(())
-    }
 }
 
 #[async_trait]
-impl<M, E, C, P, D> BatchService for BatchServiceImpl<M, E, C, P, D>
+impl<M, E, C, P, D, I> BatchService for BatchServiceImpl<M, E, C, P, D, I>
 where
     M: MysqlService + Send + Sync + 'static,
     E: ElasticService + Send + Sync + 'static,
     C: ConsumeService + Send + Sync + 'static,
     P: ProducerService + Send + Sync + 'static,
     D: PublicDataService + Send + Sync + 'static,
+    I: IndexingService + Send + Sync + 'static,
 {
     /// Main entry point for the batch processing service.
     ///
@@ -2093,9 +940,8 @@ where
             schedule_item,
             &self.mysql_service,
             &self.elastic_service,
-            &self.consume_service,
-            &self.producer_service,
             &self.public_data_service,
+            &self.indexing_service,
         )
         .await
     }

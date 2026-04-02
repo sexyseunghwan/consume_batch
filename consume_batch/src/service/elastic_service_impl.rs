@@ -144,25 +144,43 @@ where
         Ok(results)
     }
 
-    // async fn finalize_full_index(
-    //     &self,
-    //     index_name: &str
-    // ) -> anyhow::Result<()> {
+    async fn revert_index_setting(&self, index_name: &str) -> anyhow::Result<()> {
+        info!(
+            "[ElasticServiceImpl::revert_index_setting] Updating index settings for production: {}",
+            index_name
+        );
 
-    //     info!(
-    //         "[ElasticServiceImpl::finalize_full_index] Updating index settings for production: {}",
-    //         index_name
-    //     );
+        let production_settings: Value = json!({
+            "index": {
+                "number_of_replicas": 2,
+                "refresh_interval": "1s"
+            }
+        });
 
-    //     Ok(())
-    // }
+        self.update_index_settings(index_name, &production_settings)
+            .await
+            .inspect_err(|e| {
+                error!("[ElasticServiceImpl::revert_index_setting] Failed to update index settings: {:#}", e);
+            })?;
+
+        self.elastic_conn
+            .refresh_index(index_name)
+            .await
+            .inspect_err(|e| {
+                error!(
+                    "[ElasticServiceImpl::revert_index_setting] Failed to refresh index: {:#}",
+                    e
+                );
+            })?;
+
+        Ok(())
+    }
 
     async fn finalize_full_index(
         &self,
         index_alias: &str,
         new_index_name: &str,
     ) -> anyhow::Result<Vec<String>> {
-
         info!(
             "[ElasticServiceImpl::finalize_full_index] Updating index settings for production: {}",
             new_index_name
@@ -170,7 +188,7 @@ where
 
         let production_settings: Value = json!({
             "index": {
-                "number_of_replicas": 1,
+                "number_of_replicas": 2,
                 "refresh_interval": "1s"
             }
         });
@@ -185,7 +203,10 @@ where
             .refresh_index(new_index_name)
             .await
             .inspect_err(|e| {
-                error!("[ElasticServiceImpl::finalize_full_index] Failed to refresh index: {:#}", e);
+                error!(
+                    "[ElasticServiceImpl::finalize_full_index] Failed to refresh index: {:#}",
+                    e
+                );
             })?;
 
         info!(
@@ -205,11 +226,14 @@ where
             "[ElasticServiceImpl::finalize_full_index] Current indices for alias '{}': {:?}",
             index_alias, old_indices
         );
-        
+
         self.swap_alias(index_alias, new_index_name)
             .await
             .inspect_err(|e| {
-                error!("[ElasticServiceImpl::finalize_full_index] Failed to swap alias: {:#}", e);
+                error!(
+                    "[ElasticServiceImpl::finalize_full_index] Failed to swap alias: {:#}",
+                    e
+                );
             })?;
 
         info!(
@@ -282,6 +306,18 @@ where
 
     async fn delete_indices(&self, index_names: &[String]) -> anyhow::Result<()> {
         self.elastic_conn.delete_indices(index_names).await
+    }
+
+    async fn get_index_name_by_alias(&self, alias: &str) -> anyhow::Result<Vec<String>> {
+        self.elastic_conn
+            .get_index_by_alias(alias)
+            .await
+            .inspect_err(|e| {
+                error!(
+                    "[ElasticServiceImpl::get_index_name_by_alias] Failed to resolve alias '{}': {:#}",
+                    alias, e
+                );
+            })
     }
 
     async fn get_consume_type_judgement(

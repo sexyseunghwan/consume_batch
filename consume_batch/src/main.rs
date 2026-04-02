@@ -26,8 +26,8 @@ mod entity;
 mod service;
 use service::{
     batch_service_impl::*, cli_service_impl::CliServiceImpl, consume_service_impl::*,
-    elastic_service_impl::*, mysql_service_impl::*, producer_service_impl::*,
-    public_data_service_impl::PublicDataServiceImpl,
+    elastic_service_impl::*, indexing_service_impl::IndexingServiceImpl, mysql_service_impl::*,
+    producer_service_impl::*, public_data_service_impl::PublicDataServiceImpl,
 };
 
 mod service_trait;
@@ -52,8 +52,16 @@ type MysqlService = MysqlServiceImpl<MysqlRepositoryImpl>;
 type ConsumeService = ConsumeServiceImpl<KafkaRepositoryImpl>;
 type ProducerService = ProducerServiceImpl<KafkaRepositoryImpl>;
 type PublicDataSvc = PublicDataServiceImpl;
-type BatchSvc =
-    BatchServiceImpl<MysqlService, ElasticService, ConsumeService, ProducerService, PublicDataSvc>;
+type IndexingSvc =
+    IndexingServiceImpl<MysqlService, ProducerService, ElasticService, ConsumeService>;
+type BatchSvc = BatchServiceImpl<
+    MysqlService,
+    ElasticService,
+    ConsumeService,
+    ProducerService,
+    PublicDataSvc,
+    IndexingSvc,
+>;
 type CliSvc = CliServiceImpl<BatchSvc>;
 type Controller = MainController<BatchSvc, CliSvc>;
 
@@ -139,19 +147,30 @@ async fn main() {
     let shared_kafka_repo: Arc<KafkaRepositoryImpl> = Arc::new(kafka_repo);
 
     // Initialize services with dependency injection
-    let elastic_query_service: ElasticService = ElasticServiceImpl::new(elastic_repo);
-    let mysql_query_service: MysqlService = MysqlServiceImpl::new(mysql_repo);
+    // Wrap in Arc first so they can be shared between BatchServiceImpl and IndexingServiceImpl
+    let elastic_query_service: Arc<ElasticService> =
+        Arc::new(ElasticServiceImpl::new(elastic_repo));
+    let mysql_query_service: Arc<MysqlService> = Arc::new(MysqlServiceImpl::new(mysql_repo));
 
     // Share Kafka repository across multiple services (clone is cheap - only Arc increment)
-    let consume_service: ConsumeService = ConsumeServiceImpl::new(Arc::clone(&shared_kafka_repo));
-    let producer_service: ProducerService =
-        ProducerServiceImpl::new(Arc::clone(&shared_kafka_repo));
+    let consume_service: Arc<ConsumeService> =
+        Arc::new(ConsumeServiceImpl::new(Arc::clone(&shared_kafka_repo)));
+    let producer_service: Arc<ProducerService> =
+        Arc::new(ProducerServiceImpl::new(Arc::clone(&shared_kafka_repo)));
 
     let public_data_service: PublicDataSvc = PublicDataServiceImpl::new(
         AppConfig::global()
             .public_data_api_key()
             .clone()
             .unwrap_or_default(),
+    );
+
+    // Create indexing service — shares the same service Arc refs as BatchServiceImpl
+    let indexing_service: IndexingSvc = IndexingServiceImpl::new(
+        Arc::clone(&mysql_query_service),
+        Arc::clone(&producer_service),
+        Arc::clone(&elastic_query_service),
+        Arc::clone(&consume_service),
     );
 
     // Create batch service with all dependencies
@@ -161,6 +180,7 @@ async fn main() {
         consume_service,
         producer_service,
         public_data_service,
+        indexing_service,
     ) {
         Ok(batch_service) => batch_service,
         Err(e) => {

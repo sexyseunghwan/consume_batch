@@ -262,11 +262,8 @@ pub trait KafkaRepository: Send + Sync {
     ///
     /// Returns `Ok(total)` where `total` is the sum of committed offsets across all partitions.
     /// Partitions with no committed offset (e.g. `OffsetBeginning`) are counted as 0.
-    async fn get_committed_offsets_total(
-        &self,
-        topic: &str,
-        group_id: &str,
-    ) -> anyhow::Result<i64>;
+    async fn get_committed_offsets_total(&self, topic: &str, group_id: &str)
+    -> anyhow::Result<i64>;
 
     /// Returns committed offsets per partition for a consumer group.
     ///
@@ -1168,7 +1165,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
         group_id: &str,
     ) -> anyhow::Result<i64> {
         let mut config: ClientConfig = ClientConfig::new();
-        
+
         config
             .set("bootstrap.servers", &self.kafka_brokers)
             .set("group.id", group_id);
@@ -1332,7 +1329,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
             })?;
 
         let mut partition_offsets: HashMap<i32, i64> = HashMap::new();
-        
+
         for elem in committed_tpl.elements() {
             let offset: i64 = match elem.offset() {
                 Offset::Offset(o) => o,

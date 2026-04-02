@@ -177,6 +177,8 @@ pub trait ElasticService {
     /// Returns `Ok(())` on successful alias update.
     async fn update_read_alias(&self, read_alias: &str, new_index: &str) -> anyhow::Result<()>;
 
+    async fn revert_index_setting(&self, index_name: &str) -> anyhow::Result<()>;
+
     /// Finalizes a full index after bulk indexing is complete.
     ///
     /// 1. Updates index settings to production values (replicas=1, refresh=1s)
@@ -186,7 +188,11 @@ pub trait ElasticService {
     //     index_alias: &str,
     //     new_index_name: &str,
     // ) -> anyhow::Result<Vec<String>>;
-    async fn finalize_full_index(&self, index_name: &str, new_index_name: &str) -> anyhow::Result<Vec<String>>;
+    async fn finalize_full_index(
+        &self,
+        index_name: &str,
+        new_index_name: &str,
+    ) -> anyhow::Result<Vec<String>>;
 
     /// Prepares a new Elasticsearch index for full indexing.
     ///
@@ -220,6 +226,26 @@ pub trait ElasticService {
     /// Returns an error if any deletion fails (e.g. index does not exist,
     /// network failure, or insufficient permissions).
     async fn delete_indices(&self, index_names: &[String]) -> anyhow::Result<()>;
+
+    /// Resolves an alias name to all index names it points to.
+    ///
+    /// Calls the Elasticsearch aliases API and returns all resolved index names.
+    /// A single alias can point to multiple indices (e.g., during a Blue/Green rollout
+    /// with traffic splitting), so the return type is `Vec<String>`.
+    ///
+    /// # Arguments
+    ///
+    /// * `alias` - The alias name to resolve (e.g., `"read_spent_detail_dev"`)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Vec<String>)` with the resolved index names.
+    /// Returns an empty `Vec` if the alias exists but points to no index.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the Elasticsearch request fails.
+    async fn get_index_name_by_alias(&self, alias: &str) -> anyhow::Result<Vec<String>>;
 
     async fn get_consume_type_judgement(
         &self,

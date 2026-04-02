@@ -441,7 +441,9 @@ where
 
         info!(
             "[ConsumeServiceImpl::get_consumer_group_lag_by_partition] Calculated lag for topic '{}': total_lag={}, partitions={}",
-            topic, result.total_lag, result.partition_lags.len()
+            topic,
+            result.total_lag,
+            result.partition_lags.len()
         );
 
         Ok(result)
