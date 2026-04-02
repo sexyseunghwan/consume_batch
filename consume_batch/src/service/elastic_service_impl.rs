@@ -176,6 +176,7 @@ where
         Ok(())
     }
 
+    // 애 안쓰려고 함...
     async fn finalize_full_index(
         &self,
         index_alias: &str,

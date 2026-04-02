@@ -634,6 +634,17 @@ where
             index_alias
         );
 
+        let old_indexies: Vec<String> = self
+            .elastic_service
+            .get_index_name_by_alias(index_alias)
+            .await
+            .inspect_err(|e| {
+                error!(
+                    "[IndexingServiceImpl::process_spent_type_full] Failed to find any existing indices associated with the specified alias: {:#}",
+                    e
+                )
+            })?;
+
         let new_index_name: String = self
             .elastic_service
             .prepare_full_index(index_alias, schedule_item.mapping_schema())
@@ -703,19 +714,15 @@ where
             );
         }
 
-        let unused_indices: Vec<String> = self
-            .elastic_service
-            .finalize_full_index(index_alias, &new_index_name)
+        self.elastic_service
+            .swap_alias(index_alias, &new_index_name)
             .await
             .inspect_err(|e| {
-                error!(
-                    "[IndexingServiceImpl::process_spent_type_full] finalize_full_index failed: {:#}",
-                    e
-                );
+                error!("[IndexingServiceImpl::process_spent_type_full] Failed to switch the alias to the new index. {:#}", e);
             })?;
 
         self.elastic_service
-            .delete_indices(&unused_indices)
+            .delete_indices(&old_indexies)
             .await
             .inspect_err(|e| {
                 error!(
@@ -864,7 +871,7 @@ where
                 );
             }
         }
-        
+
         // Step 4: static indexing
         let static_indexed: u64 = self
             .process_spent_detail_static(schedule_item, &new_index_name)
@@ -915,7 +922,7 @@ where
 
         Ok(())
     }
-    
+
     /// Performs continuous incremental indexing into the write alias.
     ///
     /// Runs as an infinite loop, consuming messages from `relation_topic` and applying
@@ -950,7 +957,7 @@ where
         let relation_topic: &str = schedule_item.relation_topic();
         let batch_size: usize = *schedule_item.batch_size();
         let consumer_group: &str = schedule_item.consumer_group();
-        
+
         batch_log!(
             info,
             "[IndexingServiceImpl::run_spent_detail_incremental] Starting. topic='{}', write_alias='{}'",
