@@ -36,33 +36,3 @@ pub async fn get_spent_detail_indexing() -> bool {
 pub async fn set_spent_detail_indexing(value: bool) {
     *SPENT_DETAIL_INDEXING.write().await = value;
 }
-
-////////////////////////////////////////////////////////////////////////////////////////////
-
-// pub static MAX_STATIC_SPENT_DETAIL_INDEX_TIMESTAMP: once_lazy<RwLock<DateTime<Utc>>> =
-//     once_lazy::new(|| RwLock::new(Utc::now()));
-
-// pub async fn get_max_static_spent_detail_index_timestamp() -> DateTime<Utc> {
-//     *MAX_STATIC_SPENT_DETAIL_INDEX_TIMESTAMP.read().await
-// }
-
-// pub async fn set_max_static_spent_detail_index_timestamp(value: Option<DateTime<Utc>>) {
-//     if let Some(ts) = value {
-//         *MAX_STATIC_SPENT_DETAIL_INDEX_TIMESTAMP.write().await = ts;
-//     }
-// }
-
-// ////////////////////////////////////////////////////////////////////////////////////////////
-
-// pub static MAX_DYNAMIC_SPENT_DETAIL_INDEX_TIMESTAMP: once_lazy<RwLock<DateTime<Utc>>> =
-//     once_lazy::new(|| RwLock::new(Utc::now()));
-
-// pub async fn get_max_dynamic_spent_detail_index_timestamp() -> DateTime<Utc> {
-//     *MAX_DYNAMIC_SPENT_DETAIL_INDEX_TIMESTAMP.read().await
-// }
-
-// pub async fn set_max_dynamic_spent_detail_index_timestamp(value: Option<DateTime<Utc>>) {
-//     if let Some(ts) = value {
-//         *MAX_DYNAMIC_SPENT_DETAIL_INDEX_TIMESTAMP.write().await = ts;
-//     }
-// }

@@ -179,23 +179,7 @@ pub trait ElasticService {
 
     /// Restores production settings on an index after bulk loading completes.
     async fn revert_index_setting(&self, index_name: &str) -> anyhow::Result<()>;
-
-    /// Finalizes a full index after bulk indexing is complete.
-    ///
-    /// 1. Updates index settings to production values (replicas=1, refresh=1s)
-    /// 2. Swaps alias from old index to the new index
-    // async fn finalize_full_index(
-    //     &self,
-    //     index_alias: &str,
-    //     new_index_name: &str,
-    // ) -> anyhow::Result<Vec<String>>;
-    /// Finalizes a full index build and returns the previously aliased indices.
-    // async fn finalize_full_index(
-    //     &self,
-    //     index_name: &str,
-    //     new_index_name: &str,
-    // ) -> anyhow::Result<Vec<String>>;
-
+    
     /// Prepares a new Elasticsearch index for full indexing.
     ///
     /// 1. Reads the mapping schema from `mapping_schema_path`
