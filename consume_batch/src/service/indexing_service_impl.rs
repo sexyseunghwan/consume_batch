@@ -644,7 +644,8 @@ where
                     e
                 )
             })?;
-
+        
+        
         let new_index_name: String = self
             .elastic_service
             .prepare_full_index(index_alias, schedule_item.mapping_schema())
@@ -655,11 +656,14 @@ where
                     e
                 );
             })?;
+        
+        println!("new_index_name: {:?}", new_index_name);
 
         let mut offset: u64 = 0;
         let mut total_indexed: u64 = 0;
 
         loop {
+            
             batch_log!(
                 info,
                 "[IndexingServiceImpl::process_spent_type_full] Fetching batch at offset={}, batch_size={}",
@@ -715,6 +719,16 @@ where
         }
 
         self.elastic_service
+            .revert_index_setting(&new_index_name)
+            .await
+            .inspect_err(|e| {
+                error!(
+                    "[IndexingServiceImpl::process_spent_type_full] Failed to revert the index settings.: {:#}",
+                    e
+                )
+            })?;
+        
+        self.elastic_service
             .swap_alias(index_alias, &new_index_name)
             .await
             .inspect_err(|e| {
@@ -730,7 +744,7 @@ where
                     e
                 );
             })?;
-
+        
         batch_log!(
             info,
             "[IndexingServiceImpl::process_spent_type_full] Completed. total_indexed={}",

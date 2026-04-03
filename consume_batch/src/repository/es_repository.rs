@@ -840,8 +840,6 @@ impl EsRepository for EsRepositoryImpl {
 
         let mut actions: Vec<Value> = Vec::new();
 
-        println!("{:?}", get_alias_response);
-
         // If alias exists, remove it from the old index
         if let Ok(response) = get_alias_response
             && response.status_code().is_success()
