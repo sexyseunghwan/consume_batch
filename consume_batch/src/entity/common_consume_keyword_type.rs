@@ -5,7 +5,7 @@ use sea_orm::entity::prelude::*;
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
 #[sea_orm(table_name = "COMMON_CONSUME_KEYWORD_TYPE")]
 pub struct Model {
-    #[sea_orm(primary_key)]
+    #[sea_orm(primary_key,auto_increment = true)]
     pub consume_keyword_type_id: i64,
     #[sea_orm(unique)]
     pub consume_keyword_type: String,

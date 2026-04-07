@@ -4,9 +4,12 @@ use crate::service_trait::mysql_service::*;
 
 use crate::entity::{
     common_consume_keyword_type, common_consume_prodt_keyword, dim_calendar, spent_detail,
-    telegram_room, users,
+    spent_detail_indexing, telegram_room, users, user_payment_method
 };
-use crate::models::{SpentDetail, SpentDetailWithRelations, SpentTypeKeyword};
+use crate::models::{
+    SpentDetail, SpentDetailWithRelations, SpentTypeKeyword,
+    SpentDetailIndexing
+};
 
 use sea_orm::{
     ColumnTrait, JoinType, QueryFilter, QuerySelect, RelationTrait,
@@ -90,11 +93,13 @@ where
     // 	ct.consume_keyword_type_id,
     // 	ct.consume_keyword_type,
     // 	t.room_seq,
-    //     u.user_id
+    //     u.user_id,
+    //     up.card_alias
     // 	FROM SPENT_DETAIL sd
     // 	INNER JOIN COMMON_CONSUME_KEYWORD_TYPE ct ON sd.consume_keyword_type_id = ct.consume_keyword_type_id
     // 	INNER JOIN USERS u ON u.user_seq = sd.user_seq
     // 	INNER JOIN TELEGRAM_ROOM t ON t.room_seq = sd.room_seq
+    //     INNER JOIN USER_PAYMENT_METHOD up ON up.payment_method_id = sd.payment_method_id
     // WHERE sd.should_index = 1
     // AND	t.is_room_approved = true;
     /// ```
@@ -114,7 +119,7 @@ where
     ) -> anyhow::Result<Vec<SpentDetailWithRelations>> {
         let db: &DatabaseConnection = self.db_conn.get_connection();
         let produced_at: DateTime<Utc> = Utc::now();
-
+        
         let results: Vec<SpentDetailWithRelations> = spent_detail::Entity::find()
             .join(
                 JoinType::InnerJoin,
@@ -124,6 +129,8 @@ where
             .join(JoinType::InnerJoin, spent_detail::Relation::Users.def())
             // JOIN with TELEGRAM_ROOM
             .join(JoinType::InnerJoin, spent_detail::Relation::TelegramRoom.def())
+            // JOIN with USER_PAYMENT_METHOD
+            .join(JoinType::InnerJoin, spent_detail::Relation::UserPaymentMethod.def())
             // SELECT specific columns
             .select_only()
             .column(spent_detail::Column::SpentIdx)
@@ -135,6 +142,7 @@ where
             .column(common_consume_keyword_type::Column::ConsumeKeywordTypeId)
             .column(common_consume_keyword_type::Column::ConsumeKeywordType)
             .column(spent_detail::Column::RoomSeq)
+            .column(user_payment_method::Column::CardAlias)
             // Add literal value for indexing_type
             .expr_as(Expr::value("I"), "indexing_type")
             // Add current timestamp for produced_at
@@ -152,10 +160,77 @@ where
             .inspect_err(|e| {
                 error!("[MysqlServiceImpl::fetch_spent_details_for_indexing] Failed to execute query: {:#}", e);
             })?;
-
+            
         Ok(results)
     }
 
+
+    /// Fetches denormalized `SPENT_DETAIL_INDEXING` rows for Elasticsearch indexing.
+    ///
+    /// Executes the following SQL query:
+    /// ```sql
+    /// SELECT
+    ///     spent_idx,
+    ///     spent_name,
+    ///     spent_money,
+    ///     spent_at,
+    ///     created_at,
+    ///     user_seq,
+    ///     consume_keyword_type_id,
+    ///     consume_keyword_type,
+    ///     room_seq,
+    ///     user_id,
+    ///     card_alias,
+    ///     updated_at,
+    ///     updated_by
+    /// FROM SPENT_DETAIL_INDEXING
+    /// ORDER BY spent_idx ASC
+    /// LIMIT {limit} OFFSET {offset}
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `offset` - The starting row for pagination
+    /// * `limit` - The maximum number of rows to fetch
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of `SpentDetailIndexing` instances.
+    async fn fetch_spent_detail_indexing_for_index(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> anyhow::Result<Vec<SpentDetailIndexing>> {
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+
+        let results: Vec<SpentDetailIndexing> = spent_detail_indexing::Entity::find()
+            .select_only()
+            .column(spent_detail_indexing::Column::SpentIdx)
+            .column(spent_detail_indexing::Column::SpentName)
+            .column(spent_detail_indexing::Column::SpentMoney)
+            .column(spent_detail_indexing::Column::SpentAt)
+            .column(spent_detail_indexing::Column::CreatedAt)
+            .column(spent_detail_indexing::Column::UserSeq)
+            .column(spent_detail_indexing::Column::ConsumeKeywordTypeId)
+            .column(spent_detail_indexing::Column::ConsumeKeywordType)
+            .column(spent_detail_indexing::Column::RoomSeq)
+            .column(spent_detail_indexing::Column::UserId)
+            .column(spent_detail_indexing::Column::CardAlias)
+            .column(spent_detail_indexing::Column::UpdatedAt)
+            .column(spent_detail_indexing::Column::UpdatedBy)
+            .offset(offset)
+            .limit(limit)
+            .order_by_asc(spent_detail_indexing::Column::SpentIdx)
+            .into_model::<SpentDetailIndexing>()
+            .all(db)
+            .await
+            .inspect_err(|e| {
+                error!("[MysqlServiceImpl::fetch_spent_detail_indexing_for_index] Failed to execute query: {:#}", e);
+            })?;
+
+        Ok(results)
+    }
+    
     /// Fetches raw `SPENT_DETAIL` rows in ascending primary-key order.
     async fn fetch_spent_details(
         &self,

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use crate::common::*;
 use crate::entity::dim_calendar;
-use crate::models::{SpentDetail, SpentDetailWithRelations, SpentTypeKeyword};
+use crate::models::{SpentDetail, SpentDetailWithRelations, SpentTypeKeyword, SpentDetailIndexing};
 
 #[async_trait]
 pub trait MysqlService {
@@ -59,6 +59,12 @@ pub trait MysqlService {
         offset: u64,
         limit: u64,
     ) -> anyhow::Result<Vec<SpentDetailWithRelations>>;
+
+    async fn fetch_spent_detail_indexing_for_index(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> anyhow::Result<Vec<SpentDetailIndexing>>;
 
     /// Fetches raw spent-detail rows without joining related tables.
     async fn fetch_spent_details(

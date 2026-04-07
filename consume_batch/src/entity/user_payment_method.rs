@@ -3,36 +3,38 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
-#[sea_orm(table_name = "COMMON_CONSUME_PRODT_KEYWORD")]
+#[sea_orm(table_name = "USER_PAYMENT_METHOD")]
 pub struct Model {
-    #[sea_orm(primary_key, auto_increment = true)]
-    pub consume_keyword_id: i64,
-    #[sea_orm(unique)]
-    pub consume_keyword: String,
-    pub keyword_weight: i32,
+    #[sea_orm(primary_key,auto_increment = true) ]
+    pub payment_method_id: i64,
+    pub payment_type_cd: String,
+    pub payment_category_cd: String,
+    pub card_id: String,
+    pub card_alias: String,
+    pub use_yn: bool,
     pub created_at: DateTime,
     pub updated_at: Option<DateTime>,
     pub created_by: String,
     pub updated_by: Option<String>,
-    pub consume_keyword_type_id: i64,
+    pub user_seq: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
-        belongs_to = "super::common_consume_keyword_type::Entity",
-        from = "Column::ConsumeKeywordTypeId",
-        to = "super::common_consume_keyword_type::Column::ConsumeKeywordTypeId"
+        belongs_to = "super::users::Entity",
+        from = "Column::UserSeq",
+        to = "super::users::Column::UserSeq"
     )]
-    CommonConsumeKeywordType,
+    Users,
     #[sea_orm(has_many = "super::spent_detail::Entity")]
     SpentDetail,
 }
 
-impl Related<super::common_consume_keyword_type::Entity> for Entity {
-    /// Returns the relation definition to `COMMON_CONSUME_KEYWORD_TYPE`.
+impl Related<super::users::Entity> for Entity {
+    /// Returns the relation definition to `USERS`.
     fn to() -> RelationDef {
-        Relation::CommonConsumeKeywordType.def()
+        Relation::Users.def()
     }
 }
 

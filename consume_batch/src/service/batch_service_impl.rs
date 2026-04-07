@@ -464,6 +464,7 @@ where
                             e
                         );
                     })?;
+                //indexing_service
             }
             "spent_detail_incremental" => {
                 indexing_service
@@ -474,14 +475,6 @@ where
                             "[BatchServiceImpl::process_batch] spent_detail_incremental: {:#}",
                             e
                         );
-                    })?;
-            }
-            "spent_detail_migration_to_kafka" => {
-                indexing_service
-                    .run_spent_detail_migration_to_kafka(schedule_item)
-                    .await
-                    .inspect_err(|e| {
-                        error!("[BatchServiceImpl::process_batch] spent_detail_migration_to_kafka: {:#}", e);
                     })?;
             }
             "spent_type" => {

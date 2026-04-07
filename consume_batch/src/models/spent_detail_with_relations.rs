@@ -4,6 +4,8 @@
 //! This module provides the data structure for indexing spent detail information
 //! along with related keyword, keyword type, and telegram room data.
 
+////################################ 이거 deprecated 되어야 겠는데? ################################////
+
 use crate::common::*;
 
 use crate::enums::IndexingType;
@@ -24,7 +26,7 @@ pub struct SpentDetailWithRelationsRaw {
     room_seq: i64,
     indexing_type: String,
     produced_at: DateTime<Utc>,
-    pub user_id: String,
+    user_id: String,
 }
 
 /// Represents a spent detail with all related information for indexing.

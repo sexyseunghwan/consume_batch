@@ -5,7 +5,7 @@ use sea_orm::entity::prelude::*;
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
 #[sea_orm(table_name = "SPENT_DETAIL")]
 pub struct Model {
-    #[sea_orm(primary_key)]
+    #[sea_orm(primary_key, auto_increment = true)]
     pub spent_idx: i64,
     pub spent_name: String,
     pub spent_money: i32,
@@ -19,6 +19,7 @@ pub struct Model {
     pub spent_group_id: i64,
     pub consume_keyword_type_id: i64,
     pub room_seq: i64,
+    pub payment_method_id: i64,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -47,6 +48,12 @@ pub enum Relation {
         to = "super::telegram_room::Column::RoomSeq"
     )]
     TelegramRoom,
+    #[sea_orm(
+        belongs_to = "super::user_payment_method::Entity",
+        from = "Column::PaymentMethodId",
+        to = "super::user_payment_method::Column::PaymentMethodId"
+    )]
+    UserPaymentMethod,
 }
 
 impl Related<super::spent_group_info::Entity> for Entity {
@@ -74,6 +81,13 @@ impl Related<super::telegram_room::Entity> for Entity {
     /// Returns the relation definition to `TELEGRAM_ROOM`.
     fn to() -> RelationDef {
         Relation::TelegramRoom.def()
+    }
+}
+
+impl Related<super::user_payment_method::Entity> for Entity {
+    /// Returns the relation definition to `USER_PAYMENT_METHOD`.
+    fn to() -> RelationDef {
+        Relation::UserPaymentMethod.def()
     }
 }
 

@@ -47,6 +47,8 @@ mod config;
 
 mod enums;
 
+mod dtos;
+
 // Type aliases
 type ElasticService = ElasticServiceImpl<EsRepositoryImpl>;
 type MysqlService = MysqlServiceImpl<MysqlRepositoryImpl>;

@@ -5,7 +5,7 @@ use sea_orm::entity::prelude::*;
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
 #[sea_orm(table_name = "USERS")]
 pub struct Model {
-    #[sea_orm(primary_key)]
+    #[sea_orm(primary_key, auto_increment = true)]
     pub user_seq: i64,
     #[sea_orm(unique)]
     pub user_id: String,
@@ -27,6 +27,8 @@ pub enum Relation {
     SpentDetail,
     #[sea_orm(has_many = "super::telegram_room::Entity")]
     TelegramRoom,
+    #[sea_orm(has_many = "super::user_payment_method::Entity")]
+    UserPaymentMethod,
 }
 
 impl Related<super::spent_detail::Entity> for Entity {
@@ -40,6 +42,13 @@ impl Related<super::telegram_room::Entity> for Entity {
     /// Returns the relation definition to `TELEGRAM_ROOM`.
     fn to() -> RelationDef {
         Relation::TelegramRoom.def()
+    }
+}
+
+impl Related<super::user_payment_method::Entity> for Entity {
+    /// Returns the relation definition to `USER_PAYMENT_METHOD`.
+    fn to() -> RelationDef {
+        Relation::UserPaymentMethod.def()
     }
 }
 
