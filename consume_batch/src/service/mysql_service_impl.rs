@@ -4,12 +4,9 @@ use crate::service_trait::mysql_service::*;
 
 use crate::entity::{
     common_consume_keyword_type, common_consume_prodt_keyword, dim_calendar, spent_detail,
-    spent_detail_indexing, telegram_room, users, user_payment_method
+    spent_detail_indexing, telegram_room, user_payment_method, users,
 };
-use crate::models::{
-    SpentDetail, SpentDetailWithRelations, SpentTypeKeyword,
-    SpentDetailIndexing
-};
+use crate::models::{SpentDetail, SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword};
 
 use sea_orm::{
     ColumnTrait, JoinType, QueryFilter, QuerySelect, RelationTrait,
@@ -112,26 +109,113 @@ where
     /// # Returns
     ///
     /// Returns a vector of `SpentDetailWithRelations` instances.
+    // async fn fetch_spent_details_for_indexing(
+    //     &self,
+    //     offset: u64,
+    //     limit: u64,
+    // ) -> anyhow::Result<Vec<SpentDetailWithRelations>> {
+    //     let db: &DatabaseConnection = self.db_conn.get_connection();
+    //     let produced_at: DateTime<Utc> = Utc::now();
+
+    //     let results: Vec<SpentDetailWithRelations> = spent_detail::Entity::find()
+    //         .join(
+    //             JoinType::InnerJoin,
+    //             spent_detail::Relation::CommonConsumeKeywordType.def(),
+    //         )
+    //         // JOIN with USERS
+    //         .join(JoinType::InnerJoin, spent_detail::Relation::Users.def())
+    //         // JOIN with TELEGRAM_ROOM
+    //         .join(JoinType::InnerJoin, spent_detail::Relation::TelegramRoom.def())
+    //         // JOIN with USER_PAYMENT_METHOD
+    //         .join(JoinType::InnerJoin, spent_detail::Relation::UserPaymentMethod.def())
+    //         // SELECT specific columns
+    //         .select_only()
+    //         .column(spent_detail::Column::SpentIdx)
+    //         .column(spent_detail::Column::SpentName)
+    //         .column(spent_detail::Column::SpentMoney)
+    //         .column(spent_detail::Column::SpentAt)
+    //         .column(spent_detail::Column::CreatedAt)
+    //         .column(spent_detail::Column::UserSeq)
+    //         .column(common_consume_keyword_type::Column::ConsumeKeywordTypeId)
+    //         .column(common_consume_keyword_type::Column::ConsumeKeywordType)
+    //         .column(spent_detail::Column::RoomSeq)
+    //         .column(user_payment_method::Column::CardAlias)
+    //         // Add literal value for indexing_type
+    //         .expr_as(Expr::value("I"), "indexing_type")
+    //         // Add current timestamp for produced_at
+    //         .expr_as(Expr::value(produced_at), "produced_at")
+    //         .column(users::Column::UserId)
+    //         // WHERE conditions
+    //         .filter(spent_detail::Column::ShouldIndex.eq(1))
+    //         .filter(telegram_room::Column::IsRoomApproved.eq(true))
+    //         // Pagination
+    //         .offset(offset)
+    //         .limit(limit)
+    //         .into_model::<SpentDetailWithRelations>()
+    //         .all(db)
+    //         .await
+    //         .inspect_err(|e| {
+    //             error!("[MysqlServiceImpl::fetch_spent_details_for_indexing] Failed to execute query: {:#}", e);
+    //         })?;
+
+    //     Ok(results)
+    // }
+
+    /// Fetches denormalized data for the given `spent_idx` list by joining related tables.
+    ///
+    /// Performs an INNER JOIN from SPENT_DETAIL against COMMON_CONSUME_KEYWORD_TYPE,
+    /// USERS, TELEGRAM_ROOM, and USER_PAYMENT_METHOD to build a fully denormalized row.
+    /// Used during incremental indexing to resolve I/U events into ES documents.
+    ///
+    /// ## Generated SQL
+    ///
+    /// ```sql
+    /// SELECT
+    ///     sd.spent_idx, sd.spent_name, sd.spent_money, sd.spent_at, sd.created_at,
+    ///     sd.user_seq, ct.consume_keyword_type_id, ct.consume_keyword_type,
+    ///     sd.room_seq, u.user_id, up.card_alias
+    /// FROM SPENT_DETAIL sd
+    /// INNER JOIN COMMON_CONSUME_KEYWORD_TYPE ct ON sd.consume_keyword_type_id = ct.consume_keyword_type_id
+    /// INNER JOIN USERS u ON u.user_seq = sd.user_seq
+    /// INNER JOIN TELEGRAM_ROOM t ON t.room_seq = sd.room_seq
+    /// INNER JOIN USER_PAYMENT_METHOD up ON up.payment_method_id = sd.payment_method_id
+    /// WHERE sd.should_index = 1
+    ///   AND t.is_room_approved = true
+    ///   AND sd.spent_idx IN (...)
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `spent_idxs` - List of `spent_idx` values to fetch
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of `SpentDetailWithRelations` instances on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Database connection fails
+    /// - Query execution fails
+    /// - Data cannot be mapped to the model
     async fn fetch_spent_details_for_indexing(
         &self,
-        offset: u64,
-        limit: u64,
+        spent_idxs: &[i64],
     ) -> anyhow::Result<Vec<SpentDetailWithRelations>> {
+        if spent_idxs.is_empty() {
+            return Ok(Vec::new());
+        }
+
         let db: &DatabaseConnection = self.db_conn.get_connection();
-        let produced_at: DateTime<Utc> = Utc::now();
-        
+
         let results: Vec<SpentDetailWithRelations> = spent_detail::Entity::find()
             .join(
                 JoinType::InnerJoin,
                 spent_detail::Relation::CommonConsumeKeywordType.def(),
             )
-            // JOIN with USERS
             .join(JoinType::InnerJoin, spent_detail::Relation::Users.def())
-            // JOIN with TELEGRAM_ROOM
             .join(JoinType::InnerJoin, spent_detail::Relation::TelegramRoom.def())
-            // JOIN with USER_PAYMENT_METHOD
             .join(JoinType::InnerJoin, spent_detail::Relation::UserPaymentMethod.def())
-            // SELECT specific columns
             .select_only()
             .column(spent_detail::Column::SpentIdx)
             .column(spent_detail::Column::SpentName)
@@ -142,28 +226,20 @@ where
             .column(common_consume_keyword_type::Column::ConsumeKeywordTypeId)
             .column(common_consume_keyword_type::Column::ConsumeKeywordType)
             .column(spent_detail::Column::RoomSeq)
-            .column(user_payment_method::Column::CardAlias)
-            // Add literal value for indexing_type
-            .expr_as(Expr::value("I"), "indexing_type")
-            // Add current timestamp for produced_at
-            .expr_as(Expr::value(produced_at), "produced_at")
             .column(users::Column::UserId)
-            // WHERE conditions
+            .column(user_payment_method::Column::CardAlias)
             .filter(spent_detail::Column::ShouldIndex.eq(1))
+            .filter(spent_detail::Column::SpentIdx.is_in(spent_idxs.to_vec()))
             .filter(telegram_room::Column::IsRoomApproved.eq(true))
-            // Pagination
-            .offset(offset)
-            .limit(limit)
             .into_model::<SpentDetailWithRelations>()
             .all(db)
             .await
             .inspect_err(|e| {
                 error!("[MysqlServiceImpl::fetch_spent_details_for_indexing] Failed to execute query: {:#}", e);
             })?;
-            
+
         Ok(results)
     }
-
 
     /// Fetches denormalized `SPENT_DETAIL_INDEXING` rows for Elasticsearch indexing.
     ///
@@ -196,6 +272,103 @@ where
     /// # Returns
     ///
     /// Returns a vector of `SpentDetailIndexing` instances.
+    /// Fetches rows from `SPENT_DETAIL_INDEXING` for the given `spent_idx` list.
+    ///
+    /// Executes a `WHERE spent_idx IN (...)` query. IDs that do not exist in the table
+    /// are silently excluded from the result. Typically called after an upsert to retrieve
+    /// the latest denormalized rows for Elasticsearch bulk indexing.
+    ///
+    /// ## Generated SQL
+    ///
+    /// ```sql
+    /// SELECT spent_idx, spent_name, spent_money, spent_at, created_at,
+    ///        user_seq, consume_keyword_type_id, consume_keyword_type,
+    ///        room_seq, user_id, card_alias, updated_at, updated_by
+    /// FROM SPENT_DETAIL_INDEXING
+    /// WHERE spent_idx IN (...)
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `ids` - List of `spent_idx` values to fetch
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of `SpentDetailIndexing` instances on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Database connection fails
+    /// - Query execution fails
+    /// - Data cannot be mapped to the model
+    async fn fetch_spent_detail_indexing_by_ids(
+        &self,
+        ids: &[i64],
+    ) -> anyhow::Result<Vec<SpentDetailIndexing>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+
+        let results: Vec<SpentDetailIndexing> = spent_detail_indexing::Entity::find()
+            .select_only()
+            .column(spent_detail_indexing::Column::SpentIdx)
+            .column(spent_detail_indexing::Column::SpentName)
+            .column(spent_detail_indexing::Column::SpentMoney)
+            .column(spent_detail_indexing::Column::SpentAt)
+            .column(spent_detail_indexing::Column::CreatedAt)
+            .column(spent_detail_indexing::Column::UserSeq)
+            .column(spent_detail_indexing::Column::ConsumeKeywordTypeId)
+            .column(spent_detail_indexing::Column::ConsumeKeywordType)
+            .column(spent_detail_indexing::Column::RoomSeq)
+            .column(spent_detail_indexing::Column::UserId)
+            .column(spent_detail_indexing::Column::CardAlias)
+            .column(spent_detail_indexing::Column::UpdatedAt)
+            .column(spent_detail_indexing::Column::UpdatedBy)
+            .filter(spent_detail_indexing::Column::SpentIdx.is_in(ids.to_vec()))
+            .into_model::<SpentDetailIndexing>()
+            .all(db)
+            .await
+            .inspect_err(|e| {
+                error!("[MysqlServiceImpl::fetch_spent_detail_indexing_by_ids] Failed to execute query: {:#}", e);
+            })?;
+
+        Ok(results)
+    }
+
+    /// Fetches paginated rows from `SPENT_DETAIL_INDEXING` for full Elasticsearch indexing.
+    ///
+    /// Results are ordered by `spent_idx` ascending. Used during the full indexing phase
+    /// to bulk-index all denormalized rows into Elasticsearch in batches.
+    ///
+    /// ## Generated SQL
+    ///
+    /// ```sql
+    /// SELECT spent_idx, spent_name, spent_money, spent_at, created_at,
+    ///        user_seq, consume_keyword_type_id, consume_keyword_type,
+    ///        room_seq, user_id, card_alias, updated_at, updated_by
+    /// FROM SPENT_DETAIL_INDEXING
+    /// ORDER BY spent_idx ASC
+    /// LIMIT {limit} OFFSET {offset}
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `offset` - The starting row number for pagination
+    /// * `limit` - The maximum number of rows to fetch per batch
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of `SpentDetailIndexing` instances on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Database connection fails
+    /// - Query execution fails
+    /// - Data cannot be mapped to the model
     async fn fetch_spent_detail_indexing_for_index(
         &self,
         offset: u64,
@@ -230,7 +403,7 @@ where
 
         Ok(results)
     }
-    
+
     /// Fetches raw `SPENT_DETAIL` rows in ascending primary-key order.
     async fn fetch_spent_details(
         &self,
@@ -516,6 +689,180 @@ where
         txn.commit().await.inspect_err(|e| {
             error!(
                 "[MysqlServiceImpl::insert_dim_calendar_bulk] Commit failed: {:#}",
+                e
+            );
+        })?;
+
+        Ok(())
+    }
+
+    /// Upserts denormalized rows into `SPENT_DETAIL_INDEXING`.
+    ///
+    /// Uses `spent_idx` as the primary key with `INSERT ... ON DUPLICATE KEY UPDATE`.
+    /// Existing rows are fully overwritten with the latest values, and `updated_at`/`updated_by`
+    /// are set automatically. Called when processing I/U events during incremental indexing.
+    ///
+    /// ## Generated SQL
+    ///
+    /// ```sql
+    /// INSERT INTO SPENT_DETAIL_INDEXING (spent_idx, spent_name, ...)
+    /// VALUES (?, ?, ...)
+    /// ON DUPLICATE KEY UPDATE
+    ///     spent_name = VALUES(spent_name), ..., updated_at = ?, updated_by = 'batch'
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `upsert_list` - List of `SpentDetailWithRelations` records to upsert
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful completion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Database connection fails
+    /// - Query execution fails
+    async fn upsert_spent_detail_indexing(
+        &self,
+        upsert_list: Vec<SpentDetailWithRelations>,
+    ) -> anyhow::Result<()> {
+        if upsert_list.is_empty() {
+            return Ok(());
+        }
+
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+        let now: DateTime<Utc> = Utc::now();
+
+        let ids: Vec<i64> = upsert_list.iter().map(|r| r.spent_idx).collect();
+
+        let active_models: Vec<spent_detail_indexing::ActiveModel> = upsert_list
+            .into_iter()
+            .map(|row| spent_detail_indexing::ActiveModel {
+                spent_idx: Set(row.spent_idx),
+                spent_name: Set(row.spent_name),
+                spent_money: Set(row.spent_money),
+                spent_at: Set(row.spent_at.naive_utc()),
+                created_at: Set(row.created_at.naive_utc()),
+                user_seq: Set(row.user_seq),
+                consume_keyword_type_id: Set(row.consume_keyword_type_id),
+                consume_keyword_type: Set(row.consume_keyword_type),
+                room_seq: Set(row.room_seq),
+                user_id: Set(row.user_id),
+                card_alias: Set(row.card_alias),
+                updated_at: Set(Some(now.naive_utc())),
+                updated_by: Set(Some("batch".to_string())),
+            })
+            .collect();
+
+        spent_detail_indexing::Entity::insert_many(active_models)
+            .on_conflict(
+                OnConflict::column(spent_detail_indexing::Column::SpentIdx)
+                    .update_columns([
+                        spent_detail_indexing::Column::SpentName,
+                        spent_detail_indexing::Column::SpentMoney,
+                        spent_detail_indexing::Column::SpentAt,
+                        spent_detail_indexing::Column::CreatedAt,
+                        spent_detail_indexing::Column::UserSeq,
+                        spent_detail_indexing::Column::ConsumeKeywordTypeId,
+                        spent_detail_indexing::Column::ConsumeKeywordType,
+                        spent_detail_indexing::Column::RoomSeq,
+                        spent_detail_indexing::Column::UserId,
+                        spent_detail_indexing::Column::CardAlias,
+                        spent_detail_indexing::Column::UpdatedAt,
+                        spent_detail_indexing::Column::UpdatedBy,
+                    ])
+                    .to_owned(),
+            )
+            .exec_without_returning(db)
+            .await
+            .inspect_err(|e| {
+                error!(
+                    "[MysqlServiceImpl::upsert_spent_detail_indexing] Upsert failed: {:#}",
+                    e
+                );
+            })?;
+
+        Ok(())
+        //self.fetch_spent_detail_indexing_by_ids(ids).await
+    }
+
+    /// Deletes rows from `SPENT_DETAIL_INDEXING` for the given `spent_idx` list.
+    ///
+    /// Runs within a single transaction. If the delete fails, the transaction is explicitly
+    /// rolled back before returning the error. Called when processing D events during
+    /// incremental indexing.
+    ///
+    /// ## Generated SQL
+    ///
+    /// ```sql
+    /// DELETE FROM SPENT_DETAIL_INDEXING
+    /// WHERE spent_idx IN (...)
+    /// ```
+    ///
+    /// ## Transaction flow
+    ///
+    /// ```text
+    /// BEGIN
+    ///   ├─ DELETE WHERE spent_idx IN (...)
+    ///   ├─ On failure → ROLLBACK → return Err
+    ///   └─ On success → COMMIT
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `delete_list` - List of `spent_idx` values to delete
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful completion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Database connection fails
+    /// - Delete query fails
+    /// - Transaction commit fails
+    async fn delete_spent_detail_indexing(&self, delete_list: &[i64]) -> anyhow::Result<()> {
+        if delete_list.is_empty() {
+            return Ok(());
+        }
+
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+
+        let txn: DatabaseTransaction = db.begin().await.inspect_err(|e| {
+            error!(
+                "[MysqlServiceImpl::delete_spent_detail_indexing] Failed to begin transaction: {:#}",
+                e
+            );
+        })?;
+
+        let result: Result<sea_orm::DeleteResult, DbErr> =
+            spent_detail_indexing::Entity::delete_many()
+                .filter(spent_detail_indexing::Column::SpentIdx.is_in(delete_list.to_vec()))
+                .exec(&txn)
+                .await
+                .inspect_err(|e| {
+                    error!(
+                        "[MysqlServiceImpl::delete_spent_detail_indexing] Delete failed: {:#}",
+                        e
+                    );
+                });
+
+        if let Err(e) = result {
+            txn.rollback().await.inspect_err(|e| {
+                error!(
+                    "[MysqlServiceImpl::delete_spent_detail_indexing] Rollback failed: {:#}",
+                    e
+                );
+            })?;
+            return Err(e.into());
+        }
+
+        txn.commit().await.inspect_err(|e| {
+            error!(
+                "[MysqlServiceImpl::delete_spent_detail_indexing] Commit failed: {:#}",
                 e
             );
         })?;

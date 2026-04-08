@@ -5,7 +5,7 @@ use sea_orm::entity::prelude::*;
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
 #[sea_orm(table_name = "USER_PAYMENT_METHOD")]
 pub struct Model {
-    #[sea_orm(primary_key,auto_increment = true) ]
+    #[sea_orm(primary_key, auto_increment = true)]
     pub payment_method_id: i64,
     pub payment_type_cd: String,
     pub payment_category_cd: String,

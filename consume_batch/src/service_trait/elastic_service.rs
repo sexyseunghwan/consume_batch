@@ -179,7 +179,7 @@ pub trait ElasticService {
 
     /// Restores production settings on an index after bulk loading completes.
     async fn revert_index_setting(&self, index_name: &str) -> anyhow::Result<()>;
-    
+
     /// Prepares a new Elasticsearch index for full indexing.
     ///
     /// 1. Reads the mapping schema from `mapping_schema_path`

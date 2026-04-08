@@ -27,3 +27,6 @@ pub use user_payment_method::*;
 
 pub mod spent_detail_indexing;
 pub use spent_detail_indexing::*;
+
+pub mod spent_detail_from_kafka;
+pub use spent_detail_from_kafka::*;

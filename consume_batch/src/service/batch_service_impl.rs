@@ -464,7 +464,6 @@ where
                             e
                         );
                     })?;
-                //indexing_service
             }
             "spent_detail_incremental" => {
                 indexing_service

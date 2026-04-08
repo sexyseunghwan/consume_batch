@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use crate::common::*;
 use crate::entity::dim_calendar;
-use crate::models::{SpentDetail, SpentDetailWithRelations, SpentTypeKeyword, SpentDetailIndexing};
+use crate::models::{SpentDetail, SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword};
 
 #[async_trait]
 pub trait MysqlService {
@@ -54,16 +54,29 @@ pub trait MysqlService {
     /// - Database connection fails
     /// - Query execution fails
     /// - Data cannot be mapped to the model
+    // async fn fetch_spent_details_for_indexing(
+    //     &self,
+    //     offset: u64,
+    //     limit: u64,
+    // ) -> anyhow::Result<Vec<SpentDetailWithRelations>>;
+
     async fn fetch_spent_details_for_indexing(
         &self,
-        offset: u64,
-        limit: u64,
+        spent_idxs: &[i64],
     ) -> anyhow::Result<Vec<SpentDetailWithRelations>>;
 
     async fn fetch_spent_detail_indexing_for_index(
         &self,
         offset: u64,
         limit: u64,
+    ) -> anyhow::Result<Vec<SpentDetailIndexing>>;
+
+    /// 증분 색인용: 주어진 `spent_idx` 목록에 해당하는 역정규화 행을 조회한다.
+    ///
+    /// `WHERE spent_idx IN (...)` 쿼리로 동작하며, 존재하지 않는 ID는 결과에서 자동으로 제외된다.
+    async fn fetch_spent_detail_indexing_by_ids(
+        &self,
+        ids: &[i64],
     ) -> anyhow::Result<Vec<SpentDetailIndexing>>;
 
     /// Fetches raw spent-detail rows without joining related tables.
@@ -96,4 +109,11 @@ pub trait MysqlService {
         &self,
         rows: Vec<dim_calendar::ActiveModel>,
     ) -> anyhow::Result<()>;
+
+    async fn upsert_spent_detail_indexing(
+        &self,
+        upsert_list: Vec<SpentDetailWithRelations>,
+    ) -> anyhow::Result<()>;
+
+    async fn delete_spent_detail_indexing(&self, delete_list: &[i64]) -> anyhow::Result<()>;
 }

@@ -186,7 +186,6 @@ where
         Ok(())
     }
 
-
     /// Prepares a new timestamped index for a full indexing run.
     async fn prepare_full_index(
         &self,

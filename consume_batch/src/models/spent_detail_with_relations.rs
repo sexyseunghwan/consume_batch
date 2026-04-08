@@ -24,10 +24,25 @@ pub struct SpentDetailWithRelationsRaw {
     consume_keyword_type_id: i64,
     consume_keyword_type: String,
     room_seq: i64,
-    indexing_type: String,
-    produced_at: DateTime<Utc>,
     user_id: String,
+    card_alias: String,
 }
+
+// #[derive(Debug, Clone, FromQueryResult)]
+// pub struct SpentDetailWithRelationsRaw {
+//     spent_idx: i64,
+//     spent_name: String,
+//     spent_money: i32,
+//     spent_at: DateTime<Utc>,
+//     created_at: DateTime<Utc>,
+//     user_seq: i64,
+//     consume_keyword_type_id: i64,
+//     consume_keyword_type: String,
+//     room_seq: i64,
+//     indexing_type: String,
+//     produced_at: DateTime<Utc>,
+//     user_id: String,
+// }
 
 /// Represents a spent detail with all related information for indexing.
 ///
@@ -76,14 +91,10 @@ pub struct SpentDetailWithRelations {
     /// Telegram room identifier
     pub room_seq: i64,
 
-    /// Indexing Type - I,U,D
-    pub indexing_type: IndexingType,
-
-    /// Current UTC timestamp when indexing was triggered
-    pub produced_at: DateTime<Utc>,
-
     /// User id
     pub user_id: String,
+
+    pub card_alias: String,
 }
 
 /// Elasticsearch-specific version of SpentDetailWithRelations.
@@ -119,11 +130,10 @@ pub struct SpentDetailWithRelationsEs {
     /// Telegram room identifier
     pub room_seq: i64,
 
-    /// Record indexing timestamp
-    pub produced_at: DateTime<Utc>,
-
     /// User id
     pub user_id: String,
+
+    pub card_alias: String,
 }
 
 impl From<SpentDetailWithRelations> for SpentDetailWithRelationsEs {
@@ -139,8 +149,8 @@ impl From<SpentDetailWithRelations> for SpentDetailWithRelationsEs {
             consume_keyword_type_id: src.consume_keyword_type_id,
             consume_keyword_type: src.consume_keyword_type,
             room_seq: src.room_seq,
-            produced_at: src.produced_at,
             user_id: src.user_id,
+            card_alias: src.card_alias,
         }
     }
 }
@@ -158,10 +168,8 @@ impl From<SpentDetailWithRelationsRaw> for SpentDetailWithRelations {
             consume_keyword_type_id: raw.consume_keyword_type_id,
             consume_keyword_type: raw.consume_keyword_type,
             room_seq: raw.room_seq,
-            indexing_type: IndexingType::from_str(&raw.indexing_type)
-                .unwrap_or(IndexingType::Insert),
-            produced_at: raw.produced_at,
             user_id: raw.user_id,
+            card_alias: raw.card_alias,
         }
     }
 }

@@ -46,6 +46,28 @@
   },
   "mappings" : {
     "properties" : {
+      "spent_idx": {
+        "type" : "long"
+      },
+      "spent_name": {
+        "type" : "text",
+        "analyzer" : "korean"
+      },
+      "spent_money": {
+        "type" : "long"
+      },
+      "spent_at": {
+        "type" : "date"
+      },
+      "created_at": {
+        "type" : "date"
+      },
+      "user_seq": {
+        "type" : "long"
+      },
+      "consume_keyword_type_id": {
+        "type" : "long"
+      },
       "consume_keyword_type": {
         "type": "text",
         "analyzer": "korean",
@@ -56,32 +78,19 @@
           }
         }
       },
-      "consume_keyword_type_id": {
-        "type" : "integer"
-      },
-      "created_at": {
-        "type" : "date"
-      },
       "room_seq": {
         "type" : "long"
       },
-      "spent_at": {
-        "type" : "date"
-      },
-      "spent_idx": {
-        "type" : "long"
-      },
-      "spent_money": {
-        "type" : "long"
-      },
-      "spent_name": {
-        "type" : "text",
-        "analyzer" : "korean"
-      },
-      "user_seq": {
-        "type" : "long"
-      },
       "user_id": {
+        "type" : "keyword"
+      },
+      "card_alias": {
+        "type" : "keyword"
+      },
+      "updated_at": {
+        "type" : "keyword"
+      },
+      "updated_by": {
         "type" : "keyword"
       }
     }
