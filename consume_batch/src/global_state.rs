@@ -27,6 +27,8 @@ use crate::common::*;
 /// Initialized to `0` at startup and updated after each indexing cycle.
 pub static SPENT_DETAIL_INDEXING: once_lazy<RwLock<bool>> = once_lazy::new(|| RwLock::new(true));
 
+pub static SPENT_DETAIL_INDEXING_CATCHUP: once_lazy<RwLock<bool>> = once_lazy::new(|| RwLock::new(true));
+
 /// Returns the current value of [`SPENT_DETAIL_INDEXING`].
 pub async fn get_spent_detail_indexing() -> bool {
     *SPENT_DETAIL_INDEXING.read().await
@@ -36,3 +38,11 @@ pub async fn get_spent_detail_indexing() -> bool {
 pub async fn set_spent_detail_indexing(value: bool) {
     *SPENT_DETAIL_INDEXING.write().await = value;
 }
+
+// pub async fn get_spent_detail_indexing_catchup() -> bool {
+//     *SPENT_DETAIL_INDEXING_CATCHUP.read().await
+// }
+
+// pub async fn set_spent_detail_indexing_catchup(value: bool) {
+//     *SPENT_DETAIL_INDEXING_CATCHUP.write().await = value;
+// }

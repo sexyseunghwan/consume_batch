@@ -131,7 +131,7 @@ where
     ) -> anyhow::Result<(u64, u64)> {
         let mut upsert_processed: u64 = 0;
         let mut delete_processed: u64 = 0;
-
+        
         let messages: Vec<SpentDetailFromKafka> = self
             .consume_service
             .consume_messages_as_with_group(indexer_topic, batch_size, consumer_group)
@@ -639,7 +639,12 @@ where
     E: ElasticService + Send + Sync + 'static,
     C: ConsumeService + Send + Sync + 'static,
 {
+    
+    
+    
+    
     async fn run_spent_detail_full(&self, schedule_item: &BatchScheduleItem) -> anyhow::Result<()> {
+        
         let index_alias: &str = schedule_item.index_name();
         let incre_topic_name: &str = schedule_item.relation_topic_sub();
         let incre_source_group: &str = schedule_item.consumer_group_sub();
@@ -675,7 +680,7 @@ where
             new_index_name
         );
 
-        // Step 3: snapshot incremental offset
+        // Step 3: snapshot incremental offset - 이게 그렇게 좋아보이진 않는데...
         match self
             .consume_service
             .replicate_consumer_group_offsets(
@@ -764,6 +769,8 @@ where
         Ok(())
     }
 
+
+    // 이쪽이 증분색인 !!!
     async fn run_spent_detail_incremental(
         &self,
         schedule_item: &BatchScheduleItem,
@@ -782,6 +789,7 @@ where
         );
 
         loop {
+            
             let indexing_check: bool = get_spent_detail_indexing().await;
 
             if !indexing_check {
