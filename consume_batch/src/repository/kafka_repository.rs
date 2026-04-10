@@ -628,7 +628,7 @@ impl KafkaRepositoryImpl {
         // 따라서 여기서는 경고 로그만 남기고 진행한다.
         // 실제 비활성화는 consumer 애플리케이션을 중지하여 수행해야 한다.
 
-        let is_active = self.is_consumer_group_active(group_id).await?;
+        let is_active: bool = self.is_consumer_group_active(group_id).await?;
 
         if is_active {
             warn!(
@@ -1316,36 +1316,40 @@ impl KafkaRepository for KafkaRepositoryImpl {
         source_group: &str,
         target_group: &str,
     ) -> anyhow::Result<()> {
+        // Build full group IDs consistent with get_or_create_consumer
+        let source_group_id: String = format!("{}-{}-{}", self.base_group_id, topic, source_group);
+        let target_group_id: String = format!("{}-{}-{}", self.base_group_id, topic, target_group);
+
         info!(
             "[KafkaRepositoryImpl::copy_consumer_group_offsets] Starting safe offset copy: '{}' → '{}' (topic: '{}')",
-            source_group, target_group, topic
+            source_group_id, target_group_id, topic
         );
 
         // ──────────────────────────────────────────────────────────────
         // [1단계] target 그룹의 활성 상태 확인
         // ──────────────────────────────────────────────────────────────
-        let is_active: bool = self.is_consumer_group_active(target_group).await?;
+        let is_active: bool = self.is_consumer_group_active(&target_group_id).await?;
 
         if is_active {
             info!(
                 "[KafkaRepositoryImpl::copy_consumer_group_offsets] Target group '{}' has active consumers. Will deactivate before copying.",
-                target_group
+                target_group_id
             );
         } else {
             info!(
                 "[KafkaRepositoryImpl::copy_consumer_group_offsets] Target group '{}' is already inactive.",
-                target_group
+                target_group_id
             );
         }
 
         // ──────────────────────────────────────────────────────────────
         // [2단계] target 그룹 비활성화
         // ──────────────────────────────────────────────────────────────
-        self.deactivate_consumer_group(target_group).await?;
+        self.deactivate_consumer_group(&target_group_id).await?;
 
         info!(
             "[KafkaRepositoryImpl::copy_consumer_group_offsets] Target group '{}' deactivated successfully.",
-            target_group
+            target_group_id
         );
 
         // ──────────────────────────────────────────────────────────────
@@ -1359,11 +1363,11 @@ impl KafkaRepository for KafkaRepositoryImpl {
             Ok(_) => {
                 info!(
                     "[KafkaRepositoryImpl::copy_consumer_group_offsets] ✓ Successfully copied offsets from '{}' to '{}' for topic '{}'",
-                    source_group, target_group, topic
+                    source_group_id, target_group_id, topic
                 );
                 info!(
                     "[KafkaRepositoryImpl::copy_consumer_group_offsets] Target group '{}' can now be reactivated by starting consumer application.",
-                    target_group
+                    target_group_id
                 );
             }
             Err(e) => {
@@ -1373,11 +1377,11 @@ impl KafkaRepository for KafkaRepositoryImpl {
                 );
                 error!(
                     "[KafkaRepositoryImpl::copy_consumer_group_offsets] Target group '{}' remains deactivated. Restart consumer application to reactivate.",
-                    target_group
+                    target_group_id
                 );
             }
         }
-
+        
         copy_result
     }
 

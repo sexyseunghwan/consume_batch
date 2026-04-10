@@ -266,7 +266,8 @@ where
             consumer_group_sub
         );
 
-        let mut total_processed: u64 = 0;
+        let mut total_upsert_processed: u64 = 0;
+        let mut total_delete_processed: u64 = 0;
         let mut indexing_paused: bool = false;
 
         loop {
@@ -321,10 +322,11 @@ where
             }
 
             if indexing_paused && lag == 0 {
+                
                 batch_log!(
                     info,
                     "[IndexingServiceImpl::process_spent_detail_catch_up] Fully caught up. total_processed={}. Swapping aliases.",
-                    total_processed
+                    total_upsert_processed + total_delete_processed
                 );
 
                 // 현재 인덱스 설정정보 원복해준다 -> refresh, replication
@@ -383,53 +385,27 @@ where
                 Ok((upsert_processed, delete_processed)) => (upsert_processed, delete_processed),
                 Err(e) => {
                     error!(
-                        "[IndexingServiceImpl::run_spent_detail_incremental] {:#}",
+                        "[IndexingServiceImpl::process_spent_detail_catch_up] {:#}",
                         e
                     );
                     continue;
                 }
             };
-
             
-            // let messages: Vec<SpentDetailWithRelations> = self
-            //     .consume_service
-            //     .consume_messages_as_with_group(relation_topic, batch_size, consumer_group_sub)
-            //     .await
-            //     .inspect_err(|e| {
-            //         error!(
-            //             "[IndexingServiceImpl::process_spent_detail_catch_up] consume failed: {:#}",
-            //             e
-            //         );
-            //     })?;
 
-            // let batch_count: usize = messages.len();
+            batch_log!(
+                info,
+                "[IndexingServiceImpl::process_spent_detail_catch_up] upsert: {}, delete: {} (total: {})",
+                upsert_processed,
+                delete_processed,
+                upsert_processed + delete_processed
+            );
 
-            // if messages.is_empty() {
-            //     tokio::time::sleep(Duration::from_millis(500)).await;
-            //     continue;
-            // }
-
-            // self.elastic_service
-            //     .bulk_index(index_name, Self::to_es_docs(messages))
-            //     .await
-            //     .inspect_err(|e| {
-            //         error!(
-            //             "[IndexingServiceImpl::process_spent_detail_catch_up] bulk_index failed: {:#}",
-            //             e
-            //         );
-            //     })?;
-
-            // total_processed += batch_count as u64;
-
-            // batch_log!(
-            //     info,
-            //     "[IndexingServiceImpl::process_spent_detail_catch_up] Indexed {} catch-up docs (total={})",
-            //     batch_count,
-            //     total_processed
-            // );
+            total_upsert_processed += upsert_processed;
+            total_delete_processed += delete_processed;
         }
 
-        Ok(total_processed)
+        Ok(total_upsert_processed + total_delete_processed)
     }
 
     fn merge_batch_events(

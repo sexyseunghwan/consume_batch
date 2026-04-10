@@ -728,15 +728,14 @@ where
         &self,
         upsert_list: Vec<SpentDetailWithRelations>,
     ) -> anyhow::Result<()> {
+        
         if upsert_list.is_empty() {
             return Ok(());
         }
 
         let db: &DatabaseConnection = self.db_conn.get_connection();
         let now: DateTime<Utc> = Utc::now();
-
-        let ids: Vec<i64> = upsert_list.iter().map(|r| r.spent_idx).collect();
-
+        
         let active_models: Vec<spent_detail_indexing::ActiveModel> = upsert_list
             .into_iter()
             .map(|row| spent_detail_indexing::ActiveModel {
@@ -785,7 +784,6 @@ where
             })?;
 
         Ok(())
-        //self.fetch_spent_detail_indexing_by_ids(ids).await
     }
 
     /// Deletes rows from `SPENT_DETAIL_INDEXING` for the given `spent_idx` list.
