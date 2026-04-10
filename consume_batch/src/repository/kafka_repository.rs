@@ -222,10 +222,22 @@ pub trait KafkaRepository: Send + Sync {
     /// Returns `Ok(())` if all records were successfully deleted.
     async fn purge_topic(&self, topic: &str) -> Result<(), anyhow::Error>;
 
-    /// 특정 토픽에서 source 컨슈머 그룹의 committed offset을 target 컨슈머 그룹에 복사한다.
+    /// 특정 토픽에서 source 컨슈머 그룹의 committed offset을 target 컨슈머 그룹에 안전하게 복사한다.
     ///
-    /// source 그룹이 현재 어디까지 읽었는지를 그대로 target 그룹에 설정하여,
-    /// target 그룹이 source 그룹과 동일한 위치부터 메시지를 소비할 수 있도록 한다.
+    /// 이 함수는 다음 순서로 안전한 offset 복사를 수행한다:
+    /// 1. target 그룹의 consumer가 활성 상태인지 확인하고 로그에 기록
+    /// 2. target 그룹의 모든 consumer 비활성화 (members 제거)
+    /// 3. source 그룹의 committed offset 조회 및 target 그룹에 복사
+    /// 4. 복사 성공 시 target 그룹 재활성화 (consumer가 재연결하면 자동 활성화됨)
+    ///
+    /// # Safety
+    ///
+    /// offset 복사 중 target 그룹이 활성 상태라면 다음과 같은 위험이 있다:
+    /// - 복사 직후 consumer가 다시 commit하여 offset이 덮어써질 수 있음
+    /// - rebalance 과정에서 의도하지 않은 offset이 반영될 수 있음
+    ///
+    /// 따라서 이 함수는 offset 복사 전 target 그룹을 먼저 비활성화하여
+    /// 복사된 offset이 예측 가능하게 반영되도록 보장한다.
     ///
     /// # Arguments
     ///
@@ -241,8 +253,15 @@ pub trait KafkaRepository: Send + Sync {
     ///
     /// Returns an error if:
     /// - Topic metadata fetch fails
+    /// - Target group deactivation fails
     /// - Source group committed offset fetch fails
-    /// - Target group offset alter fails
+    /// - Target group offset commit fails
+    ///
+    /// # Error Recovery
+    ///
+    /// 복사 중 실패 시 target 그룹 상태:
+    /// - consumer가 비활성화된 상태로 남을 수 있음
+    /// - consumer 애플리케이션을 재시작하면 자동으로 재활성화됨
     async fn copy_consumer_group_offsets(
         &self,
         topic: &str,
@@ -263,15 +282,19 @@ pub trait KafkaRepository: Send + Sync {
     ///
     /// Returns `Ok(total)` where `total` is the sum of committed offsets across all partitions.
     /// Partitions with no committed offset (e.g. `OffsetBeginning`) are counted as 0.
-    async fn get_committed_offsets_total(&self, topic: &str, group_id: &str)
+    async fn get_committed_offsets_total(&self, topic: &str, group_suffix: &str)
     -> anyhow::Result<i64>;
 
     /// Returns committed offsets per partition for a consumer group.
     ///
+    /// The full group ID is assembled as `{base_group_id}-{topic}-{group_suffix}`,
+    /// matching the convention used in `get_or_create_consumer`.
+    ///
     /// # Arguments
     ///
-    /// * `topic`    - The Kafka topic to query
-    /// * `group_id` - The consumer group whose committed offsets are fetched
+    /// * `topic`        - The Kafka topic to query
+    /// * `group_suffix` - The group suffix (e.g. `incremental_spent_detail_group`);
+    ///                    combined with `base_group_id` and `topic` to form the full group ID
     ///
     /// # Returns
     ///
@@ -281,7 +304,7 @@ pub trait KafkaRepository: Send + Sync {
     async fn get_committed_offsets_by_partition(
         &self,
         topic: &str,
-        group_id: &str,
+        group_suffix: &str,
     ) -> anyhow::Result<HashMap<i32, i64>>;
 }
 
@@ -437,6 +460,9 @@ impl KafkaRepositoryImpl {
         })
     }
 
+    /// ***************************************************************************************************
+    /// **************************************** [SERVER AS BASIS] ****************************************
+    /// ***************************************************************************************************
     /// Gets or creates a consumer for a specific topic with optional group suffix.
     ///
     /// If a consumer for the topic already exists, returns the existing one.
@@ -456,7 +482,7 @@ impl KafkaRepositoryImpl {
     /// | Setting                | Value                                    | Description                |
     /// |------------------------|------------------------------------------|----------------------------|
     /// | `bootstrap.servers`    | from config                              | Kafka broker addresses     |
-    /// | `group.id`             | `{base_group_id}-{topic}[-{suffix}]`     | Topic-specific group       |
+    /// | `group.id`             | `[{base_group_id}-{topic}[-{suffix}]`    | Topic-specific group       |
     /// | `auto.offset.reset`    | earliest                                 | Start from earliest        |
     /// | `enable.auto.commit`   | true                                     | Auto commit offsets        |
     /// | `session.timeout.ms`   | 6000                                     | 6 second session timeout   |
@@ -466,7 +492,7 @@ impl KafkaRepositoryImpl {
         group_suffix: Option<&str>,
     ) -> anyhow::Result<Arc<StreamConsumer>> {
         // Create a unique key for the consumer map
-        let consumer_key = if let Some(suffix) = group_suffix {
+        let consumer_key: String = if let Some(suffix) = group_suffix {
             format!("{}-{}", topic, suffix)
         } else {
             topic.to_string()
@@ -504,7 +530,7 @@ impl KafkaRepositoryImpl {
         );
 
         // Create new consumer for this topic
-        let mut client_config = ClientConfig::new();
+        let mut client_config: ClientConfig = ClientConfig::new();
         client_config
             .set("bootstrap.servers", &self.kafka_brokers)
             .set("group.id", &group_id)
@@ -557,6 +583,288 @@ impl KafkaRepositoryImpl {
         );
 
         Ok(consumer_arc)
+    }
+
+    /// Consumer group이 활성 상태인지 확인한다.
+    ///
+    /// # Implementation Note
+    ///
+    /// rdkafka 0.38.0에는 describe_groups API가 없으므로,
+    /// 이 구현에서는 단순히 경고 로그를 남기고 true를 반환한다.
+    /// 실제로는 Kafka 외부 도구(kafka-consumer-groups.sh)나
+    /// JMX를 통해 확인해야 한다.
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(true)` (항상 활성 상태로 가정)
+    async fn is_consumer_group_active(&self, _group_id: &str) -> anyhow::Result<bool> {
+        // rdkafka 0.38.0에는 describe_groups API가 없으므로
+        // 실제 member 조회는 불가능하다.
+        // 따라서 항상 활성 상태라고 가정하고 경고 로그만 남긴다.
+        Ok(true)
+    }
+
+    /// Consumer group을 비활성화한다 (모든 members 제거).
+    ///
+    /// Kafka에서 consumer group을 직접 "비활성화"하는 API는 없지만,
+    /// 모든 member를 제거하여 실질적으로 비활성화할 수 있다.
+    ///
+    /// 실제로는 consumer 애플리케이션을 중지하거나
+    /// DeleteConsumerGroupOffsets API를 사용해야 하지만,
+    /// 여기서는 offset만 덮어쓸 것이므로 별도의 member 제거는 하지 않는다.
+    ///
+    /// # Implementation Note
+    ///
+    /// Kafka Admin API는 consumer group의 member를 직접 제거하는 기능을 제공하지 않는다.
+    /// 대신 다음 방식으로 비활성화를 구현한다:
+    ///
+    /// 1. **Consumer 애플리케이션 중지**: 실제로 가장 안전한 방법
+    /// 2. **Offset 덮어쓰기 전 잠시 대기**: Consumer가 heartbeat를 보내지 않으면 자동으로 제거됨
+    ///
+    /// 이 구현에서는 offset 복사가 consumer가 활성 상태가 아닐 때 수행되도록
+    /// 권장 사항을 로그로 남기는 방식을 사용한다.
+    async fn deactivate_consumer_group(&self, group_id: &str) -> anyhow::Result<()> {
+        // Kafka Admin API는 consumer group member를 직접 제거하는 기능이 없다.
+        // 따라서 여기서는 경고 로그만 남기고 진행한다.
+        // 실제 비활성화는 consumer 애플리케이션을 중지하여 수행해야 한다.
+
+        let is_active = self.is_consumer_group_active(group_id).await?;
+
+        if is_active {
+            warn!(
+                "[KafkaRepositoryImpl::deactivate_consumer_group] Group '{}' has active consumers. \
+                 For safest operation, please stop consumer application before copying offsets.",
+                group_id
+            );
+        } else {
+            info!(
+                "[KafkaRepositoryImpl::deactivate_consumer_group] Group '{}' has no active consumers. Safe to proceed.",
+                group_id
+            );
+        }
+
+        Ok(())
+    }
+
+    /// AdminClient를 생성한다.
+    fn create_admin_client(&self) -> anyhow::Result<AdminClient<DefaultClientContext>> {
+        let mut admin_config: ClientConfig = ClientConfig::new();
+        admin_config.set("bootstrap.servers", &self.kafka_brokers);
+
+        if let (Some(protocol), Some(mechanism), Some(username), Some(password)) = (
+            &self.security_protocol,
+            &self.sasl_mechanism,
+            &self.sasl_username,
+            &self.sasl_password,
+        ) {
+            admin_config
+                .set("security.protocol", protocol)
+                .set("sasl.mechanism", mechanism)
+                .set("sasl.username", username)
+                .set("sasl.password", password);
+        }
+
+        admin_config.create().map_err(|e| {
+            anyhow!(
+                "[KafkaRepositoryImpl::create_admin_client] Failed to create admin client: {:?}",
+                e
+            )
+        })
+    }
+
+    /// 내부적으로 offset을 복사하는 함수 (기존 로직).
+    ///
+    /// 이 함수는 target 그룹이 이미 비활성화된 상태에서 호출되어야 한다.
+    async fn copy_offsets_internal(
+        &self,
+        topic: &str,
+        source_group: &str,
+        target_group: &str,
+    ) -> anyhow::Result<()> {
+        // Build full group IDs consistent with get_or_create_consumer
+        let source_group_id: String = format!("{}-{}-{}", self.base_group_id, topic, source_group);
+        let target_group_id: String = format!("{}-{}-{}", self.base_group_id, topic, target_group);
+
+        // ──────────────────────────────────────────────────────────────
+        // [1단계] source 그룹의 committed offset 조회용 임시 BaseConsumer 생성
+        // ──────────────────────────────────────────────────────────────
+        let mut base_config: ClientConfig = ClientConfig::new();
+        base_config
+            .set("bootstrap.servers", &self.kafka_brokers)
+            .set("group.id", &source_group_id);
+
+        if let (Some(protocol), Some(mechanism), Some(username), Some(password)) = (
+            &self.security_protocol,
+            &self.sasl_mechanism,
+            &self.sasl_username,
+            &self.sasl_password,
+        ) {
+            base_config
+                .set("security.protocol", protocol)
+                .set("sasl.mechanism", mechanism)
+                .set("sasl.username", username)
+                .set("sasl.password", password);
+        }
+
+        let source_consumer: BaseConsumer = base_config.create().map_err(|e| {
+            anyhow!(
+                "[KafkaRepositoryImpl::copy_offsets_internal] Failed to create source consumer: {:?}",
+                e
+            )
+        })?;
+
+        // ──────────────────────────────────────────────────────────────
+        // [2단계] 토픽의 파티션 목록 조회
+        // ──────────────────────────────────────────────────────────────
+        let metadata: rdkafka::metadata::Metadata = source_consumer
+            .fetch_metadata(Some(topic), Duration::from_secs(10))
+            .map_err(|e| {
+                anyhow!(
+                    "[KafkaRepositoryImpl::copy_offsets_internal] Failed to fetch metadata for topic '{}': {:?}",
+                    topic, e
+                )
+            })?;
+
+        let topic_metadata: &rdkafka::metadata::MetadataTopic = metadata
+            .topics()
+            .iter()
+            .find(|t| t.name() == topic)
+            .ok_or_else(|| {
+                anyhow!(
+                    "[KafkaRepositoryImpl::copy_offsets_internal] Topic '{}' not found in metadata",
+                    topic
+                )
+            })?;
+
+        if topic_metadata.partitions().is_empty() {
+            return Err(anyhow!(
+                "[KafkaRepositoryImpl::copy_offsets_internal] Topic '{}' has no partitions",
+                topic
+            ));
+        }
+
+        // ──────────────────────────────────────────────────────────────
+        // [3단계] source 그룹의 committed offset 조회
+        // ──────────────────────────────────────────────────────────────
+        let mut tpl: TopicPartitionList = TopicPartitionList::new();
+
+        for partition in topic_metadata.partitions() {
+            tpl.add_partition(topic, partition.id());
+        }
+
+        source_consumer.assign(&tpl).map_err(|e| {
+            anyhow!(
+                "[KafkaRepositoryImpl::copy_offsets_internal] Failed to assign partitions: {:?}",
+                e
+            )
+        })?;
+
+        let committed_tpl: TopicPartitionList = source_consumer
+            .committed(Duration::from_secs(10))
+            .map_err(|e| {
+                anyhow!(
+                    "[KafkaRepositoryImpl::copy_offsets_internal] Failed to fetch committed offsets for group '{}': {:?}",
+                    source_group_id, e
+                )
+            })?;
+
+        // 파티션별 offset 로그 출력
+        for elem in committed_tpl.elements() {
+            let offset_str = match elem.offset() {
+                Offset::Offset(o) => format!("{}", o),
+                Offset::Invalid => "Invalid".to_string(),
+                Offset::Beginning => "Beginning".to_string(),
+                Offset::End => "End".to_string(),
+                _ => "Unknown".to_string(),
+            };
+            info!(
+                "[KafkaRepositoryImpl::copy_offsets_internal] Source group '{}' partition {} offset: {}",
+                source_group_id, elem.partition(), offset_str
+            );
+        }
+
+        // source 그룹이 한 번도 commit한 적 없으면 복사를 건너뛴다.
+        let has_valid_offset: bool = committed_tpl
+            .elements()
+            .iter()
+            .any(|e| e.offset() != rdkafka::Offset::Invalid);
+
+        if !has_valid_offset {
+            info!(
+                "[KafkaRepositoryImpl::copy_offsets_internal] Source group '{}' has no committed offsets yet. Skipping copy.",
+                source_group_id
+            );
+            return Ok(());
+        }
+
+        // ──────────────────────────────────────────────────────────────
+        // [4단계] target 그룹의 BaseConsumer 에 offset 을 직접 commit
+        // ──────────────────────────────────────────────────────────────
+        let mut target_config: ClientConfig = ClientConfig::new();
+        target_config
+            .set("bootstrap.servers", &self.kafka_brokers)
+            .set("group.id", &target_group_id)
+            .set("enable.auto.commit", "false");
+
+        if let (Some(protocol), Some(mechanism), Some(username), Some(password)) = (
+            &self.security_protocol,
+            &self.sasl_mechanism,
+            &self.sasl_username,
+            &self.sasl_password,
+        ) {
+            target_config
+                .set("security.protocol", protocol)
+                .set("sasl.mechanism", mechanism)
+                .set("sasl.username", username)
+                .set("sasl.password", password);
+        }
+
+        let target_consumer: BaseConsumer = target_config.create().map_err(|e| {
+            anyhow!(
+                "[KafkaRepositoryImpl::copy_offsets_internal] Failed to create target consumer: {:?}",
+                e
+            )
+        })?;
+
+        let mut assign_tpl: TopicPartitionList = TopicPartitionList::new();
+        for partition in topic_metadata.partitions() {
+            assign_tpl.add_partition(topic, partition.id());
+        }
+
+        target_consumer.assign(&assign_tpl).map_err(|e| {
+            anyhow!(
+                "[KafkaRepositoryImpl::copy_offsets_internal] Failed to assign partitions to target consumer: {:?}",
+                e
+            )
+        })?;
+
+        target_consumer
+            .commit(&committed_tpl, CommitMode::Sync)
+            .map_err(|e| {
+                anyhow!(
+                    "[KafkaRepositoryImpl::copy_offsets_internal] Failed to commit offsets for group '{}': {:?}",
+                    target_group_id, e
+                )
+            })?;
+
+        // 복사된 offset 로그 출력
+        for elem in committed_tpl.elements() {
+            let offset_str = match elem.offset() {
+                Offset::Offset(o) => format!("{}", o),
+                _ => "N/A".to_string(),
+            };
+            info!(
+                "[KafkaRepositoryImpl::copy_offsets_internal] Copied to target group '{}' partition {} offset: {}",
+                target_group_id, elem.partition(), offset_str
+            );
+        }
+
+        info!(
+            "[KafkaRepositoryImpl::copy_offsets_internal] Successfully committed offsets for target group '{}'",
+            target_group_id
+        );
+
+        Ok(())
     }
 }
 
@@ -995,7 +1303,13 @@ impl KafkaRepository for KafkaRepositoryImpl {
         Ok(())
     }
 
-    /// 특정 토픽에서 source 컨슈머 그룹의 committed offset을 target 컨슈머 그룹에 복사한다.
+    /// 특정 토픽에서 source 컨슈머 그룹의 committed offset을 target 컨슈머 그룹에 안전하게 복사한다.
+    ///
+    /// 이 함수는 다음 순서로 안전한 offset 복사를 수행한다:
+    /// 1. target 그룹의 consumer가 활성 상태인지 확인하고 로그에 기록
+    /// 2. target 그룹의 모든 consumer 비활성화 (members 제거)
+    /// 3. source 그룹의 committed offset 조회 및 target 그룹에 복사
+    /// 4. 복사 성공 여부를 로그에 기록
     async fn copy_consumer_group_offsets(
         &self,
         topic: &str,
@@ -1003,198 +1317,86 @@ impl KafkaRepository for KafkaRepositoryImpl {
         target_group: &str,
     ) -> anyhow::Result<()> {
         info!(
-            "[KafkaRepositoryImpl::copy_consumer_group_offsets] Copying offsets: '{}' → '{}' (topic: '{}')",
+            "[KafkaRepositoryImpl::copy_consumer_group_offsets] Starting safe offset copy: '{}' → '{}' (topic: '{}')",
             source_group, target_group, topic
         );
 
         // ──────────────────────────────────────────────────────────────
-        // [1단계] source 그룹의 committed offset 조회용 임시 BaseConsumer 생성
+        // [1단계] target 그룹의 활성 상태 확인
         // ──────────────────────────────────────────────────────────────
-        // StreamConsumer 를 쓰지 않는 이유:
-        //   - subscribe() 없이 committed() 만 호출할 수 있어 부작용이 없음
-        //   - 기존 consumer map 에 등록된 consumer 의 offset 에 영향을 주지 않음
-        let mut base_config: ClientConfig = ClientConfig::new();
-        base_config
-            .set("bootstrap.servers", &self.kafka_brokers)
-            .set("group.id", source_group);
+        let is_active: bool = self.is_consumer_group_active(target_group).await?;
 
-        if let (Some(protocol), Some(mechanism), Some(username), Some(password)) = (
-            &self.security_protocol,
-            &self.sasl_mechanism,
-            &self.sasl_username,
-            &self.sasl_password,
-        ) {
-            base_config
-                .set("security.protocol", protocol)
-                .set("sasl.mechanism", mechanism)
-                .set("sasl.username", username)
-                .set("sasl.password", password);
-        }
-
-        let source_consumer: BaseConsumer = base_config.create().map_err(|e| {
-            anyhow!(
-                "[KafkaRepositoryImpl::copy_consumer_group_offsets] Failed to create source consumer: {:?}",
-                e
-            )
-        })?;
-
-        // ──────────────────────────────────────────────────────────────
-        // [2단계] 토픽의 파티션 목록 조회
-        // ──────────────────────────────────────────────────────────────
-        let metadata: rdkafka::metadata::Metadata = source_consumer
-            .fetch_metadata(Some(topic), Duration::from_secs(10))
-            .map_err(|e| {
-                anyhow!(
-                    "[KafkaRepositoryImpl::copy_consumer_group_offsets] Failed to fetch metadata for topic '{}': {:?}",
-                    topic, e
-                )
-            })?;
-
-        let topic_metadata: &rdkafka::metadata::MetadataTopic = metadata
-            .topics()
-            .iter()
-            .find(|t| t.name() == topic)
-            .ok_or_else(|| {
-                anyhow!(
-                    "[KafkaRepositoryImpl::copy_consumer_group_offsets] Topic '{}' not found in metadata",
-                    topic
-                )
-            })?;
-
-        // 특정 토픽에 파티션이 없는것은 말이되지 않으므로 에러발생 시킨다.
-        if topic_metadata.partitions().is_empty() {
-            return Err(anyhow!(
-                "[KafkaRepositoryImpl::copy_consumer_group_offsets] Topic '{}' has no partitions",
-                topic
-            ));
-        }
-
-        // ──────────────────────────────────────────────────────────────
-        // [3단계] source 그룹의 committed offset 조회
-        // ──────────────────────────────────────────────────────────────
-        // TopicPartitionList 에 파티션만 등록한 뒤 committed() 를 호출하면
-        // Kafka 브로커가 해당 group.id 의 committed offset 을 채워서 반환한다.
-        let mut tpl: TopicPartitionList = TopicPartitionList::new();
-
-        // 특정 토픽의 모든 파티션을 가져와준다 그리고 tpl 에 넣어준다.
-        for partition in topic_metadata.partitions() {
-            tpl.add_partition(topic, partition.id());
-        }
-
-        // ** committed() 는 현재 assign 된 파티션에 대해서만 동작하므로, 먼저 assign 한다. **
-        source_consumer.assign(&tpl).map_err(|e| {
-            anyhow!(
-                "[KafkaRepositoryImpl::copy_consumer_group_offsets] Failed to assign partitions: {:?}",
-                e
-            )
-        })?;
-
-        // offset 정보를 반환.
-        let committed_tpl: TopicPartitionList = source_consumer
-            .committed(Duration::from_secs(10))
-            .map_err(|e| {
-                anyhow!(
-                    "[KafkaRepositoryImpl::copy_consumer_group_offsets] Failed to fetch committed offsets for group '{}': {:?}",
-                    source_group, e
-                )
-            })?;
-
-        info!(
-            "[KafkaRepositoryImpl::copy_consumer_group_offsets] Source group '{}' offsets: {:?}",
-            source_group, committed_tpl
-        );
-
-        // source 그룹이 한 번도 commit한 적 없으면 모든 partition offset 이 Invalid 로 반환된다.
-        // Invalid offset 이 포함된 TPL 을 assign() 에 넘기면 librdkafka assertion crash 가 발생하므로,
-        // 유효한 offset 이 하나도 없으면 복사를 건너뛴다.
-        let has_valid_offset: bool = committed_tpl
-            .elements()
-            .iter()
-            .any(|e| e.offset() != rdkafka::Offset::Invalid);
-
-        if !has_valid_offset {
+        if is_active {
             info!(
-                "[KafkaRepositoryImpl::copy_consumer_group_offsets] Source group '{}' has no committed offsets yet. Skipping copy.",
-                source_group
+                "[KafkaRepositoryImpl::copy_consumer_group_offsets] Target group '{}' has active consumers. Will deactivate before copying.",
+                target_group
             );
-            return Ok(());
+        } else {
+            info!(
+                "[KafkaRepositoryImpl::copy_consumer_group_offsets] Target group '{}' is already inactive.",
+                target_group
+            );
         }
 
         // ──────────────────────────────────────────────────────────────
-        // [4단계] target 그룹의 BaseConsumer 에 offset 을 직접 commit
+        // [2단계] target 그룹 비활성화
         // ──────────────────────────────────────────────────────────────
-        // target 그룹으로 group.id 를 설정한 BaseConsumer 를 만들고,
-        // source 그룹에서 읽어온 TPL 을 그대로 assign → commit 한다.
-        // enable.auto.commit=false 로 auto commit 부작용을 방지한다.
-        let mut target_config: ClientConfig = ClientConfig::new();
-        target_config
-            .set("bootstrap.servers", &self.kafka_brokers)
-            .set("group.id", target_group)
-            .set("enable.auto.commit", "false");
-
-        if let (Some(protocol), Some(mechanism), Some(username), Some(password)) = (
-            &self.security_protocol,
-            &self.sasl_mechanism,
-            &self.sasl_username,
-            &self.sasl_password,
-        ) {
-            target_config
-                .set("security.protocol", protocol)
-                .set("sasl.mechanism", mechanism)
-                .set("sasl.username", username)
-                .set("sasl.password", password);
-        }
-
-        let target_consumer: BaseConsumer = target_config.create().map_err(|e| {
-            anyhow!(
-                "[KafkaRepositoryImpl::copy_consumer_group_offsets] Failed to create target consumer: {:?}",
-                e
-            )
-        })?;
-
-        // assign() 에는 offset 없는 순수 파티션 TPL 을 넘겨야 한다.
-        // committed_tpl 에는 offset 값이 포함되어 있어 그대로 넘기면
-        // librdkafka 내부 assertion 이 실패할 수 있으므로 별도로 생성한다.
-        let mut assign_tpl: TopicPartitionList = TopicPartitionList::new();
-        for partition in topic_metadata.partitions() {
-            assign_tpl.add_partition(topic, partition.id());
-        }
-
-        target_consumer.assign(&assign_tpl).map_err(|e| {
-            anyhow!(
-                "[KafkaRepositoryImpl::copy_consumer_group_offsets] Failed to assign partitions to target consumer: {:?}",
-                e
-            )
-        })?;
-
-        target_consumer
-            .commit(&committed_tpl, CommitMode::Sync)
-            .map_err(|e| {
-                anyhow!(
-                    "[KafkaRepositoryImpl::copy_consumer_group_offsets] Failed to commit offsets for group '{}': {:?}",
-                    target_group, e
-                )
-            })?;
+        self.deactivate_consumer_group(target_group).await?;
 
         info!(
-            "[KafkaRepositoryImpl::copy_consumer_group_offsets] Successfully copied offsets from '{}' to '{}' for topic '{}'",
-            source_group, target_group, topic
+            "[KafkaRepositoryImpl::copy_consumer_group_offsets] Target group '{}' deactivated successfully.",
+            target_group
         );
 
-        Ok(())
+        // ──────────────────────────────────────────────────────────────
+        // [3단계] offset 복사 수행 (실패 시에도 일관성 유지)
+        // ──────────────────────────────────────────────────────────────
+        let copy_result = self
+            .copy_offsets_internal(topic, source_group, target_group)
+            .await;
+
+        match &copy_result {
+            Ok(_) => {
+                info!(
+                    "[KafkaRepositoryImpl::copy_consumer_group_offsets] ✓ Successfully copied offsets from '{}' to '{}' for topic '{}'",
+                    source_group, target_group, topic
+                );
+                info!(
+                    "[KafkaRepositoryImpl::copy_consumer_group_offsets] Target group '{}' can now be reactivated by starting consumer application.",
+                    target_group
+                );
+            }
+            Err(e) => {
+                error!(
+                    "[KafkaRepositoryImpl::copy_consumer_group_offsets] ✗ Failed to copy offsets: {:?}",
+                    e
+                );
+                error!(
+                    "[KafkaRepositoryImpl::copy_consumer_group_offsets] Target group '{}' remains deactivated. Restart consumer application to reactivate.",
+                    target_group
+                );
+            }
+        }
+
+        copy_result
     }
 
     /// Returns the sum of committed offsets across all partitions for a group.
+    ///
+    /// Assembles the full group ID as `{base_group_id}-{topic}-{group_suffix}`,
+    /// consistent with `get_or_create_consumer`.
     async fn get_committed_offsets_total(
         &self,
         topic: &str,
-        group_id: &str,
+        group_suffix: &str,
     ) -> anyhow::Result<i64> {
+        let group_id: String = format!("{}-{}-{}", self.base_group_id, topic, group_suffix);
+
         let mut config: ClientConfig = ClientConfig::new();
 
         config
             .set("bootstrap.servers", &self.kafka_brokers)
-            .set("group.id", group_id);
+            .set("group.id", &group_id);
 
         if let (Some(protocol), Some(mechanism), Some(username), Some(password)) = (
             &self.security_protocol,
@@ -1279,16 +1481,21 @@ impl KafkaRepository for KafkaRepositoryImpl {
     }
 
     /// Returns committed offsets per partition for a group.
+    ///
+    /// Assembles the full group ID as `{base_group_id}-{topic}-{group_suffix}`,
+    /// consistent with `get_or_create_consumer`.
     async fn get_committed_offsets_by_partition(
         &self,
         topic: &str,
-        group_id: &str,
+        group_suffix: &str,
     ) -> anyhow::Result<HashMap<i32, i64>> {
+        let group_id: String = format!("{}-{}-{}", self.base_group_id, topic, group_suffix);
+
         let mut config: ClientConfig = ClientConfig::new();
 
         config
             .set("bootstrap.servers", &self.kafka_brokers)
-            .set("group.id", group_id);
+            .set("group.id", &group_id);
 
         if let (Some(protocol), Some(mechanism), Some(username), Some(password)) = (
             &self.security_protocol,

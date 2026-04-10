@@ -122,6 +122,7 @@ where
         Ok(total_indexed)
     }
 
+    
     async fn process_spent_detail_incremental(
         &self,
         indexer_topic: &str,
@@ -129,6 +130,7 @@ where
         target_index_name: &str,
         batch_size: usize,
     ) -> anyhow::Result<(u64, u64)> {
+
         let mut upsert_processed: u64 = 0;
         let mut delete_processed: u64 = 0;
         
@@ -143,7 +145,7 @@ where
                     e
                 );
             })?;
-
+        
         if messages.is_empty() {
             batch_log!(
                 info,
