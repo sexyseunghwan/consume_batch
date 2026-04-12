@@ -38,11 +38,3 @@ pub async fn get_spent_detail_indexing() -> bool {
 pub async fn set_spent_detail_indexing(value: bool) {
     *SPENT_DETAIL_INDEXING.write().await = value;
 }
-
-// pub async fn get_spent_detail_indexing_catchup() -> bool {
-//     *SPENT_DETAIL_INDEXING_CATCHUP.read().await
-// }
-
-// pub async fn set_spent_detail_indexing_catchup(value: bool) {
-//     *SPENT_DETAIL_INDEXING_CATCHUP.write().await = value;
-// }

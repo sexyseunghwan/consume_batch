@@ -78,6 +78,7 @@ where
         let mut total_indexed: u64 = 0;
 
         loop {
+            
             let rows: Vec<SpentDetailIndexing> = self
                 .mysql_service
                 .fetch_spent_detail_indexing_for_index(offset, batch_size as u64)
