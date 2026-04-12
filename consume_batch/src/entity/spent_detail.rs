@@ -49,11 +49,11 @@ pub enum Relation {
     )]
     TelegramRoom,
     #[sea_orm(
-        belongs_to = "super::user_payment_method::Entity",
+        belongs_to = "super::user_payment_methods::Entity",
         from = "Column::PaymentMethodId",
-        to = "super::user_payment_method::Column::PaymentMethodId"
+        to = "super::user_payment_methods::Column::PaymentMethodId"
     )]
-    UserPaymentMethod,
+    UserPaymentMethods,
 }
 
 impl Related<super::spent_group_info::Entity> for Entity {
@@ -84,10 +84,10 @@ impl Related<super::telegram_room::Entity> for Entity {
     }
 }
 
-impl Related<super::user_payment_method::Entity> for Entity {
+impl Related<super::user_payment_methods::Entity> for Entity {
     /// Returns the relation definition to `USER_PAYMENT_METHOD`.
     fn to() -> RelationDef {
-        Relation::UserPaymentMethod.def()
+        Relation::UserPaymentMethods.def()
     }
 }
 

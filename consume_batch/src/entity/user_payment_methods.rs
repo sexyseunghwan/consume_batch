@@ -3,7 +3,7 @@
 use sea_orm::entity::prelude::*;
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
-#[sea_orm(table_name = "USER_PAYMENT_METHOD")]
+#[sea_orm(table_name = "USER_PAYMENT_METHODS")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = true)]
     pub payment_method_id: i64,
@@ -11,11 +11,12 @@ pub struct Model {
     pub payment_category_cd: String,
     pub card_id: String,
     pub card_alias: String,
-    pub use_yn: bool,
+    pub is_active: bool,
     pub created_at: DateTime,
     pub updated_at: Option<DateTime>,
     pub created_by: String,
     pub updated_by: Option<String>,
+    pub is_default: bool,
     pub user_seq: i64,
 }
 

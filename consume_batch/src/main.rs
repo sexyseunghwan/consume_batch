@@ -11,6 +11,7 @@ History     :   2025-01-01 Seunghwan Shin       # [v.1.0.0] first create.
                                                             2) Add CLI mode and scheduler mode support.
                                                             3) Improve code structure by seperation responsibilities.
                 2026-04-02 Seunghwan Shin       # [v.2.1.0] Updated the indexing structure and added dependency injection for the service.
+                2026-04-00 Seunghwan Shin       # [v.3.0.0] 
 */
 
 mod common;

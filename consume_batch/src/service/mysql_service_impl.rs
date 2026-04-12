@@ -4,7 +4,7 @@ use crate::service_trait::mysql_service::*;
 
 use crate::entity::{
     common_consume_keyword_type, common_consume_prodt_keyword, dim_calendar, spent_detail,
-    spent_detail_indexing, telegram_room, user_payment_method, users,
+    spent_detail_indexing, telegram_room, user_payment_methods, users,
 };
 use crate::models::{SpentDetail, SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword};
 
@@ -215,7 +215,7 @@ where
             )
             .join(JoinType::InnerJoin, spent_detail::Relation::Users.def())
             .join(JoinType::InnerJoin, spent_detail::Relation::TelegramRoom.def())
-            .join(JoinType::InnerJoin, spent_detail::Relation::UserPaymentMethod.def())
+            .join(JoinType::InnerJoin, spent_detail::Relation::UserPaymentMethods.def())
             .select_only()
             .column(spent_detail::Column::SpentIdx)
             .column(spent_detail::Column::SpentName)
@@ -227,7 +227,7 @@ where
             .column(common_consume_keyword_type::Column::ConsumeKeywordType)
             .column(spent_detail::Column::RoomSeq)
             .column(users::Column::UserId)
-            .column(user_payment_method::Column::CardAlias)
+            .column(user_payment_methods::Column::CardAlias)
             .filter(spent_detail::Column::ShouldIndex.eq(1))
             .filter(spent_detail::Column::SpentIdx.is_in(spent_idxs.to_vec()))
             .filter(telegram_room::Column::IsRoomApproved.eq(true))
