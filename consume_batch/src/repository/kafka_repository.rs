@@ -675,6 +675,8 @@ impl KafkaRepositoryImpl {
     /// 내부적으로 offset을 복사하는 함수 (기존 로직).
     ///
     /// 이 함수는 target 그룹이 이미 비활성화된 상태에서 호출되어야 한다.
+    /// * target 그룹: 복사를 하려는 그룹
+    /// * source 그룹: 복사 대상이 되는 그룹
     async fn copy_offsets_internal(
         &self,
         topic: &str,

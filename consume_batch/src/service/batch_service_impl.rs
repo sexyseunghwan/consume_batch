@@ -452,7 +452,7 @@ where
             "[BatchServiceImpl::process_batch] {} Starting batch indexing job",
             index_name
         );
-
+        
         match batch_name {
             "spent_detail_full" => {
                 indexing_service

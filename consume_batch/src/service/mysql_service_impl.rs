@@ -127,7 +127,7 @@ where
     //         // JOIN with TELEGRAM_ROOM
     //         .join(JoinType::InnerJoin, spent_detail::Relation::TelegramRoom.def())
     //         // JOIN with USER_PAYMENT_METHOD
-    //         .join(JoinType::InnerJoin, spent_detail::Relation::UserPaymentMethod.def())
+    //         .join(JoinType::InnerJoin, spent_detail::Relation::UserPaymentMethods.def())
     //         // SELECT specific columns
     //         .select_only()
     //         .column(spent_detail::Column::SpentIdx)
@@ -139,7 +139,7 @@ where
     //         .column(common_consume_keyword_type::Column::ConsumeKeywordTypeId)
     //         .column(common_consume_keyword_type::Column::ConsumeKeywordType)
     //         .column(spent_detail::Column::RoomSeq)
-    //         .column(user_payment_method::Column::CardAlias)
+    //         .column(user_payment_methods::Column::CardAlias)
     //         // Add literal value for indexing_type
     //         .expr_as(Expr::value("I"), "indexing_type")
     //         // Add current timestamp for produced_at

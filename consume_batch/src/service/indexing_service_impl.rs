@@ -241,7 +241,7 @@ where
 
             delete_processed += delete_ids_size;
         }
-
+        
         Ok((upsert_processed, delete_processed))
     }
 
@@ -635,7 +635,7 @@ where
             index_alias
         );
 
-        // Step 1: 기존 alias 에 지정된 index 이름을 가져와준다.
+        // Step 1: 기존 alias 에 지정된 index 이름들을 가져와준다.
         let old_indxies: Vec<String> = self
             .elastic_service
             .get_index_name_by_alias(index_alias)
@@ -659,7 +659,7 @@ where
             new_index_name
         );
 
-        // Step 3: snapshot incremental offset - 이게 그렇게 좋아보이진 않는데...
+        // Step 3: snapshot incremental offset
         match self
             .consume_service
             .replicate_consumer_group_offsets(
