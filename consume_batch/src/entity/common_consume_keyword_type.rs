@@ -5,7 +5,7 @@ use sea_orm::entity::prelude::*;
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
 #[sea_orm(table_name = "COMMON_CONSUME_KEYWORD_TYPE")]
 pub struct Model {
-    #[sea_orm(primary_key, auto_increment = true)]
+    #[sea_orm(primary_key)]
     pub consume_keyword_type_id: i64,
     #[sea_orm(unique)]
     pub consume_keyword_type: String,
@@ -19,12 +19,19 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(has_many = "super::common_consume_prodt_keyword::Entity")]
     CommonConsumeProdtKeyword,
+    #[sea_orm(has_many = "super::spent_detail::Entity")]
+    SpentDetail,
 }
 
 impl Related<super::common_consume_prodt_keyword::Entity> for Entity {
-    /// Returns the relation definition to `COMMON_CONSUME_PRODT_KEYWORD`.
     fn to() -> RelationDef {
         Relation::CommonConsumeProdtKeyword.def()
+    }
+}
+
+impl Related<super::spent_detail::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::SpentDetail.def()
     }
 }
 

@@ -46,7 +46,7 @@ impl Related<super::telegram_room::Entity> for Entity {
 }
 
 impl Related<super::user_payment_methods::Entity> for Entity {
-    /// Returns the relation definition to `USER_PAYMENT_METHOD`.
+    /// Returns the relation definition to `USER_PAYMENT_METHODS`.
     fn to() -> RelationDef {
         Relation::UserPaymentMethods.def()
     }

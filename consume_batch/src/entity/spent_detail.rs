@@ -70,8 +70,8 @@ impl Related<super::users::Entity> for Entity {
     }
 }
 
-impl Related<super::common_consume_prodt_keyword::Entity> for Entity {
-    /// Returns the relation definition to `COMMON_CONSUME_PRODT_KEYWORD`.
+impl Related<super::common_consume_keyword_type::Entity> for Entity {
+    /// Returns the relation definition to `COMMON_CONSUME_KEYWORD_TYPE`.
     fn to() -> RelationDef {
         Relation::CommonConsumeKeywordType.def()
     }

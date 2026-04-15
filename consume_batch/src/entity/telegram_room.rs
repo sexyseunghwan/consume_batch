@@ -5,7 +5,7 @@ use sea_orm::entity::prelude::*;
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
 #[sea_orm(table_name = "TELEGRAM_ROOM")]
 pub struct Model {
-    #[sea_orm(primary_key, auto_increment = true)]
+    #[sea_orm(primary_key)]
     pub room_seq: i64,
     #[sea_orm(unique)]
     pub room_token: String,
@@ -30,14 +30,12 @@ pub enum Relation {
 }
 
 impl Related<super::spent_detail::Entity> for Entity {
-    /// Returns the relation definition to `SPENT_DETAIL`.
     fn to() -> RelationDef {
         Relation::SpentDetail.def()
     }
 }
 
 impl Related<super::users::Entity> for Entity {
-    /// Returns the relation definition to `USERS`.
     fn to() -> RelationDef {
         Relation::Users.def()
     }

@@ -5,7 +5,7 @@ use sea_orm::entity::prelude::*;
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Eq)]
 #[sea_orm(table_name = "SPENT_GROUP_INFO")]
 pub struct Model {
-    #[sea_orm(primary_key, auto_increment = true)]
+    #[sea_orm(primary_key)]
     pub spent_group_id: i64,
     #[sea_orm(unique)]
     pub spent_group_nm: Option<String>,
@@ -23,7 +23,6 @@ pub enum Relation {
 }
 
 impl Related<super::spent_detail::Entity> for Entity {
-    /// Returns the relation definition to `SPENT_DETAIL`.
     fn to() -> RelationDef {
         Relation::SpentDetail.def()
     }
