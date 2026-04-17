@@ -213,7 +213,11 @@ where
     /// Listens on the path configured in `AppConfig::socket_path` and
     /// spawns a separate task for each incoming connection.
     async fn start_socket_server(&self) -> anyhow::Result<()> {
-        let socket_path: &str = AppConfig::global().socket_path();
+        let socket_path: &str = AppConfig::global()
+            .inspect_err(|e| {
+                error!("[CliServiceImpl::start_socket_server] app_config: {:#}", e);
+            })?
+            .socket_path();
 
         // [1] Remove existing socket file to handle unclean shutdowns
         match std::fs::remove_file(socket_path) {

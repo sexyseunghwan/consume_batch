@@ -313,7 +313,9 @@ where
         &self,
         prodt_name: &str,
     ) -> Result<ConsumingIndexProdtType, anyhow::Error> {
-        let app_config: &AppConfig = AppConfig::global();
+        let app_config: &AppConfig = AppConfig::global().inspect_err(|e| {
+            error!("[ElasticServiceImpl::get_consume_type_judgement] app_config: {:#}", e);
+        })?;
         let es_spent_type: &str = app_config.es_spent_type().as_str();
 
         let es_query: Value = json!({
@@ -358,7 +360,9 @@ where
             return Ok(Vec::new());
         }
 
-        let app_config: &AppConfig = AppConfig::global();
+        let app_config: &AppConfig = AppConfig::global().inspect_err(|e| {
+            error!("[ElasticServiceImpl::get_consume_type_judgements] app_config: {:#}", e);
+        })?;
         let es_spent_type_index: &str = app_config.es_spent_type().as_str(); // Name of Elasticsearch index.
         
         let es_queries: Vec<Value> = prodt_names

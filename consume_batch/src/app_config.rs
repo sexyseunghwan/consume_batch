@@ -48,8 +48,9 @@ impl AppConfig {
     /// use consume_alert_rust::config::AppConfig;
     ///
     /// AppConfig::init().expect("Failed to initialize config");
-    /// let config = AppConfig::global();
+    /// let config = AppConfig::global()?;
     /// println!("Socket path: {}", config.socket_path());
+    /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn init() -> Result<(), String> {
         dotenv::dotenv().ok();
@@ -91,25 +92,24 @@ impl AppConfig {
             .map_err(|_| "AppConfig already initialized".to_string())
     }
 
-    /// Get a reference to the global configuration
-    ///
-    /// # Panics
-    /// Panics if the configuration has not been initialized with `AppConfig::init()`
+    /// Get a reference to the global configuration.
     ///
     /// # Returns
-    /// * `&'static AppConfig` - Reference to the global configuration
+    /// * `Ok(&'static AppConfig)` - Reference to the global configuration
+    /// * `Err` - Returned if `AppConfig::init()` has not been called yet
     ///
     /// # Example
     /// ```
     /// use consume_alert_rust::config::AppConfig;
     ///
-    /// let config = AppConfig::global();
+    /// let config = AppConfig::global()?;
     /// println!("Topic: {}", config.consume_topic);
+    /// # Ok::<(), anyhow::Error>(())
     /// ```
-    pub fn global() -> &'static AppConfig {
+    pub fn global() -> anyhow::Result<&'static AppConfig> {
         APP_CONFIG
             .get()
-            .expect("AppConfig not initialized. Call AppConfig::init() first.")
+            .ok_or_else(|| anyhow!("AppConfig not initialized. Call AppConfig::init() first."))
     }
 
     /// Try to get a reference to the global configuration
@@ -129,14 +129,16 @@ mod tests {
 
     #[test]
     /// Verifies that the global configuration can be initialized and accessed in tests.
-    fn test_config_access() {
+    fn test_config_access() -> anyhow::Result<()> {
         // Note: This test requires .env file to be present
         if AppConfig::try_global().is_none() {
+            assert!(AppConfig::global().is_err());
             let _ = AppConfig::init();
         }
 
-        let config: &AppConfig = AppConfig::global();
+        let _config: &AppConfig = AppConfig::global()?;
         // assert!(!config.produce_topic.is_empty());
         // assert!(!config.kafka_brokers.is_empty());
+        Ok(())
     }
 }

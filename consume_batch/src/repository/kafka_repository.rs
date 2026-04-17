@@ -402,7 +402,9 @@ impl KafkaRepositoryImpl {
     /// Returns `Ok(KafkaRepositoryImpl)` on successful initialization.
     pub fn new() -> anyhow::Result<Self> {
         // Load configuration from environment
-        let app_config: &AppConfig = AppConfig::global();
+        let app_config: &AppConfig = AppConfig::global().inspect_err(|e| {
+            error!("[KafkaRepositoryImpl::new] app_config: {:#}", e);
+        })?;
 
         let kafka_brokers: String = app_config.kafka_host().to_string();
         let base_group_id: String = app_config.kafka_group_id().to_string();

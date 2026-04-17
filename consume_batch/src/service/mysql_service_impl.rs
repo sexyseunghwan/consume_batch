@@ -799,14 +799,17 @@ where
         &self,
         upsert_list: Vec<SpentDetailWithRelations>,
     ) -> anyhow::Result<()> {
-        
+
         if upsert_list.is_empty() {
             return Ok(());
         }
-        
+
         let db: &DatabaseConnection = self.db_conn.get_connection();
         let now: DateTime<Utc> = Utc::now();
-        
+
+        // 실패 시 어떤 idx가 문제인지 식별할 수 있도록 미리 추출
+        let spent_idxs: Vec<i64> = upsert_list.iter().map(|r| r.spent_idx).collect();
+
         let active_models: Vec<spent_detail_indexing::ActiveModel> = upsert_list
             .into_iter()
             .map(|row| spent_detail_indexing::ActiveModel {
@@ -826,7 +829,14 @@ where
             })
             .collect();
 
-        spent_detail_indexing::Entity::insert_many(active_models)
+        let txn: DatabaseTransaction = db.begin().await.inspect_err(|e| {
+            error!(
+                "[MysqlServiceImpl::upsert_spent_detail_indexing] Failed to begin transaction: {:#}",
+                e
+            );
+        })?;
+
+        let result: std::result::Result<u64, DbErr> = spent_detail_indexing::Entity::insert_many(active_models)
             .on_conflict(
                 OnConflict::column(spent_detail_indexing::Column::SpentIdx)
                     .update_columns([
@@ -845,14 +855,32 @@ where
                     ])
                     .to_owned(),
             )
-            .exec_without_returning(db)
-            .await
-            .inspect_err(|e| {
+            .exec_without_returning(&txn)
+            .await;
+        
+        if let Err(e) = result {
+            
+            error!(
+                "[MysqlServiceImpl::upsert_spent_detail_indexing] Upsert failed (spent_idxs={:?}): {:#}",
+                spent_idxs, e
+            );
+
+            txn.rollback().await.inspect_err(|e| {
                 error!(
-                    "[MysqlServiceImpl::upsert_spent_detail_indexing] Upsert failed: {:#}",
+                    "[MysqlServiceImpl::upsert_spent_detail_indexing] Rollback failed: {:#}",
                     e
                 );
             })?;
+
+            return Err(e.into());
+        }
+
+        txn.commit().await.inspect_err(|e| {
+            error!(
+                "[MysqlServiceImpl::upsert_spent_detail_indexing] Commit failed (spent_idxs={:?}): {:#}",
+                spent_idxs, e
+            );
+        })?;
 
         Ok(())
     }

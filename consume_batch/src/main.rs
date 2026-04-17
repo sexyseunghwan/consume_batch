@@ -101,7 +101,7 @@ type Controller = MainController<BatchSvc, CliSvc>;
 /// Panics if any repository or service fails to initialize, since the application
 /// cannot run without valid connections to all external systems (ES, MySQL, Kafka).
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     dotenv().ok();
 
     let args: Vec<String> = std::env::args().collect();
@@ -116,10 +116,10 @@ async fn main() {
         let socket_path: String = std::env::var("SOCKET_PATH")
             .unwrap_or_else(|_| "./socket/consume_batch.sock".to_string());
         CliClientController::run(&socket_path).await;
-        return;
+        return Ok(());
     }
 
-    AppConfig::init().expect("Failed to initialize AppConfig");
+    AppConfig::init().map_err(|e| anyhow!("Failed to initialize AppConfig: {}", e))?;
     set_global_logger();
 
     info!("Indexing Batch Program Start.");
@@ -162,12 +162,11 @@ async fn main() {
     let producer_service: Arc<ProducerService> =
         Arc::new(ProducerServiceImpl::new(Arc::clone(&shared_kafka_repo)));
 
-    let public_data_service: PublicDataSvc = PublicDataServiceImpl::new(
-        AppConfig::global()
-            .public_data_api_key()
-            .clone()
-            .unwrap_or_default(),
-    );
+    let public_data_api_key: String = AppConfig::global()?
+        .public_data_api_key()
+        .clone()
+        .unwrap_or_default();
+    let public_data_service: PublicDataSvc = PublicDataServiceImpl::new(public_data_api_key);
 
     // Create indexing service — shares the same service Arc refs as BatchServiceImpl
     let indexing_service: IndexingSvc = IndexingServiceImpl::new(
@@ -208,4 +207,6 @@ async fn main() {
             error!("[main] {:#}", e);
         }
     }
+
+    Ok(())
 }

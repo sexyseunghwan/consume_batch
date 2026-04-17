@@ -272,7 +272,9 @@ impl MysqlRepositoryImpl {
     pub async fn new() -> anyhow::Result<Self> {
         // Load database URL from environment
         //let db_url: String = ENV.mysql().database_url().to_string();
-        let app_config: &AppConfig = AppConfig::global();
+        let app_config: &AppConfig = AppConfig::global().inspect_err(|e| {
+            error!("[MysqlRepositoryImpl::new] app_config: {:#}", e);
+        })?;
         let db_url: &String = app_config.database_url();
 
         // Establish database connection

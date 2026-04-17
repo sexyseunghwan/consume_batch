@@ -353,7 +353,9 @@ impl EsRepositoryImpl {
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn new() -> anyhow::Result<Self> {
-        let app_config: &AppConfig = AppConfig::global();
+        let app_config: &AppConfig = AppConfig::global().inspect_err(|e| {
+            error!("[EsRepositoryImpl::new] app_config: {:#}", e);
+        })?;
 
         // Parse comma-separated host list from environment
         let es_host: Vec<String> = app_config

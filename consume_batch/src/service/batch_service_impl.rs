@@ -186,7 +186,9 @@ where
         public_data_service: D,
         indexing_service: I,
     ) -> Result<Self> {
-        let app_config: &AppConfig = AppConfig::global();
+        let app_config: &AppConfig = AppConfig::global().inspect_err(|e| {
+            error!("[BatchServiceImpl::new] app_config: {:#}", e);
+        })?;
         let batch_schedule: &str = app_config.batch_schedule().as_str();
 
         let schedule_config: BatchScheduleConfig =
