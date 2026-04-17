@@ -243,6 +243,14 @@ pub trait ElasticService {
         prodt_name: &str,
     ) -> Result<ConsumingIndexProdtType, anyhow::Error>;
 
+    /// Predicts consume keyword types for multiple product names in one batch.
+    ///
+    /// The returned vector preserves the order of `prodt_names`.
+    async fn get_consume_type_judgements(
+        &self,
+        prodt_names: &[String],
+    ) -> Result<Vec<ConsumingIndexProdtType>, anyhow::Error>;
+
     /// Converts a raw Elasticsearch response into typed search results.
     async fn get_query_result_vec<T: DeserializeOwned>(
         &self,

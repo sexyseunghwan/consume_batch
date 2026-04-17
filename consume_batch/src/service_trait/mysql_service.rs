@@ -72,7 +72,7 @@ pub trait MysqlService {
     /// # Returns
     ///
     /// Returns the number of updated rows.
-    async fn update_spent_detail_type_batch(&self, updates: Vec<(i64, i64)>)
+    async fn update_spent_detail_type_batch(&self, updates: Vec<(i64, i64)>, batch_size: usize)
     -> anyhow::Result<u64>;
 
     /// Updates consume_keyword_type_id one row at a time (for performance comparison).

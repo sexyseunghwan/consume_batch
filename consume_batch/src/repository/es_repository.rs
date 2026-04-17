@@ -44,7 +44,7 @@
 use crate::{app_config::AppConfig, common::*};
 
 use elasticsearch::{
-    BulkParts,
+    BulkParts, MsearchParts,
     http::request::JsonBody,
     indices::{
         IndicesCreateParts, IndicesDeleteParts, IndicesGetAliasParts, IndicesPutSettingsParts,
@@ -83,6 +83,15 @@ pub trait EsRepository {
         es_query: &Value,
         index_name: &str,
     ) -> Result<Value, anyhow::Error>;
+
+    /// Executes multiple search queries against an Elasticsearch index in one request.
+    ///
+    /// The returned vector preserves the order of `es_queries`.
+    async fn get_multi_search_query(
+        &self,
+        es_queries: &[Value],
+        index_name: &str,
+    ) -> Result<Vec<Value>, anyhow::Error>;
 
     /// Indexes a document into an Elasticsearch index.
     ///
@@ -447,6 +456,71 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
+    /// Executes multiple search queries against a single Elasticsearch index.
+    async fn get_multi_search_query(
+        &self,
+        es_queries: &[Value],
+        index_name: &str,
+    ) -> anyhow::Result<Vec<Value>> {
+        if es_queries.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut body: Vec<JsonBody<Value>> = Vec::with_capacity(es_queries.len() * 2);
+
+        for es_query in es_queries {
+            body.push(json!({ "index": index_name }).into());
+            body.push(es_query.clone().into());
+        }
+
+        let response: Response = self
+            .es_client
+            .msearch(MsearchParts::None)
+            .body(body)
+            .send()
+            .await?;
+
+        if !response.status_code().is_success() {
+            let error_body: String = response.text().await?;
+            return Err(anyhow!(
+                "[EsRepositoryImpl::get_multi_search_query] response status is failed: {:?}",
+                error_body
+            ));
+        }
+
+        let response_body: Value = response.json::<Value>().await?;
+        let responses: &Vec<Value> = response_body
+            .get("responses")
+            .and_then(Value::as_array)
+            .ok_or_else(|| {
+                anyhow!("[EsRepositoryImpl::get_multi_search_query] Missing 'responses' array")
+            })?;
+
+        if responses.len() != es_queries.len() {
+            return Err(anyhow!(
+                "[EsRepositoryImpl::get_multi_search_query] Response count mismatch. expected={}, actual={}",
+                es_queries.len(),
+                responses.len()
+            ));
+        }
+
+        responses
+            .iter()
+            .enumerate()
+            .map(|(idx, search_response)| {
+                if let Some(error) = search_response.get("error") {
+                    return Err(anyhow!(
+                        "[EsRepositoryImpl::get_multi_search_query] Query {} failed: {:?}",
+                        idx,
+                        error
+                    ));
+                }
+
+                Ok(search_response.clone())
+            })
+            .collect()
+    }
+
     /// Indexes a document into an Elasticsearch index.
     ///
     /// Creates a new document in the specified index. Elasticsearch will
@@ -661,7 +735,7 @@ impl EsRepository for EsRepositoryImpl {
                 return Err(anyhow!(
                     "[EsRepositoryImpl::bulk_index] Some documents failed to index: {:?}",
                     response_body.get("items")
-                ))
+                ));
             }
 
             info!(
@@ -739,7 +813,7 @@ impl EsRepository for EsRepositoryImpl {
                 return Err(anyhow!(
                     "[EsRepositoryImpl::bulk_update] Some documents failed to update: {:?}",
                     response_body.get("items")
-                ))
+                ));
             }
 
             info!(
@@ -792,7 +866,7 @@ impl EsRepository for EsRepositoryImpl {
                 return Err(anyhow!(
                     "[EsRepositoryImpl::bulk_delete] Some documents failed to delete: {:?}",
                     response_body.get("items")
-                ))
+                ));
             }
 
             info!(

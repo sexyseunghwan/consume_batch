@@ -13,6 +13,46 @@ pub struct ElasticServiceImpl<R: EsRepository> {
     elastic_conn: R,
 }
 
+impl<R: EsRepository> ElasticServiceImpl<R> {
+    fn choose_consume_type(
+        prodt_name: &str,
+        results: Vec<DocumentWithId<ConsumingIndexProdtType>>,
+    ) -> anyhow::Result<ConsumingIndexProdtType> {
+        if results.is_empty() {
+            return Ok(ConsumingIndexProdtType::new(
+                20,
+                String::from("etc"),
+                prodt_name.to_string(),
+                0,
+            ));
+        }
+
+        let mut manager: ScoreManager<ConsumingIndexProdtType> =
+            ScoreManager::<ConsumingIndexProdtType>::new();
+
+        for consume_type in results {
+            let keyword_weight: f64 = *consume_type.source().keyword_weight() as f64;
+            let score: f64 = *consume_type.score() * -1.0 * keyword_weight;
+            let score_i64: i64 = score as i64;
+            let keyword: &str = consume_type.source.consume_keyword();
+
+            /* Use the 'levenshtein' algorithm to determine word match */
+            let word_dist: usize = levenshtein(keyword, prodt_name);
+            let word_dist_i64: i64 = word_dist.try_into()?;
+            manager.insert(word_dist_i64 + score_i64, consume_type.source);
+        }
+
+        let score_data_keyword: ScoredData<ConsumingIndexProdtType> =
+            manager.pop_lowest().ok_or_else(|| {
+                anyhow!(
+                    "[ElasticServiceImpl::choose_consume_type] The mapped data for variable 'score_data_keyword' does not exist."
+                )
+            })?;
+
+        Ok(score_data_keyword.data)
+    }
+}
+
 #[async_trait]
 impl<R> ElasticService for ElasticServiceImpl<R>
 where
@@ -48,7 +88,9 @@ where
         documents: Vec<T>,
         doc_id_field: Option<&str>,
     ) -> anyhow::Result<()> {
-        self.elastic_conn.bulk_index(index_name, documents, doc_id_field).await
+        self.elastic_conn
+            .bulk_index(index_name, documents, doc_id_field)
+            .await
     }
 
     /// Bulk-updates documents in the target Elasticsearch index.
@@ -303,40 +345,198 @@ where
                 )
             })?;
 
-        if results.is_empty() {
-            return Ok(ConsumingIndexProdtType::new(
-                20,
-                String::from("etc"),
-                prodt_name.to_string(),
-                0,
-            ));
-        } else {
-            let mut manager: ScoreManager<ConsumingIndexProdtType> =
-                ScoreManager::<ConsumingIndexProdtType>::new();
+        Self::choose_consume_type(prodt_name, results)
+    }
 
-            for consume_type in results {
-                let keyword_weight: f64 = *consume_type.source().keyword_weight() as f64;
-                let score: f64 = *consume_type.score() * -1.0 * keyword_weight;
-                let score_i64: i64 = score as i64;
-                let keyword: &str = consume_type.source.consume_keyword();
-
-                /* Use the 'levenshtein' algorithm to determine word match */
-                let word_dist: usize = levenshtein(keyword, prodt_name);
-                let word_dist_i64: i64 = word_dist.try_into()?;
-                manager.insert(word_dist_i64 + score_i64, consume_type.source);
-            }
-
-            let score_data_keyword: ScoredData<ConsumingIndexProdtType> = match manager.pop_lowest()
-            {
-                Some(score_data_keyword) => score_data_keyword,
-                None => {
-                    return Err(anyhow!(
-                        "[ElasticServiceImpl::get_consume_type_judgement] The mapped data for variable 'score_data_keyword' does not exist."
-                    ));
-                }
-            };
-
-            return Ok(score_data_keyword.data);
+    /// Predicts the consume keyword types for multiple product names using a single msearch call.
+    async fn get_consume_type_judgements(
+        &self,
+        prodt_names: &[String],
+    ) -> Result<Vec<ConsumingIndexProdtType>, anyhow::Error> {
+        
+        if prodt_names.is_empty() {
+            return Ok(Vec::new());
         }
+
+        let app_config: &AppConfig = AppConfig::global();
+        let es_spent_type_index: &str = app_config.es_spent_type().as_str(); // Name of Elasticsearch index.
+        
+        let es_queries: Vec<Value> = prodt_names
+            .iter()
+            .map(|prodt_name| {
+                json!({
+                    "query": {
+                        "match": {
+                            "consume_keyword": prodt_name
+                        }
+                    }
+                })
+            })
+            .collect();
+
+        let response_bodies: Vec<Value> = self
+            .elastic_conn
+            .get_multi_search_query(&es_queries, es_spent_type_index)
+            .await
+            .map_err(|e| {
+                anyhow!(
+                    "[ElasticServiceImpl::get_consume_type_judgements] response_body: {:?}",
+                    e
+                )
+            })?;
+        
+        //let mut cnt_idx = 0;
+
+        for elem in &response_bodies {
+            println!("==========================================");
+            println!("{:?}", elem);
+            println!("==========================================");
+            //break;
+
+        }
+        
+        let mut consume_types: Vec<ConsumingIndexProdtType> =
+            Vec::with_capacity(response_bodies.len());
+        
+        /* 
+            prodt_names = ["네이버페이", "쿠팡", "카카오"]
+            response_bodies = [
+                {
+                    "status": 200,
+                    "took": 12,
+                    "timed_out": false,
+                    "_shards": {
+                        "total": 3,
+                        "successful": 3,
+                        "skipped": 0,
+                        "failed": 0
+                    },
+                    "hits": {
+                        "total": {
+                        "value": 6,
+                        "relation": "eq"
+                        },
+                        "max_score": 7.8795195,
+                        "hits": [
+                        {
+                            "_id": "Avk4mp0BII1OZBPIKoES",
+                            "_index": "spent_type_dev_20260417065424",
+                            "_score": 7.8795195,
+                            "_source": {
+                            "consume_keyword": "네이버페이",
+                            "consume_keyword_type": "인터넷 쇼핑",
+                            "consume_keyword_type_id": 16,
+                            "keyword_weight": 1
+                            }
+                        },
+                        {
+                            "_id": "Afk4mp0BII1OZBPIKoES",
+                            "_index": "spent_type_dev_20260417065424",
+                            "_score": 4.8827868,
+                            "_source": {
+                            "consume_keyword": "네이버",
+                            "consume_keyword_type": "인터넷 쇼핑",
+                            "consume_keyword_type_id": 16,
+                            "keyword_weight": 1
+                            }
+                        },
+                        {
+                            "_id": "D_k4mp0BII1OZBPIKoET",
+                            "_index": "spent_type_dev_20260417065424",
+                            "_score": 3.9397597,
+                            "_source": {
+                            "consume_keyword": "카카오페이",
+                            "consume_keyword_type": "인터넷 쇼핑",
+                            "consume_keyword_type_id": 16,
+                            "keyword_weight": 1
+                            }
+                        },
+                        {
+                            "_id": "gPk4mp0BII1OZBPIKoAS",
+                            "_index": "spent_type_dev_20260417065424",
+                            "_score": 3.7906468,
+                            "_source": {
+                            "consume_keyword": "비플페이",
+                            "consume_keyword_type": "식사",
+                            "consume_keyword_type_id": 13,
+                            "keyword_weight": 1
+                            }
+                        },
+                        {
+                            "_id": "Bfk4mp0BII1OZBPIKoET",
+                            "_index": "spent_type_dev_20260417065424",
+                            "_score": 3.7906468,
+                            "_source": {
+                            "consume_keyword": "삼성페이",
+                            "consume_keyword_type": "인터넷 쇼핑",
+                            "consume_keyword_type_id": 16,
+                            "keyword_weight": 1
+                            }
+                        },
+                        {
+                            "_id": "Efk4mp0BII1OZBPIKoET",
+                            "_index": "spent_type_dev_20260417065424",
+                            "_score": 3.7906468,
+                            "_source": {
+                            "consume_keyword": "쿠팡 페이",
+                            "consume_keyword_type": "인터넷 쇼핑",
+                            "consume_keyword_type_id": 16,
+                            "keyword_weight": 1
+                            }
+                        }
+                        ]
+                    }
+                },  => A1: Reesult of "네이버페이" 
+                ... => A2: Reesult of "쿠팡" 
+                ... => A3: Reesult of "카카오"
+            ]
+            
+            "네이버페이", "쿠팡", "카카오"
+
+            prodt_names.iter().zip(response_bodies.iter())
+            => 
+            [
+                ("네이버페이", A1),
+                ("쿠팡", A2),
+                ("카카오", A3)
+            ]
+        */
+        for (prodt_name, response_body) in prodt_names.iter().zip(response_bodies.iter()) {
+            let results: Vec<DocumentWithId<ConsumingIndexProdtType>> = self
+                .get_query_result_vec(response_body)
+                .await
+                .map_err(|e| {
+                    anyhow!(
+                        "[ElasticServiceImpl::get_consume_type_judgements] results: {:?}",
+                        e
+                    )
+                })?;
+
+            consume_types.push(Self::choose_consume_type(prodt_name, results)?);
+        }
+
+        /*
+            consume_types = [
+                {
+                    "consume_keyword": "네이버페이",
+                    "consume_keyword_type": "인터넷 쇼핑",
+                    "consume_keyword_type_id": 16,
+                    "keyword_weight": 1
+                },
+                {
+                    "consume_keyword": "쿠팡",
+                    "consume_keyword_type": "인터넷 쇼핑",
+                    "consume_keyword_type_id": 16,
+                    "keyword_weight": 1
+                },
+                {
+                    "consume_keyword": "카카오",
+                    "consume_keyword_type": "인터넷 쇼핑",
+                    "consume_keyword_type_id": 16,
+                    "keyword_weight": 1
+                }
+            ]
+        */
+        Ok(consume_types)
     }
 }

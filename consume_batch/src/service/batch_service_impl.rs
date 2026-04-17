@@ -572,6 +572,26 @@ where
         let mut total_processed: u64 = 0;
 
         loop {
+            
+            /*
+                details = [
+                    {
+                       spent_idx: 152,
+                       spent_name: "네이버페이",
+                       ...
+                    }, -> D1
+                    {
+                       spent_idx: 153,
+                       spent_name: "쿠팡",
+                       ...
+                    }, -> D2
+                    {
+                       spent_idx: 157,
+                       spent_name: "카카오",
+                       ...
+                    } -> D3
+                ]
+            */
             let details: Vec<SpentDetail> =
                 match mysql_service.fetch_spent_details(offset, batch_size).await {
                     Ok(details) => details,
@@ -592,25 +612,68 @@ where
             let batch_count: usize = details.len();
             total_processed += batch_count as u64;
 
-            // Find records that need type update
-            let mut updates: Vec<(i64, i64)> = Vec::new();
+            let spent_names: Vec<String> = details
+                .iter()
+                .map(|detail| detail.spent_name().clone())
+                .collect();
 
-            for detail in &details {
-                let spent_type: ConsumingIndexProdtType = elastic_service
-                    .get_consume_type_judgement(detail.spent_name())
-                    .await
-                    .inspect_err(|e| {
-                        error!("[BatchServiceImpl::process_update_all_check_type_detail] spent_type: {:#}", e);
-                    })?;
+            /*
+                spent_types = [
+                    {
+                        "consume_keyword": "네이버페이",
+                        "consume_keyword_type": "인터넷 쇼핑",
+                        "consume_keyword_type_id": 16,
+                        "keyword_weight": 1
+                    }, -> S1
+                    {
+                        "consume_keyword": "쿠팡",
+                        "consume_keyword_type": "인터넷 쇼핑",
+                        "consume_keyword_type_id": 16,
+                        "keyword_weight": 1
+                    }, -> S2
+                    {
+                        "consume_keyword": "카카오",
+                        "consume_keyword_type": "인터넷 쇼핑",
+                        "consume_keyword_type_id": 16,
+                        "keyword_weight": 1
+                    } -> S3
+                ]
+            */
+            let spent_types: Vec<ConsumingIndexProdtType> = elastic_service
+                .get_consume_type_judgements(&spent_names)
+                .await
+                .inspect_err(|e| {
+                    error!("[BatchServiceImpl::process_update_all_check_type_detail] spent_types: {:#}", e);
+                })?;
 
-                updates.push((*detail.spent_idx(), *spent_type.consume_keyword_type_id()));
+            if spent_types.len() != details.len() {
+                return Err(anyhow!(
+                    "[BatchServiceImpl::process_update_all_check_type_detail] spent_types length mismatch. details={}, spent_types={}",
+                    details.len(),
+                    spent_types.len()
+                ));
             }
+            
+            /*
+                ## Find records that need type update ##
+                updates = [
+                    (D1.spent_idx, S1.consume_keyword_type_id),
+                    (D2.spent_idx, S2.consume_keyword_type_id),
+                    (D3.spent_idx, S3.consume_keyword_type_id)
+                ]
+            */
+            let updates: Vec<(i64, i64)> = details
+                .iter()
+                .zip(spent_types.iter())
+                .map(|(detail, spent_type)| {
+                    (*detail.spent_idx(), *spent_type.consume_keyword_type_id())
+                })
+                .collect();
 
             if !updates.is_empty() {
                 let update_count: usize = updates.len();
                 let updated: u64 = mysql_service
-                    //.update_spent_detail_type_one_by_one(updates)
-                    .update_spent_detail_type_batch(updates)
+                    .update_spent_detail_type_batch(updates, batch_size as usize)
                     .await
                     .inspect_err(|e| {
                         error!(

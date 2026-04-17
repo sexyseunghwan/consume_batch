@@ -219,7 +219,7 @@ let production_settings: Value = json!({
 - `AppConfig`에 `es_number_of_replicas` 환경변수 추가
 - 환경별로 값을 다르게 설정할 수 있도록 외부화
 
----
+--- 여기까지 마침...
 
 ### 10. AppConfig::global() 초기화 전 호출 시 panic
 

@@ -437,6 +437,7 @@ where
             .column(spent_detail::Column::SpentGroupId)
             .column(spent_detail::Column::ConsumeKeywordTypeId)
             .column(spent_detail::Column::RoomSeq)
+            .column(spent_detail::Column::PaymentMethodId)
             .offset(offset)
             .limit(limit)
             .order_by_asc(spent_detail::Column::SpentIdx)
@@ -485,6 +486,7 @@ where
     async fn update_spent_detail_type_batch(
         &self,
         updates: Vec<(i64, i64)>,
+        batch_size: usize
     ) -> anyhow::Result<u64> {
         let db: &DatabaseConnection = self.db_conn.get_connection();
 
@@ -498,15 +500,20 @@ where
                 error!("[MysqlServiceImpl::update_spent_detail_type_batch] Failed to begin transaction: {:#}", e);
             })?;
 
-        /// Max number of CASE WHEN clauses per chunk.
-        /// Limited to 500 to stay within MySQL's max_allowed_packet and reduce query parsing overhead.
-        const CHUNK_SIZE: usize = 500;
         let mut total_affected: u64 = 0;
 
         // Wrapped in an async block so that any error is captured in `result`,
         // allowing explicit rollback in the branch below.
         let result: std::result::Result<(), anyhow::Error> = async {
-            for chunk in updates.chunks(CHUNK_SIZE) {
+
+            /*
+               updates.chunks(2) = 
+                    [ (13, 44), (14, 21) ],
+                    [ (15, 131), (16, 33) ],
+                    [ (17, 12), (18, 578) ],
+                    ... 
+            */
+            for chunk in updates.chunks(batch_size) {
                 // Dynamically build CASE WHEN spent_idx = ? THEN ? ... END expression
                 let mut case_stmt: CaseStatement = CaseStatement::new();
                 // Collect primary keys for WHERE spent_idx IN (...) clause
@@ -519,10 +526,27 @@ where
                     );
                     ids.push(*spent_idx);
                 }
-
-                // UPDATE SPENT_DETAIL
-                // SET consume_keyword_type_id = CASE WHEN ... END
-                // WHERE spent_idx IN (...)
+                
+                /*
+                    UPDATE SPENT_DETAIL
+                    SET consume_keyword_type_id = CASE WHEN ... END
+                    WHERE spent_idx IN (...)
+                    
+                    EX)
+                    chunk = [
+                        (1001, 16),
+                        (1002, 13),
+                        (1005, 20),
+                    ]
+                    =>
+                    UPDATE spent_detail
+                    SET consume_keyword_type_id = CASE
+                        WHEN spent_idx = 1001 THEN 16
+                        WHEN spent_idx = 1002 THEN 13
+                        WHEN spent_idx = 1005 THEN 20
+                    END
+                    WHERE spent_idx IN (1001, 1002, 1005);                                
+                */
                 let result: sea_orm::UpdateResult = spent_detail::Entity::update_many()
                     // SET
                     .col_expr(spent_detail::Column::ConsumeKeywordTypeId, case_stmt.into())
