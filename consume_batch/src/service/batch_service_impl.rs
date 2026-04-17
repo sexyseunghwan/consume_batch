@@ -929,6 +929,21 @@ where
     }
 
     /// Runs a single batch schedule immediately.
+    ///
+    /// Delegates directly to `process_batch` using the current service's dependencies.
+    /// Used by the CLI service to trigger on-demand batch execution via socket.
+    ///
+    /// # Arguments
+    ///
+    /// * `schedule_item` - The batch schedule item to execute
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful completion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the underlying batch processing fails.
     async fn run_batch(&self, schedule_item: &BatchScheduleItem) -> anyhow::Result<()> {
         Self::process_batch(
             schedule_item,

@@ -4,20 +4,18 @@
 //! This module provides the data structure for indexing spent detail information
 //! along with related keyword, keyword type, and telegram room data.
 
-////################################ 이거 deprecated 되어야 겠는데? ################################////
+//################################ 이거 deprecated 되어야 겠는데? ################################//
 
 use crate::common::*;
 
-use crate::enums::IndexingType;
 
-use std::str::FromStr;
 
 /// Internal structure for FromQueryResult that stores indexing_type as String
 #[derive(Debug, Clone, FromQueryResult)]
 pub struct SpentDetailWithRelationsRaw {
     spent_idx: i64,
     spent_name: String,
-    spent_money: i32,
+    spent_money: i64,
     spent_at: DateTime<Utc>,
     created_at: DateTime<Utc>,
     user_seq: i64,
@@ -32,7 +30,7 @@ pub struct SpentDetailWithRelationsRaw {
 // pub struct SpentDetailWithRelationsRaw {
 //     spent_idx: i64,
 //     spent_name: String,
-//     spent_money: i32,
+//     spent_money: i64,
 //     spent_at: DateTime<Utc>,
 //     created_at: DateTime<Utc>,
 //     user_seq: i64,
@@ -71,7 +69,7 @@ pub struct SpentDetailWithRelations {
     pub spent_name: String,
 
     /// Amount spent
-    pub spent_money: i32,
+    pub spent_money: i64,
 
     /// Date and time of the spending
     pub spent_at: DateTime<Utc>,
@@ -101,6 +99,7 @@ pub struct SpentDetailWithRelations {
 ///
 /// This structure excludes the `indexing_type` field which is used for
 /// processing logic but should not be indexed in Elasticsearch.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, new)]
 pub struct SpentDetailWithRelationsEs {
     /// Primary key of the spent detail
@@ -110,7 +109,7 @@ pub struct SpentDetailWithRelationsEs {
     pub spent_name: String,
 
     /// Amount spent
-    pub spent_money: i32,
+    pub spent_money: i64,
 
     /// Date and time of the spending
     pub spent_at: DateTime<Utc>,

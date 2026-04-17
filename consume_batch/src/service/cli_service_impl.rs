@@ -216,9 +216,11 @@ where
         let socket_path: &str = AppConfig::global().socket_path();
 
         // [1] Remove existing socket file to handle unclean shutdowns
-        std::fs::remove_file(socket_path).inspect_err(|e| {
-            error!("[CliServiceImpl::start_socket_server] {:#}", e);
-        })?;
+        match std::fs::remove_file(socket_path) {
+            Ok(_) => {},
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(anyhow!("[CliServiceImpl::start_socket_server] {:#}", e))
+        }
 
         // [2] Create the socket file and bind the listner
         // 해당 시점에 Unix domain socket 이 생성된다.

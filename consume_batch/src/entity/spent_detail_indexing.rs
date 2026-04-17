@@ -8,7 +8,7 @@ pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub spent_idx: i64,
     pub spent_name: String,
-    pub spent_money: i32,
+    pub spent_money: i64,
     pub spent_at: DateTime,
     pub created_at: DateTime,
     pub user_seq: i64,

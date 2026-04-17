@@ -76,10 +76,8 @@ where
         Ok(results)
     }
 
-    /// Fetches spent details with related information for indexing.
-    ///
-    /// Executes the following SQL query:
-    /// ```sql
+    // Fetches spent details with related information for indexing. (deprecated — replaced by fetch_spent_details_for_indexing with spent_idxs)
+    //
     // SELECT
     // 	sd.spent_idx,
     // 	sd.spent_name,
@@ -99,16 +97,6 @@ where
     //     INNER JOIN USER_PAYMENT_METHOD up ON up.payment_method_id = sd.payment_method_id
     // WHERE sd.should_index = 1
     // AND	t.is_room_approved = true;
-    /// ```
-    ///
-    /// # Arguments
-    ///
-    /// * `offset` - The starting row for pagination
-    /// * `limit` - The maximum number of rows to fetch
-    ///
-    /// # Returns
-    ///
-    /// Returns a vector of `SpentDetailWithRelations` instances.
     // async fn fetch_spent_details_for_indexing(
     //     &self,
     //     offset: u64,
@@ -170,18 +158,18 @@ where
     /// ## Generated SQL
     ///
     /// ```sql
-    /// SELECT
-    ///     sd.spent_idx, sd.spent_name, sd.spent_money, sd.spent_at, sd.created_at,
-    ///     sd.user_seq, ct.consume_keyword_type_id, ct.consume_keyword_type,
-    ///     sd.room_seq, u.user_id, up.card_alias
-    /// FROM SPENT_DETAIL sd
-    /// INNER JOIN COMMON_CONSUME_KEYWORD_TYPE ct ON sd.consume_keyword_type_id = ct.consume_keyword_type_id
-    /// INNER JOIN USERS u ON u.user_seq = sd.user_seq
-    /// INNER JOIN TELEGRAM_ROOM t ON t.room_seq = sd.room_seq
-    /// INNER JOIN USER_PAYMENT_METHOD up ON up.payment_method_id = sd.payment_method_id
-    /// WHERE sd.should_index = 1
-    ///   AND t.is_room_approved = true
-    ///   AND sd.spent_idx IN (...)
+    //  SELECT
+    //      sd.spent_idx, sd.spent_name, sd.spent_money, sd.spent_at, sd.created_at,
+    //      sd.user_seq, ct.consume_keyword_type_id, ct.consume_keyword_type,
+    //      sd.room_seq, u.user_id, up.card_alias
+    //  FROM SPENT_DETAIL sd
+    //  INNER JOIN COMMON_CONSUME_KEYWORD_TYPE ct ON sd.consume_keyword_type_id = ct.consume_keyword_type_id
+    //  INNER JOIN USERS u ON u.user_seq = sd.user_seq
+    //  INNER JOIN TELEGRAM_ROOM t ON t.room_seq = sd.room_seq
+    //  INNER JOIN USER_PAYMENT_METHOD up ON up.payment_method_id = sd.payment_method_id
+    //  WHERE sd.should_index = 1
+    //    AND t.is_room_approved = true
+    //    AND sd.spent_idx IN (...)
     /// ```
     ///
     /// # Arguments
@@ -405,6 +393,32 @@ where
     }
 
     /// Fetches raw `SPENT_DETAIL` rows in ascending primary-key order.
+    ///
+    /// ## Generated SQL
+    ///
+    /// ```sql
+    /// SELECT spent_idx, spent_name, spent_money, spent_at, should_index,
+    ///        user_seq, spent_group_id, consume_keyword_type_id, room_seq
+    /// FROM SPENT_DETAIL
+    /// ORDER BY spent_idx ASC
+    /// LIMIT {limit} OFFSET {offset}
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `offset` - The starting row number for pagination
+    /// * `limit` - The maximum number of rows to fetch per batch
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of `SpentDetail` instances on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Database connection fails
+    /// - Query execution fails
+    /// - Data cannot be mapped to the model
     async fn fetch_spent_details(
         &self,
         offset: u64,
@@ -624,6 +638,39 @@ where
     ///
     /// All rows are inserted atomically — if any insert fails the entire batch
     /// is rolled back. Duplicate `dt` PKs are fully overwritten with the new data.
+    ///
+    /// ## Generated SQL
+    ///
+    /// ```sql
+    /// INSERT INTO DIM_CALENDAR (dt, yyyy, mm, ...)
+    /// VALUES (?, ?, ?, ...)
+    /// ON DUPLICATE KEY UPDATE yyyy = VALUES(yyyy), mm = VALUES(mm), ...,
+    ///     updated_at = ?, updated_by = 'batch'
+    /// ```
+    ///
+    /// ## Transaction flow
+    ///
+    /// ```text
+    /// BEGIN
+    ///   ├─ INSERT ... ON DUPLICATE KEY UPDATE (batch of rows)
+    ///   ├─ On failure → ROLLBACK → return Err
+    ///   └─ On success → COMMIT
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `rows` - List of `dim_calendar::ActiveModel` records to insert or overwrite
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful completion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Database connection fails
+    /// - Insert query fails
+    /// - Transaction commit fails
     async fn insert_dim_calendar_bulk(
         &self,
         rows: Vec<dim_calendar::ActiveModel>,
@@ -732,7 +779,7 @@ where
         if upsert_list.is_empty() {
             return Ok(());
         }
-
+        
         let db: &DatabaseConnection = self.db_conn.get_connection();
         let now: DateTime<Utc> = Utc::now();
         

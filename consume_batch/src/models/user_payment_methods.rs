@@ -1,6 +1,7 @@
 #![allow(clippy::too_many_arguments)]
 use crate::common::*;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, FromQueryResult, Getters, new)]
 #[getset(get = "pub")]
 pub struct UserPaymentMethods {

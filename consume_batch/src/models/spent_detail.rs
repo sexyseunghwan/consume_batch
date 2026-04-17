@@ -6,7 +6,7 @@ use crate::common::*;
 pub struct SpentDetail {
     pub spent_idx: i64,
     pub spent_name: String,
-    pub spent_money: i32,
+    pub spent_money: i64,
     pub spent_at: DateTime<Utc>,
     pub should_index: bool,
     pub user_seq: i64,

@@ -164,15 +164,17 @@ pub trait EsRepository {
     ///
     /// * `index_name` - The target index name
     /// * `documents` - Vector of documents to index
+    /// * `doc_id_field` - Optional field name whose value is used as the Elasticsearch `_id`.
+    ///                    If `None`, Elasticsearch auto-generates a random `_id`.
     ///
     /// # Returns
     ///
     /// Returns `Ok(())` on successful bulk indexing.
-    /// Sends a bulk-index request for the provided documents.
     async fn bulk_index<T: Serialize + Send + Sync>(
         &self,
         index_name: &str,
         documents: Vec<T>,
+        doc_id_field: Option<&str>,
     ) -> Result<(), anyhow::Error>;
 
     /// Performs bulk update of documents.
@@ -603,28 +605,44 @@ impl EsRepository for EsRepositoryImpl {
         &self,
         index_name: &str,
         documents: Vec<T>,
+        doc_id_field: Option<&str>,
     ) -> anyhow::Result<()> {
         if documents.is_empty() {
             return Ok(());
         }
 
         let mut body: Vec<JsonBody<_>> = Vec::with_capacity(documents.len() * 2);
-        let mut debug_body: Vec<Value> = Vec::with_capacity(documents.len() * 2);
 
         for doc in documents {
-            let index_action: Value = json!({"index": {"_index": index_name}});
             let doc_json: Value = json!(doc);
 
-            debug_body.push(index_action.clone());
-            debug_body.push(doc_json.clone());
+            let index_action: Value = if let Some(field) = doc_id_field {
+                // Extract _id value from the specified field (supports numeric and string types)
+                let doc_id: String = doc_json
+                    .get(field)
+                    .map(|v| match v {
+                        Value::Number(n) => n.to_string(),
+                        Value::String(s) => s.clone(),
+                        other => other.to_string(),
+                    })
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "[EsRepositoryImpl::bulk_index] Missing '{}' field in document",
+                            field
+                        )
+                    })?;
 
-            // Add the index action
+                json!({ "index": { "_index": index_name, "_id": doc_id } })
+            } else {
+                // Let Elasticsearch auto-generate _id
+                json!({ "index": { "_index": index_name } })
+            };
+
             body.push(index_action.into());
-            // Add the document
             body.push(doc_json.into());
         }
 
-        info!("[EsRepositoryImpl::bulk_index] {:?}", debug_body);
+        //info!("[EsRepositoryImpl::bulk_index] Indexing {} documents to '{}'", body.len() / 2, index_name);
 
         let response: Response = self
             .es_client
@@ -640,10 +658,10 @@ impl EsRepository for EsRepositoryImpl {
             if let Some(errors) = response_body.get("errors")
                 && errors.as_bool() == Some(true)
             {
-                warn!(
+                return Err(anyhow!(
                     "[EsRepositoryImpl::bulk_index] Some documents failed to index: {:?}",
                     response_body.get("items")
-                );
+                ))
             }
 
             info!(
@@ -674,7 +692,6 @@ impl EsRepository for EsRepositoryImpl {
         }
 
         let mut body: Vec<JsonBody<_>> = Vec::with_capacity(documents.len() * 2);
-        let mut debug_body: Vec<Value> = Vec::with_capacity(documents.len() * 2);
 
         for doc in documents {
             let doc_json: Value = json!(doc);
@@ -702,14 +719,9 @@ impl EsRepository for EsRepositoryImpl {
                 "doc_as_upsert": true
             });
 
-            debug_body.push(update_action.clone());
-            debug_body.push(update_doc.clone());
-
             body.push(update_action.into());
             body.push(update_doc.into());
         }
-
-        info!("[EsRepositoryImpl::bulk_update] {:?}", debug_body);
 
         let response: Response = self
             .es_client
@@ -724,10 +736,10 @@ impl EsRepository for EsRepositoryImpl {
             if let Some(errors) = response_body.get("errors")
                 && errors.as_bool() == Some(true)
             {
-                warn!(
+                return Err(anyhow!(
                     "[EsRepositoryImpl::bulk_update] Some documents failed to update: {:?}",
                     response_body.get("items")
-                );
+                ))
             }
 
             info!(
@@ -752,7 +764,6 @@ impl EsRepository for EsRepositoryImpl {
         }
 
         let mut body: Vec<JsonBody<_>> = Vec::with_capacity(doc_ids.len());
-        let mut debug_body: Vec<Value> = Vec::with_capacity(doc_ids.len());
 
         for doc_id in doc_ids {
             let delete_action: Value = json!({
@@ -762,11 +773,8 @@ impl EsRepository for EsRepositoryImpl {
                 }
             });
 
-            debug_body.push(delete_action.clone());
             body.push(delete_action.into());
         }
-
-        info!("[EsRepositoryImpl::bulk_delete] {:?}", debug_body);
 
         let response: Response = self
             .es_client
@@ -781,10 +789,10 @@ impl EsRepository for EsRepositoryImpl {
             if let Some(errors) = response_body.get("errors")
                 && errors.as_bool() == Some(true)
             {
-                warn!(
+                return Err(anyhow!(
                     "[EsRepositoryImpl::bulk_delete] Some documents failed to delete: {:?}",
                     response_body.get("items")
-                );
+                ))
             }
 
             info!(

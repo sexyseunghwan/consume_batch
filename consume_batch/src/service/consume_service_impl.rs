@@ -147,6 +147,25 @@ where
     }
 
     /// Consumes messages from a Kafka topic using a custom consumer-group suffix.
+    ///
+    /// Delegates to the underlying `KafkaRepository` with the given group suffix,
+    /// allowing separate offset tracking per consumer group.
+    ///
+    /// # Arguments
+    ///
+    /// * `topic` - The Kafka topic to consume from
+    /// * `max_messages` - Maximum number of messages to retrieve
+    /// * `group_suffix` - Consumer group identifier for independent offset tracking
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of raw JSON values representing the consumed messages.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Kafka connection fails
+    /// - Message consumption fails
     async fn consume_messages_with_group(
         &self,
         topic: &str,
@@ -174,6 +193,30 @@ where
     }
 
     /// Consumes and deserializes messages using a custom consumer-group suffix.
+    ///
+    /// Combines `consume_messages_with_group` and JSON deserialization into type `T`.
+    /// Each consumed message is deserialized individually; if any message fails
+    /// to deserialize, the entire call returns an error.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - Target type for deserialization (must implement `DeserializeOwned`)
+    ///
+    /// # Arguments
+    ///
+    /// * `topic` - The Kafka topic to consume from
+    /// * `max_messages` - Maximum number of messages to retrieve
+    /// * `group_suffix` - Consumer group identifier for independent offset tracking
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of deserialized messages of type `T` on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Kafka consumption fails
+    /// - JSON deserialization fails for any message
     async fn consume_messages_as_with_group<T>(
         &self,
         topic: &str,
@@ -344,7 +387,26 @@ where
             })
     }
 
-    /// Computes total lag by comparing summed committed offsets for two groups.
+    /// Computes total lag by comparing summed committed offsets for two consumer groups.
+    ///
+    /// Fetches the total committed offsets for both `reference_group` and `catchup_group`
+    /// across all partitions, then returns the non-negative difference.
+    /// A result of `0` means the catchup group has fully caught up with the reference group.
+    ///
+    /// # Arguments
+    ///
+    /// * `topic` - The Kafka topic to measure lag on
+    /// * `reference_group` - The consumer group acting as the reference (e.g., full-index group)
+    /// * `catchup_group` - The consumer group that is catching up (e.g., incremental group)
+    ///
+    /// # Returns
+    ///
+    /// Returns the total lag (`reference_offset - catchup_offset`, clamped to `0`) on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Committed offset fetch fails for either consumer group
     async fn get_consumer_group_lag(
         &self,
         topic: &str,

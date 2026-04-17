@@ -23,7 +23,6 @@ pub mod consumer_group_lag;
 pub use consumer_group_lag::*;
 
 pub mod user_payment_methods;
-pub use user_payment_methods::*;
 
 pub mod spent_detail_indexing;
 pub use spent_detail_indexing::*;

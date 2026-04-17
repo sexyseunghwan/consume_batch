@@ -50,7 +50,7 @@ pub trait ElasticService {
     async fn update_index_settings(&self, index_name: &str, settings: &Value)
     -> anyhow::Result<()>;
 
-    /// Performs bulk indexing of documents.
+    /// Performs bulk indexing of documents with an explicit document ID field.
     ///
     /// # Type Parameters
     ///
@@ -60,6 +60,8 @@ pub trait ElasticService {
     ///
     /// * `index_name` - The target index name
     /// * `documents` - Vector of documents to index
+    /// * `doc_id_field` - Optional field name whose value is used as the Elasticsearch `_id`.
+    ///                    If `None`, Elasticsearch auto-generates a random `_id`.
     ///
     /// # Returns
     ///
@@ -68,6 +70,7 @@ pub trait ElasticService {
     /// # Errors
     ///
     /// Returns an error if:
+    /// - Any document is missing the specified `doc_id_field` (when `Some`)
     /// - Any document fails to index
     /// - Mapping conflicts occur
     /// - Network/connection failure
@@ -75,6 +78,7 @@ pub trait ElasticService {
         &self,
         index_name: &str,
         documents: Vec<T>,
+        doc_id_field: Option<&str>,
     ) -> anyhow::Result<()>;
 
     /// Performs bulk update of documents.

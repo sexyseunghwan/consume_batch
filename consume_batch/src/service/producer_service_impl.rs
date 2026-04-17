@@ -6,6 +6,7 @@ use crate::service_trait::producer_service::*;
 
 #[derive(Debug, Getters, Clone, new)]
 pub struct ProducerServiceImpl<K: KafkaRepository> {
+    #[allow(dead_code)]
     kafka_conn: Arc<K>,
 }
 

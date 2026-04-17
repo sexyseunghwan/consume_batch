@@ -46,8 +46,9 @@ where
         &self,
         index_name: &str,
         documents: Vec<T>,
+        doc_id_field: Option<&str>,
     ) -> anyhow::Result<()> {
-        self.elastic_conn.bulk_index(index_name, documents).await
+        self.elastic_conn.bulk_index(index_name, documents, doc_id_field).await
     }
 
     /// Bulk-updates documents in the target Elasticsearch index.

@@ -3,8 +3,7 @@ use crate::common::*;
 use crate::enums::IndexingType;
 use crate::global_state::*;
 use crate::models::{
-    ConsumerGroupLag, SpentDetailFromKafka, SpentDetailIndexing, SpentDetailWithRelations,
-    SpentDetailWithRelationsEs, SpentTypeKeyword, batch_schedule::BatchScheduleItem,
+    ConsumerGroupLag, SpentDetailFromKafka, SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, batch_schedule::BatchScheduleItem,
 };
 use crate::service_trait::{
     consume_service::ConsumeService, elastic_service::ElasticService,
@@ -25,6 +24,7 @@ where
     C: ConsumeService,
 {
     mysql_service: Arc<M>,
+    #[allow(dead_code)]
     producer_service: Arc<P>,
     elastic_service: Arc<E>,
     consume_service: Arc<C>,
@@ -67,6 +67,26 @@ where
     // Private helpers
     // ============================================================================
 
+    /// Fetches all records from `SPENT_DETAIL_INDEXING` in batches and bulk-indexes them
+    /// into the specified new Elasticsearch index.
+    ///
+    /// Called during the full indexing phase to populate a freshly created index before
+    /// the alias is swapped. Loops until MySQL returns an empty batch.
+    ///
+    /// # Arguments
+    ///
+    /// * `schedule_item` - Batch schedule configuration (batch size, etc.)
+    /// * `new_index_name` - Target Elasticsearch index name to write documents into
+    ///
+    /// # Returns
+    ///
+    /// Returns the total number of documents indexed on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - MySQL fetch fails
+    /// - Elasticsearch bulk indexing fails
     async fn process_spent_detail_full(
         &self,
         schedule_item: &BatchScheduleItem,
@@ -101,7 +121,7 @@ where
             let batch_count: usize = rows.len();
 
             self.elastic_service
-                .bulk_index(new_index_name, rows)
+                .bulk_index(new_index_name, rows, Some("spent_idx"))
                 .await
                 .inspect_err(|e| {
                     error!(
@@ -123,7 +143,31 @@ where
         Ok(total_indexed)
     }
 
-    
+    /// Consumes a batch of Kafka messages and applies upsert/delete operations to both
+    /// `SPENT_DETAIL_INDEXING` and Elasticsearch.
+    ///
+    /// Deduplicates events for the same `spent_idx` within the batch using `merge_batch_events`,
+    /// keeping only the most recent event per ID. Upsert events trigger a MySQL fetch followed
+    /// by a bulk ES index; delete events trigger a MySQL delete followed by a bulk ES delete.
+    ///
+    /// # Arguments
+    ///
+    /// * `indexer_topic` - Kafka topic to consume messages from
+    /// * `consumer_group` - Consumer group ID for offset tracking
+    /// * `target_index_name` - Elasticsearch index or alias to write/delete documents in
+    /// * `batch_size` - Maximum number of messages to consume per call
+    ///
+    /// # Returns
+    ///
+    /// Returns a tuple `(upsert_count, delete_count)` representing the number of
+    /// upserted and deleted documents on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Kafka message consumption fails
+    /// - MySQL upsert or delete fails
+    /// - Elasticsearch bulk operation fails
     async fn process_spent_detail_incremental(
         &self,
         indexer_topic: &str,
@@ -152,7 +196,7 @@ where
                 info,
                 "[IndexingServiceImpl::process_spent_detail_incremental] No messages, waiting..."
             );
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            tokio::time::sleep(Duration::from_millis(1000)).await;
         }
 
         let batch_count: usize = messages.len();
@@ -202,7 +246,7 @@ where
                 .await?;
 
             self.elastic_service
-                .bulk_index(&target_index_name, to_es_upsert_list)
+                .bulk_index(target_index_name, to_es_upsert_list, Some("spent_idx"))
                 .await
                 .inspect_err(|e| {
                     error!(
@@ -230,7 +274,7 @@ where
                 .await?;
 
             self.elastic_service
-                .bulk_delete(&target_index_name, delete_ids)
+                .bulk_delete(target_index_name, delete_ids)
                 .await
                 .inspect_err(|e| {
                     error!(
@@ -245,6 +289,30 @@ where
         Ok((upsert_processed, delete_processed))
     }
 
+    /// Drives the catch-up phase that closes the gap between the full-index consumer group
+    /// and the incremental consumer group, then atomically swaps the Elasticsearch alias.
+    ///
+    /// Monitors partition lag between `consumer_group` (full-index reference) and
+    /// `consumer_group_sub` (incremental catchup). When lag drops to or below `batch_size`,
+    /// incremental indexing is temporarily paused via `set_spent_detail_indexing(false)`.
+    /// Once lag reaches zero, the new index settings are reverted and the write/read aliases
+    /// are swapped to the new index before incremental indexing is resumed.
+    ///
+    /// # Arguments
+    ///
+    /// * `schedule_item` - Batch schedule configuration (topic, consumer groups, batch size, alias, etc.)
+    /// * `index_name` - The newly created Elasticsearch index to swap the alias to
+    ///
+    /// # Returns
+    ///
+    /// Returns the total number of documents processed (upserts + deletes) on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Consumer group lag fetch fails
+    /// - Index settings revert fails
+    /// - Alias swap fails
     async fn process_spent_detail_catch_up(
         &self,
         schedule_item: &BatchScheduleItem,
@@ -267,9 +335,12 @@ where
             consumer_group_sub
         );
 
+        const MAX_CONSECUTIVE_ERRORS: u32 = 5;
+
         let mut total_upsert_processed: u64 = 0;
         let mut total_delete_processed: u64 = 0;
         let mut indexing_paused: bool = false;
+        let mut consecutive_errors: u32 = 0;
 
         loop {
             
@@ -383,12 +454,23 @@ where
                 )
                 .await
             {
-                Ok((upsert_processed, delete_processed)) => (upsert_processed, delete_processed),
+                Ok((upsert_processed, delete_processed)) => {
+                    consecutive_errors = 0;
+                    (upsert_processed, delete_processed)
+                }
                 Err(e) => {
+                    consecutive_errors += 1;
                     error!(
-                        "[IndexingServiceImpl::process_spent_detail_catch_up] {:#}",
-                        e
+                        "[IndexingServiceImpl::process_spent_detail_catch_up] error ({}/{}): {:#}",
+                        consecutive_errors, MAX_CONSECUTIVE_ERRORS, e
                     );
+                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                        return Err(anyhow!(
+                            "[IndexingServiceImpl::process_spent_detail_catch_up] Aborting catch-up after {} consecutive errors. Last error: {:#}",
+                            MAX_CONSECUTIVE_ERRORS, e
+                        ));
+                    }
+                    tokio::time::sleep(Duration::from_secs(2)).await;
                     continue;
                 }
             };
@@ -409,6 +491,24 @@ where
         Ok(total_upsert_processed + total_delete_processed)
     }
 
+    /// Deduplicates a batch of Kafka events by keeping only the latest event per `spent_idx`.
+    ///
+    /// For each `spent_idx`, only the event with the most recent `reg_at` timestamp is kept.
+    /// The surviving events are then partitioned into upsert IDs (`Insert` or `Update`) and
+    /// delete IDs (`Delete`).
+    ///
+    /// # Arguments
+    ///
+    /// * `messages` - Raw Kafka messages consumed from the incremental topic
+    ///
+    /// # Returns
+    ///
+    /// Returns a tuple `(upsert_ids, delete_ids)` where each list contains
+    /// deduplicated `spent_idx` values for the respective operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any message contains an unrecognized `indexing_type` string.
     fn merge_batch_events(
         messages: Vec<SpentDetailFromKafka>,
     ) -> anyhow::Result<(Vec<i64>, Vec<i64>)> {
@@ -509,8 +609,6 @@ where
                 );
             })?;
 
-        println!("new_index_name: {:?}", new_index_name);
-
         let mut offset: u64 = 0;
         let mut total_indexed: u64 = 0;
 
@@ -550,7 +648,7 @@ where
             );
 
             self.elastic_service
-                .bulk_index(&new_index_name, keywords)
+                .bulk_index(&new_index_name, keywords, None)
                 .await
                 .inspect_err(|e| {
                     error!(
@@ -618,10 +716,29 @@ where
     E: ElasticService + Send + Sync + 'static,
     C: ConsumeService + Send + Sync + 'static,
 {
-    
-    
-    
-    
+    /// Performs a full reindex of `SPENT_DETAIL` into Elasticsearch.
+    ///
+    /// Orchestrates the complete full-indexing pipeline:
+    /// 1. Retrieves the names of all indices currently assigned to the alias
+    /// 2. Creates a new bulk-optimized index via `prepare_full_index`
+    /// 3. Snapshots the current incremental consumer group offsets
+    /// 4. Bulk-indexes all `SPENT_DETAIL_INDEXING` rows into the new index
+    /// 5. Runs the catch-up phase to consume events that arrived during full indexing
+    /// 6. Reverts the new index to production settings (replicas, refresh interval)
+    /// 7. Atomically swaps the alias to the new index
+    /// 8. Deletes the previously aliased old indices
+    ///
+    /// # Arguments
+    ///
+    /// * `schedule_item` - Batch schedule configuration (alias, topics, consumer groups, batch size, schema, etc.)
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful completion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any step in the pipeline fails.
     async fn run_spent_detail_full(&self, schedule_item: &BatchScheduleItem) -> anyhow::Result<()> {
         
         let index_alias: &str = schedule_item.index_name();
@@ -749,6 +866,25 @@ where
     }
 
 
+    /// Runs the incremental indexing loop for `SPENT_DETAIL` indefinitely.
+    ///
+    /// Continuously consumes Kafka messages from the configured topic and applies
+    /// upsert/delete operations to both `SPENT_DETAIL_INDEXING` and Elasticsearch.
+    /// Pauses for 5 seconds when the global `SPENT_DETAIL_INDEXING` flag is unset
+    /// (e.g., during a full reindex catch-up phase). Sleeps 500 ms between batches
+    /// to avoid tight-looping when the topic is empty.
+    ///
+    /// # Arguments
+    ///
+    /// * `schedule_item` - Batch schedule configuration (index alias, topic, consumer group, batch size, etc.)
+    ///
+    /// # Returns
+    ///
+    /// This function loops indefinitely and never returns `Ok(())` under normal operation.
+    ///
+    /// # Errors
+    ///
+    /// Individual processing errors are logged and skipped; the loop continues running.
     // 이쪽이 증분색인 !!!
     async fn run_spent_detail_incremental(
         &self,
@@ -767,8 +903,11 @@ where
             write_index_alias
         );
 
+        const MAX_CONSECUTIVE_ERRORS: u32 = 5;
+        let mut consecutive_errors: u32 = 0;
+
         loop {
-            
+
             let indexing_check: bool = get_spent_detail_indexing().await;
 
             if !indexing_check {
@@ -785,12 +924,23 @@ where
                 )
                 .await
             {
-                Ok((upsert_processed, delete_processed)) => (upsert_processed, delete_processed),
+                Ok((upsert_processed, delete_processed)) => {
+                    consecutive_errors = 0;
+                    (upsert_processed, delete_processed)
+                }
                 Err(e) => {
+                    consecutive_errors += 1;
                     error!(
-                        "[IndexingServiceImpl::run_spent_detail_incremental] {:#}",
-                        e
+                        "[IndexingServiceImpl::run_spent_detail_incremental] error ({}/{}): {:#}",
+                        consecutive_errors, MAX_CONSECUTIVE_ERRORS, e
                     );
+                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                        return Err(anyhow!(
+                            "[IndexingServiceImpl::run_spent_detail_incremental] Aborting incremental indexing after {} consecutive errors. Last error: {:#}",
+                            MAX_CONSECUTIVE_ERRORS, e
+                        ));
+                    }
+                    tokio::time::sleep(Duration::from_secs(2)).await;
                     continue;
                 }
             };
