@@ -569,12 +569,14 @@ where
             batch_size
         );
 
+        const MAX_RETRIES: u32 = 3;
+
         let mut offset: u64 = 0;
         let mut total_updated: u64 = 0;
         let mut total_processed: u64 = 0;
 
         loop {
-            
+
             /*
                 details = [
                     {
@@ -594,18 +596,43 @@ where
                     } -> D3
                 ]
             */
-            let details: Vec<SpentDetail> =
-                match mysql_service.fetch_spent_details(offset, batch_size).await {
-                    Ok(details) => details,
-                    Err(e) => {
+            let details: Vec<SpentDetail> = {
+                let mut last_err: Option<anyhow::Error> = None;
+
+                let mut result: Option<Vec<SpentDetail>> = None;
+                for attempt in 1..=MAX_RETRIES {
+                    match mysql_service.fetch_spent_details(offset, batch_size).await {
+                        Ok(rows) => {
+                            result = Some(rows);
+                            break;
+                        }
+                        Err(e) => {
+                            let delay_secs: u64 = 2u64.pow(attempt - 1); // 1s, 2s, 4s
+                            batch_log!(
+                                error,
+                                "[BatchServiceImpl::process_update_all_check_type_detail] fetch failed (attempt {}/{}, offset={}, retry in {}s): {:#}",
+                                attempt, MAX_RETRIES, offset, delay_secs, e
+                            );
+                            last_err = Some(e);
+                            if attempt < MAX_RETRIES {
+                                tokio::time::sleep(Duration::from_secs(delay_secs)).await;
+                            }
+                        }
+                    }
+                }
+
+                match result {
+                    Some(rows) => rows,
+                    None => {
                         batch_log!(
                             error,
-                            "[BatchServiceImpl::process_update_all_check_type_detail] {:#}",
-                            e
+                            "[BatchServiceImpl::process_update_all_check_type_detail] Aborting: all {} retries exhausted at offset={}. Last error: {:#}",
+                            MAX_RETRIES, offset, last_err.unwrap()
                         );
                         break;
                     }
-                };
+                }
+            };
 
             if details.is_empty() {
                 break;

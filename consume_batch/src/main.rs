@@ -11,7 +11,14 @@ History     :   2025-01-01 Seunghwan Shin       # [v.1.0.0] first create.
                                                             2) Add CLI mode and scheduler mode support.
                                                             3) Improve code structure by seperation responsibilities.
                 2026-04-02 Seunghwan Shin       # [v.2.1.0] Updated the indexing structure and added dependency injection for the service.
-                2026-04-00 Seunghwan Shin       # [v.3.0.0] 
+                2026-04-20 Seunghwan Shin       # [v.3.0.0] 1) Add doc comments to all functions.
+                                                            2) Rename UserPaymentMethod -> UserPaymentMethods.
+                                                            3) Change money-related fields from i32 to i64.
+                                                            4) Fix bulk_index to support explicit doc_id_field (Option<&str>).
+                                                            5) Add consecutive error limit to incremental indexing loops.
+                                                            6) Add orphaned index cleanup on full indexing pipeline failure.
+                                                            7) Add exponential backoff retry to fetch_spent_details.
+                                                            8) Add transaction to upsert_spent_detail_indexing.
 */
 
 mod common;

@@ -491,6 +491,30 @@ where
         Ok(total_upsert_processed + total_delete_processed)
     }
 
+    /// Deletes an orphaned index that was created during a failed full-indexing run.
+    ///
+    /// Called as a cleanup step whenever any phase after index creation fails
+    /// (full indexing, catch-up, settings revert, alias swap). Prevents index accumulation
+    /// across repeated failed runs. Errors here are only logged — the original error
+    /// that triggered cleanup is returned to the caller instead.
+    async fn cleanup_orphaned_index(&self, index_name: &str) {
+        error!(
+            "[IndexingServiceImpl::cleanup_orphaned_index] Cleaning up orphaned index '{}' due to pipeline failure",
+            index_name
+        );
+        if let Err(e) = self.elastic_service.delete_indices(&[index_name.to_string()]).await {
+            error!(
+                "[IndexingServiceImpl::cleanup_orphaned_index] Failed to delete orphaned index '{}': {:#}",
+                index_name, e
+            );
+        } else {
+            error!(
+                "[IndexingServiceImpl::cleanup_orphaned_index] Successfully deleted orphaned index '{}'",
+                index_name
+            );
+        }
+    }
+
     /// Deduplicates a batch of Kafka events by keeping only the latest event per `spent_idx`.
     ///
     /// For each `spent_idx`, only the event with the most recent `reg_at` timestamp is kept.
@@ -796,15 +820,17 @@ where
         }
 
         // Step 4: Full indexing
-        let full_indexed: u64 = self
+        let full_indexed: u64 = match self
             .process_spent_detail_full(schedule_item, &new_index_name)
             .await
-            .inspect_err(|e| {
-                error!(
-                    "[IndexingServiceImpl::run_spent_detail_full] static phase failed: {:#}",
-                    e
-                );
-            })?;
+        {
+            Ok(n) => n,
+            Err(e) => {
+                error!("[IndexingServiceImpl::run_spent_detail_full] static phase failed: {:#}", e);
+                self.cleanup_orphaned_index(&new_index_name).await;
+                return Err(e);
+            }
+        };
 
         batch_log!(
             info,
@@ -813,15 +839,17 @@ where
         );
 
         // Step 5: dynamic catch-up
-        let catch_up_indexed: u64 = self
+        let catch_up_indexed: u64 = match self
             .process_spent_detail_catch_up(schedule_item, &new_index_name)
             .await
-            .inspect_err(|e| {
-                error!(
-                    "[IndexingServiceImpl::run_spent_detail_full] incremental phase failed: {:#}",
-                    e
-                );
-            })?;
+        {
+            Ok(n) => n,
+            Err(e) => {
+                error!("[IndexingServiceImpl::run_spent_detail_full] incremental phase failed: {:#}", e);
+                self.cleanup_orphaned_index(&new_index_name).await;
+                return Err(e);
+            }
+        };
 
         batch_log!(
             info,
@@ -838,23 +866,18 @@ where
         );
 
         // Step 6. Revert index settings
-        self.elastic_service
-            .revert_index_setting(&new_index_name)
-            .await
-            .inspect_err(|e| {
-                error!(
-                    "[IndexingServiceImpl::run_spent_detail_full] Failed to revert the index settings.: {:#}",
-                    e
-                )
-            })?;
+        if let Err(e) = self.elastic_service.revert_index_setting(&new_index_name).await {
+            error!("[IndexingServiceImpl::run_spent_detail_full] Failed to revert the index settings.: {:#}", e);
+            self.cleanup_orphaned_index(&new_index_name).await;
+            return Err(e);
+        }
 
         // Step 7. Alias swap
-        self.elastic_service
-            .swap_alias(index_alias, &new_index_name)
-            .await
-            .inspect_err(|e| {
-                error!("[IndexingServiceImpl::run_spent_detail_full] Failed to switch the alias to the new index. {:#}", e);
-            })?;
+        if let Err(e) = self.elastic_service.swap_alias(index_alias, &new_index_name).await {
+            error!("[IndexingServiceImpl::run_spent_detail_full] Failed to switch the alias to the new index. {:#}", e);
+            self.cleanup_orphaned_index(&new_index_name).await;
+            return Err(e);
+        }
 
         // Step 8. Remove all indexes that were previously assigned to this alias. -> Option
         self.elastic_service

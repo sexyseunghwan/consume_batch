@@ -445,10 +445,14 @@ impl KafkaRepositoryImpl {
             )
         })?;
 
-        // info!(
-        //     "[KafkaRepositoryImpl::new] Kafka repository initialized (brokers: {}, base_group: {}, sasl: {})",
-        //     kafka_brokers, base_group_id, kafka_configs.is_sasl_enabled()
-        // );
+        let sasl_enabled: bool = sasl_mechanism.is_some() && sasl_username.is_some() && sasl_password.is_some();
+        info!(
+            "[KafkaRepositoryImpl::new] Kafka repository initialized (brokers: {}, base_group: {}, security_protocol: {}, sasl: {})",
+            kafka_brokers,
+            base_group_id,
+            security_protocol.as_deref().unwrap_or("PLAINTEXT"),
+            if sasl_enabled { "enabled" } else { "disabled" }
+        );
 
         Ok(KafkaRepositoryImpl {
             consumers: Arc::new(RwLock::new(HashMap::new())),
