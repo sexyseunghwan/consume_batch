@@ -1,3 +1,5 @@
+pub mod agg_group;
+
 pub mod batch_schedule;
 
 pub mod spent_type_keyword;

@@ -2,6 +2,7 @@
 
 pub mod prelude;
 
+pub mod agg_group;
 pub mod common_consume_keyword_type;
 pub mod common_consume_prodt_keyword;
 pub mod dim_calendar;

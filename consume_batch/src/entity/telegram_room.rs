@@ -15,6 +15,7 @@ pub struct Model {
     pub created_by: String,
     pub updated_by: Option<String>,
     pub user_seq: i64,
+    pub agg_group_seq: Option<i64>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
@@ -27,6 +28,12 @@ pub enum Relation {
         to = "super::users::Column::UserSeq"
     )]
     Users,
+    #[sea_orm(
+        belongs_to = "super::agg_group::Entity",
+        from = "Column::AggGroupSeq",
+        to = "super::agg_group::Column::AggGroupSeq"
+    )]
+    AggGroup,
 }
 
 impl Related<super::spent_detail::Entity> for Entity {
@@ -38,6 +45,12 @@ impl Related<super::spent_detail::Entity> for Entity {
 impl Related<super::users::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Users.def()
+    }
+}
+
+impl Related<super::agg_group::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::AggGroup.def()
     }
 }
 

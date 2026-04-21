@@ -17,4 +17,5 @@ pub struct SpentDetailIndexing {
     pub card_alias: String,
     pub updated_at: Option<DateTime<Utc>>,
     pub updated_by: Option<String>,
+    pub agg_group_seq: i64
 }

@@ -3,8 +3,8 @@ use crate::common::*;
 use crate::service_trait::mysql_service::*;
 
 use crate::entity::{
-    common_consume_keyword_type, common_consume_prodt_keyword, dim_calendar, spent_detail,
-    spent_detail_indexing, telegram_room, user_payment_methods, users,
+    agg_group, common_consume_keyword_type, common_consume_prodt_keyword, dim_calendar,
+    spent_detail, spent_detail_indexing, telegram_room, user_payment_methods, users,
 };
 use crate::models::{SpentDetail, SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword};
 
@@ -161,14 +161,16 @@ where
     //  SELECT
     //      sd.spent_idx, sd.spent_name, sd.spent_money, sd.spent_at, sd.created_at,
     //      sd.user_seq, ct.consume_keyword_type_id, ct.consume_keyword_type,
-    //      sd.room_seq, u.user_id, up.card_alias
+    //      sd.room_seq, u.user_id, up.card_alias, a.agg_group_seq
     //  FROM SPENT_DETAIL sd
     //  INNER JOIN COMMON_CONSUME_KEYWORD_TYPE ct ON sd.consume_keyword_type_id = ct.consume_keyword_type_id
     //  INNER JOIN USERS u ON u.user_seq = sd.user_seq
     //  INNER JOIN TELEGRAM_ROOM t ON t.room_seq = sd.room_seq
     //  INNER JOIN USER_PAYMENT_METHOD up ON up.payment_method_id = sd.payment_method_id
+    //  INNER JOIN AGG_GROUP a ON a.agg_group_seq = t.agg_group_seq
     //  WHERE sd.should_index = 1
     //    AND t.is_room_approved = true
+    //    AND a.is_active = true
     //    AND sd.spent_idx IN (...)
     /// ```
     ///
@@ -204,6 +206,7 @@ where
             .join(JoinType::InnerJoin, spent_detail::Relation::Users.def())
             .join(JoinType::InnerJoin, spent_detail::Relation::TelegramRoom.def())
             .join(JoinType::InnerJoin, spent_detail::Relation::UserPaymentMethods.def())
+            .join(JoinType::InnerJoin, telegram_room::Relation::AggGroup.def())
             .select_only()
             .column(spent_detail::Column::SpentIdx)
             .column(spent_detail::Column::SpentName)
@@ -216,9 +219,11 @@ where
             .column(spent_detail::Column::RoomSeq)
             .column(users::Column::UserId)
             .column(user_payment_methods::Column::CardAlias)
+            .column(agg_group::Column::AggGroupSeq)
             .filter(spent_detail::Column::ShouldIndex.eq(1))
             .filter(spent_detail::Column::SpentIdx.is_in(spent_idxs.to_vec()))
             .filter(telegram_room::Column::IsRoomApproved.eq(true))
+            .filter(agg_group::Column::IsActive.eq(true))
             .into_model::<SpentDetailWithRelations>()
             .all(db)
             .await
@@ -379,6 +384,7 @@ where
             .column(spent_detail_indexing::Column::CardAlias)
             .column(spent_detail_indexing::Column::UpdatedAt)
             .column(spent_detail_indexing::Column::UpdatedBy)
+            .column(spent_detail_indexing::Column::AggGroupSeq)
             .offset(offset)
             .limit(limit)
             .order_by_asc(spent_detail_indexing::Column::SpentIdx)
@@ -809,7 +815,7 @@ where
 
         // 실패 시 어떤 idx가 문제인지 식별할 수 있도록 미리 추출
         let spent_idxs: Vec<i64> = upsert_list.iter().map(|r| r.spent_idx).collect();
-
+        
         let active_models: Vec<spent_detail_indexing::ActiveModel> = upsert_list
             .into_iter()
             .map(|row| spent_detail_indexing::ActiveModel {
@@ -826,6 +832,7 @@ where
                 card_alias: Set(row.card_alias),
                 updated_at: Set(Some(now.naive_utc())),
                 updated_by: Set(Some("batch".to_string())),
+                agg_group_seq: Set(row.agg_group_seq.unwrap_or(0))
             })
             .collect();
 
@@ -852,6 +859,7 @@ where
                         spent_detail_indexing::Column::CardAlias,
                         spent_detail_indexing::Column::UpdatedAt,
                         spent_detail_indexing::Column::UpdatedBy,
+                        spent_detail_indexing::Column::AggGroupSeq
                     ])
                     .to_owned(),
             )

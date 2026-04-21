@@ -24,6 +24,7 @@ pub struct SpentDetailWithRelationsRaw {
     room_seq: i64,
     user_id: String,
     card_alias: String,
+    agg_group_seq: Option<i64>,
 }
 
 // #[derive(Debug, Clone, FromQueryResult)]
@@ -93,6 +94,9 @@ pub struct SpentDetailWithRelations {
     pub user_id: String,
 
     pub card_alias: String,
+
+    /// Aggregation group identifier (nullable — room may not belong to any group)
+    pub agg_group_seq: Option<i64>,
 }
 
 /// Elasticsearch-specific version of SpentDetailWithRelations.
@@ -133,6 +137,9 @@ pub struct SpentDetailWithRelationsEs {
     pub user_id: String,
 
     pub card_alias: String,
+
+    /// Aggregation group identifier (nullable)
+    pub agg_group_seq: Option<i64>,
 }
 
 impl From<SpentDetailWithRelations> for SpentDetailWithRelationsEs {
@@ -150,6 +157,7 @@ impl From<SpentDetailWithRelations> for SpentDetailWithRelationsEs {
             room_seq: src.room_seq,
             user_id: src.user_id,
             card_alias: src.card_alias,
+            agg_group_seq: src.agg_group_seq,
         }
     }
 }
@@ -169,6 +177,7 @@ impl From<SpentDetailWithRelationsRaw> for SpentDetailWithRelations {
             room_seq: raw.room_seq,
             user_id: raw.user_id,
             card_alias: raw.card_alias,
+            agg_group_seq: raw.agg_group_seq,
         }
     }
 }

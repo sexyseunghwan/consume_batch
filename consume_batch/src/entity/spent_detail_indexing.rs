@@ -19,6 +19,7 @@ pub struct Model {
     pub card_alias: String,
     pub updated_at: Option<DateTime>,
     pub updated_by: Option<String>,
+    pub agg_group_seq: i64
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
