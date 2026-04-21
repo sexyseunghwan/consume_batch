@@ -76,79 +76,6 @@ where
         Ok(results)
     }
 
-    // Fetches spent details with related information for indexing. (deprecated — replaced by fetch_spent_details_for_indexing with spent_idxs)
-    //
-    // SELECT
-    // 	sd.spent_idx,
-    // 	sd.spent_name,
-    // 	sd.spent_money,
-    // 	sd.spent_at,
-    // 	sd.created_at,
-    // 	sd.user_seq,
-    // 	ct.consume_keyword_type_id,
-    // 	ct.consume_keyword_type,
-    // 	t.room_seq,
-    //     u.user_id,
-    //     up.card_alias
-    // 	FROM SPENT_DETAIL sd
-    // 	INNER JOIN COMMON_CONSUME_KEYWORD_TYPE ct ON sd.consume_keyword_type_id = ct.consume_keyword_type_id
-    // 	INNER JOIN USERS u ON u.user_seq = sd.user_seq
-    // 	INNER JOIN TELEGRAM_ROOM t ON t.room_seq = sd.room_seq
-    //     INNER JOIN USER_PAYMENT_METHOD up ON up.payment_method_id = sd.payment_method_id
-    // WHERE sd.should_index = 1
-    // AND	t.is_room_approved = true;
-    // async fn fetch_spent_details_for_indexing(
-    //     &self,
-    //     offset: u64,
-    //     limit: u64,
-    // ) -> anyhow::Result<Vec<SpentDetailWithRelations>> {
-    //     let db: &DatabaseConnection = self.db_conn.get_connection();
-    //     let produced_at: DateTime<Utc> = Utc::now();
-
-    //     let results: Vec<SpentDetailWithRelations> = spent_detail::Entity::find()
-    //         .join(
-    //             JoinType::InnerJoin,
-    //             spent_detail::Relation::CommonConsumeKeywordType.def(),
-    //         )
-    //         // JOIN with USERS
-    //         .join(JoinType::InnerJoin, spent_detail::Relation::Users.def())
-    //         // JOIN with TELEGRAM_ROOM
-    //         .join(JoinType::InnerJoin, spent_detail::Relation::TelegramRoom.def())
-    //         // JOIN with USER_PAYMENT_METHOD
-    //         .join(JoinType::InnerJoin, spent_detail::Relation::UserPaymentMethods.def())
-    //         // SELECT specific columns
-    //         .select_only()
-    //         .column(spent_detail::Column::SpentIdx)
-    //         .column(spent_detail::Column::SpentName)
-    //         .column(spent_detail::Column::SpentMoney)
-    //         .column(spent_detail::Column::SpentAt)
-    //         .column(spent_detail::Column::CreatedAt)
-    //         .column(spent_detail::Column::UserSeq)
-    //         .column(common_consume_keyword_type::Column::ConsumeKeywordTypeId)
-    //         .column(common_consume_keyword_type::Column::ConsumeKeywordType)
-    //         .column(spent_detail::Column::RoomSeq)
-    //         .column(user_payment_methods::Column::CardAlias)
-    //         // Add literal value for indexing_type
-    //         .expr_as(Expr::value("I"), "indexing_type")
-    //         // Add current timestamp for produced_at
-    //         .expr_as(Expr::value(produced_at), "produced_at")
-    //         .column(users::Column::UserId)
-    //         // WHERE conditions
-    //         .filter(spent_detail::Column::ShouldIndex.eq(1))
-    //         .filter(telegram_room::Column::IsRoomApproved.eq(true))
-    //         // Pagination
-    //         .offset(offset)
-    //         .limit(limit)
-    //         .into_model::<SpentDetailWithRelations>()
-    //         .all(db)
-    //         .await
-    //         .inspect_err(|e| {
-    //             error!("[MysqlServiceImpl::fetch_spent_details_for_indexing] Failed to execute query: {:#}", e);
-    //         })?;
-
-    //     Ok(results)
-    // }
-
     /// Fetches denormalized data for the given `spent_idx` list by joining related tables.
     ///
     /// Performs an INNER JOIN from SPENT_DETAIL against COMMON_CONSUME_KEYWORD_TYPE,
@@ -230,7 +157,7 @@ where
             .inspect_err(|e| {
                 error!("[MysqlServiceImpl::fetch_spent_details_for_indexing] Failed to execute query: {:#}", e);
             })?;
-
+            
         Ok(results)
     }
 

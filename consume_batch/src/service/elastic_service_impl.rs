@@ -389,16 +389,6 @@ where
                 )
             })?;
         
-        //let mut cnt_idx = 0;
-
-        for elem in &response_bodies {
-            println!("==========================================");
-            println!("{:?}", elem);
-            println!("==========================================");
-            //break;
-
-        }
-        
         let mut consume_types: Vec<ConsumingIndexProdtType> =
             Vec::with_capacity(response_bodies.len());
         
