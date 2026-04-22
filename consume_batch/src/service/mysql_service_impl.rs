@@ -247,6 +247,7 @@ where
             .column(spent_detail_indexing::Column::CardAlias)
             .column(spent_detail_indexing::Column::UpdatedAt)
             .column(spent_detail_indexing::Column::UpdatedBy)
+            .column(spent_detail_indexing::Column::AggGroupSeq)
             .filter(spent_detail_indexing::Column::SpentIdx.is_in(ids.to_vec()))
             .into_model::<SpentDetailIndexing>()
             .all(db)
