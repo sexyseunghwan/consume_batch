@@ -15,7 +15,7 @@
 //! ```
 
 use crate::common::*;
-use crate::utils_module::io_utils::read_toml_from_file;
+use crate::utils_module::io_utils::find_toml_from_file;
 
 /// Root configuration structure for batch schedules.
 ///
@@ -148,8 +148,8 @@ impl BatchScheduleConfig {
     /// }
     /// # Ok::<(), anyhow::Error>(())
     /// ```
-    pub fn load_from_file(path: &str) -> Result<Self> {
-        read_toml_from_file(path)
+    pub fn find_from_file(path: &str) -> Result<Self> {
+        find_toml_from_file(path)
     }
 
     /// Returns only the enabled batch schedules.
@@ -165,8 +165,8 @@ impl BatchScheduleConfig {
     /// # Examples
     ///
     /// ```rust
-    /// let config = BatchScheduleConfig::load_from_file("batch_schedule.toml")?;
-    /// let enabled = config.get_enabled_schedules();
+    /// let config = BatchScheduleConfig::find_from_file("batch_schedule.toml")?;
+    /// let enabled = config.find_enabled_schedules();
     ///
     /// println!("Active schedules: {}", enabled.len());
     /// for schedule in enabled {
@@ -174,7 +174,7 @@ impl BatchScheduleConfig {
     /// }
     /// # Ok::<(), anyhow::Error>(())
     /// ```
-    pub fn get_enabled_schedules(&self) -> Vec<&BatchScheduleItem> {
+    pub fn find_enabled_schedules(&self) -> Vec<&BatchScheduleItem> {
         self.batch_schedule
             .iter()
             .filter(|item| item.enabled)

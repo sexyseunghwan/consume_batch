@@ -19,6 +19,16 @@ History     :   2025-01-01 Seunghwan Shin       # [v.1.0.0] first create.
                                                             6) Add orphaned index cleanup on full indexing pipeline failure.
                                                             7) Add exponential backoff retry to fetch_spent_details.
                                                             8) Add transaction to upsert_spent_detail_indexing.
+                2026-04-27 Seunghwan Shin       # [v.3.1.0] Apply unified function naming conventions across all modules.
+                                                            - initialize : initialization functions (init, load, from_env, create_*)
+                                                            - get / set  : property accessor functions
+                                                            - find       : data query functions (get_*, fetch_*, consume_*, read_*)
+                                                            - input      : data insert functions (insert, bulk_index, send_message, produce_*)
+                                                            - modify     : data update functions (update_*, bulk_update, swap_alias, upsert_*)
+                                                            - delete     : data delete functions (bulk_delete, purge_topic, cleanup_*)
+                                                            - is         : boolean return functions (needs_upsert -> is_upsert_required)
+                                                            - to         : type conversion functions (convert_* -> to_*)
+                                                            - By         : preposition for "do A based on B" (process_batch -> input_batch_by_schedule)
 */
 
 mod common;
@@ -114,7 +124,7 @@ async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
     // Option to run the application in CLI mode.
-    // Check before AppConfig::init() so CLI client does not require all service env vars.
+    // Check before AppConfig::initialize() so CLI client does not require all service env vars.
     if args
         .get(1)
         .map(|s| s == "--cli" || s == "-cli")
@@ -126,7 +136,7 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    AppConfig::init().map_err(|e| anyhow!("Failed to initialize AppConfig: {}", e))?;
+    AppConfig::initialize().map_err(|e| anyhow!("Failed to initialize AppConfig: {}", e))?;
     set_global_logger();
 
     info!("Indexing Batch Program Start.");
@@ -169,7 +179,7 @@ async fn main() -> anyhow::Result<()> {
     let producer_service: Arc<ProducerService> =
         Arc::new(ProducerServiceImpl::new(Arc::clone(&shared_kafka_repo)));
 
-    let public_data_api_key: String = AppConfig::global()?
+    let public_data_api_key: String = AppConfig::get_global()?
         .public_data_api_key()
         .clone()
         .unwrap_or_default();

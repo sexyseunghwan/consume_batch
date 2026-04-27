@@ -40,7 +40,7 @@ pub struct PathConfig {
 
 impl PathConfig {
     /// Loads path-related configuration from environment variables.
-    fn from_env() -> Result<Self> {
+    fn initialize_from_env() -> Result<Self> {
         Ok(Self {
             batch_schedule: env::var("BATCH_SCHEDULE")
                 .unwrap_or_else(|_| "./config/batch_schedule.toml".to_string()),
@@ -80,7 +80,7 @@ pub struct ElasticsearchConfig {
 
 impl ElasticsearchConfig {
     /// Loads Elasticsearch connection settings from environment variables.
-    fn from_env() -> Result<Self> {
+    fn initialize_from_env() -> Result<Self> {
         Ok(Self {
             url: env::var("ES_DB_URL").context("ES_DB_URL must be set")?,
             id: env::var("ES_ID").context("ES_ID must be set")?,
@@ -95,7 +95,7 @@ impl ElasticsearchConfig {
     /// # Returns
     ///
     /// A vector of URL strings for each node in the cluster.
-    pub fn urls(&self) -> Vec<String> {
+    pub fn get_urls(&self) -> Vec<String> {
         self.url.split(',').map(|s| s.to_string()).collect()
     }
 }
@@ -155,7 +155,7 @@ pub struct KafkaConfig {
 
 impl KafkaConfig {
     /// Loads Kafka connection settings from environment variables.
-    fn from_env() -> Result<Self> {
+    fn initialize_from_env() -> Result<Self> {
         Ok(Self {
             host: env::var("KAFKA_HOST")
                 .context("[KafkaConfig::from_env] KAFKA_HOST must be set")?,
@@ -204,7 +204,7 @@ pub struct MySqlConfig {
 
 impl MySqlConfig {
     /// Loads MySQL connection settings from environment variables.
-    fn from_env() -> Result<Self> {
+    fn initialize_from_env() -> Result<Self> {
         Ok(Self {
             host: env::var("MY_SQL_HOST").context("MY_SQL_HOST must be set")?,
             database_url: env::var("DATABASE_URL").context("DATABASE_URL must be set")?,
@@ -230,7 +230,7 @@ pub struct TelegramConfig {
 
 impl TelegramConfig {
     /// Loads Telegram bot settings from environment variables.
-    fn from_env() -> Result<Self> {
+    fn initialize_from_env() -> Result<Self> {
         Ok(Self {
             token: env::var("TELOXIDE_TOKEN").context("TELOXIDE_TOKEN must be set")?,
         })
@@ -255,7 +255,7 @@ pub struct BatchConfig {
 
 impl BatchConfig {
     /// Loads batch-processing settings from environment variables.
-    fn from_env() -> Result<Self> {
+    fn initialize_from_env() -> Result<Self> {
         Ok(Self {
             batch_size: env::var("BATCH_SIZE")
                 .unwrap_or_else(|_| "10".to_string())
@@ -289,7 +289,7 @@ impl BatchConfig {
 /// use crate::config::environment::ENV;
 ///
 /// // Access Elasticsearch URL
-/// let es_urls = ENV.elasticsearch.urls();
+/// let es_urls = ENV.elasticsearch.get_urls();
 ///
 /// // Access batch schedule path
 /// let schedule_path = ENV.paths.batch_schedule();
@@ -326,14 +326,14 @@ impl Environment {
     ///
     /// Returns an error if any required environment variable is missing
     /// or has an invalid value.
-    fn load() -> Result<Self> {
+    fn initialize() -> Result<Self> {
         Ok(Self {
-            paths: PathConfig::from_env()?,
-            elasticsearch: ElasticsearchConfig::from_env()?,
-            kafka: KafkaConfig::from_env()?,
-            mysql: MySqlConfig::from_env()?,
-            telegram: TelegramConfig::from_env()?,
-            batch: BatchConfig::from_env()?,
+            paths: PathConfig::initialize_from_env()?,
+            elasticsearch: ElasticsearchConfig::initialize_from_env()?,
+            kafka: KafkaConfig::initialize_from_env()?,
+            mysql: MySqlConfig::initialize_from_env()?,
+            telegram: TelegramConfig::initialize_from_env()?,
+            batch: BatchConfig::initialize_from_env()?,
         })
     }
 }
@@ -363,7 +363,7 @@ impl Environment {
 /// println!("Batch size: {}", ENV.batch.batch_size());
 /// ```
 pub static ENV: once_lazy<Environment> = once_lazy::new(|| {
-    Environment::load()
+    Environment::initialize()
         .unwrap_or_else(|e| panic!("Failed to load environment configuration: {}", e))
 });
 

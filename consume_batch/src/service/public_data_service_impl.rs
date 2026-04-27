@@ -28,7 +28,7 @@ impl PublicDataServiceImpl {
 #[async_trait::async_trait]
 impl PublicDataService for PublicDataServiceImpl {
     /// Fetches Korean public holiday dates for the inclusive year range.
-    async fn fetch_korea_holiday_set(
+    async fn find_korea_holiday_set(
         &self,
         start_year: i32,
         end_year: i32,
@@ -65,7 +65,7 @@ impl PublicDataService for PublicDataServiceImpl {
 
                 if parsed.header.result_code != "00" {
                     error!(
-                        "[PublicDataServiceImpl::fetch_korea_holiday_set] API error for {year}-{month:02}: {} {}",
+                        "[PublicDataServiceImpl::find_korea_holiday_set] API error for {year}-{month:02}: {} {}",
                         parsed.header.result_code, parsed.header.result_msg
                     );
                     continue;
@@ -96,7 +96,7 @@ impl PublicDataService for PublicDataServiceImpl {
             }
 
             info!(
-                "[PublicDataServiceImpl::fetch_korea_holiday_set] Fetched holidays for year {}",
+                "[PublicDataServiceImpl::find_korea_holiday_set] Fetched holidays for year {}",
                 year
             );
         }

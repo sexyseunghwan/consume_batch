@@ -78,7 +78,7 @@ pub trait EsRepository {
     /// - The network request fails
     /// - The Elasticsearch cluster returns an error response
     /// - The response cannot be parsed as JSON
-    async fn get_search_query(
+    async fn find_by_query(
         &self,
         es_query: &Value,
         index_name: &str,
@@ -87,7 +87,7 @@ pub trait EsRepository {
     /// Executes multiple search queries against an Elasticsearch index in one request.
     ///
     /// The returned vector preserves the order of `es_queries`.
-    async fn get_multi_search_query(
+    async fn finds_by_query(
         &self,
         es_queries: &[Value],
         index_name: &str,
@@ -109,7 +109,7 @@ pub trait EsRepository {
     /// Returns an error if:
     /// - The network request fails
     /// - The document cannot be indexed (e.g., mapping conflict)
-    async fn post_query(&self, document: &Value, index_name: &str) -> Result<(), anyhow::Error>;
+    async fn input_document(&self, document: &Value, index_name: &str) -> Result<(), anyhow::Error>;
 
     /// Deletes a document from an Elasticsearch index.
     ///
@@ -127,7 +127,7 @@ pub trait EsRepository {
     /// Returns an error if:
     /// - The network request fails
     /// - The document does not exist
-    async fn delete_query(&self, doc_id: &str, index_name: &str) -> Result<(), anyhow::Error>;
+    async fn delete_by_id(&self, doc_id: &str, index_name: &str) -> Result<(), anyhow::Error>;
 
     /// Creates a new Elasticsearch index with settings and mappings.
     ///
@@ -143,7 +143,7 @@ pub trait EsRepository {
     /// Creates a new Elasticsearch index with the provided settings and mappings.
     /// Creates a new Elasticsearch index with the provided settings and mappings.
     /// Creates a new Elasticsearch index with the provided settings and mappings.
-    async fn create_index(
+    async fn initialize_index(
         &self,
         index_name: &str,
         settings: &Value,
@@ -161,7 +161,7 @@ pub trait EsRepository {
     ///
     /// Returns `Ok(())` on successful update.
     /// Updates settings on an existing Elasticsearch index.
-    async fn update_index_settings(
+    async fn modify_index_settings(
         &self,
         index_name: &str,
         settings: &Value,
@@ -179,7 +179,7 @@ pub trait EsRepository {
     /// # Returns
     ///
     /// Returns `Ok(())` on successful bulk indexing.
-    async fn bulk_index<T: Serialize + Send + Sync>(
+    async fn input_bulk<T: Serialize + Send + Sync>(
         &self,
         index_name: &str,
         documents: Vec<T>,
@@ -198,7 +198,7 @@ pub trait EsRepository {
     ///
     /// Returns `Ok(())` on successful bulk update.
     /// Sends a bulk-update request for the provided documents.
-    async fn bulk_update<T: Serialize + Send + Sync>(
+    async fn modify_bulk<T: Serialize + Send + Sync>(
         &self,
         index_name: &str,
         documents: Vec<T>,
@@ -215,7 +215,7 @@ pub trait EsRepository {
     /// # Returns
     ///
     /// Returns `Ok(())` on successful bulk delete.
-    async fn bulk_delete(&self, index_name: &str, doc_ids: Vec<i64>) -> Result<(), anyhow::Error>;
+    async fn delete_bulk(&self, index_name: &str, doc_ids: Vec<i64>) -> Result<(), anyhow::Error>;
 
     /// Forces a refresh on the specified index, making all buffered documents searchable.
     ///
@@ -226,7 +226,7 @@ pub trait EsRepository {
     /// # Returns
     ///
     /// Returns `Ok(())` on successful refresh.
-    async fn refresh_index(&self, index_name: &str) -> Result<(), anyhow::Error>;
+    async fn modify_index_refresh(&self, index_name: &str) -> Result<(), anyhow::Error>;
 
     /// Atomically swaps an alias from old index to new index.
     ///
@@ -238,7 +238,7 @@ pub trait EsRepository {
     /// # Returns
     ///
     /// Returns `Ok(())` on successful alias swap.
-    async fn swap_alias(&self, alias_name: &str, new_index_name: &str)
+    async fn modify_alias(&self, alias_name: &str, new_index_name: &str)
     -> Result<(), anyhow::Error>;
 
     /// Returns the list of index names currently pointed to by the given alias.
@@ -251,7 +251,7 @@ pub trait EsRepository {
     ///
     /// Returns a `Vec<String>` of index names on success, or an empty vector if
     /// the alias does not exist.
-    async fn get_index_by_alias(&self, alias_name: &str) -> Result<Vec<String>, anyhow::Error>;
+    async fn find_index_by_alias(&self, alias_name: &str) -> Result<Vec<String>, anyhow::Error>;
 
     /// Deletes multiple Elasticsearch indices.
     ///
@@ -298,7 +298,7 @@ pub trait EsRepository {
 /// let query = serde_json::json!({
 ///     "query": { "match_all": {} }
 /// });
-/// let results = es_repo.get_search_query(&query, "my_index").await?;
+/// let results = es_repo.find_by_query(&query, "my_index").await?;
 /// # Ok::<(), anyhow::Error>(())
 /// ```
 #[derive(Debug, Getters, Clone)]
@@ -353,7 +353,7 @@ impl EsRepositoryImpl {
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn new() -> anyhow::Result<Self> {
-        let app_config: &AppConfig = AppConfig::global().inspect_err(|e| {
+        let app_config: &AppConfig = AppConfig::get_global().inspect_err(|e| {
             error!("[EsRepositoryImpl::new] app_config: {:#}", e);
         })?;
 
@@ -436,7 +436,7 @@ impl EsRepository for EsRepositoryImpl {
     /// - Network request fails
     /// - Elasticsearch returns non-2xx status code
     /// - Response body cannot be parsed as JSON
-    async fn get_search_query(&self, es_query: &Value, index_name: &str) -> anyhow::Result<Value> {
+    async fn find_by_query(&self, es_query: &Value, index_name: &str) -> anyhow::Result<Value> {
         // Execute search request against the specified index
         let response: Response = self
             .es_client
@@ -452,14 +452,14 @@ impl EsRepository for EsRepositoryImpl {
         } else {
             let error_body: String = response.text().await?;
             Err(anyhow!(
-                "[EsRepositoryImpl::node_search_query] response status is failed: {:?}",
+                "[EsRepositoryImpl::find_by_query] response status is failed: {:?}",
                 error_body
             ))
         }
     }
 
     /// Executes multiple search queries against a single Elasticsearch index.
-    async fn get_multi_search_query(
+    async fn finds_by_query(
         &self,
         es_queries: &[Value],
         index_name: &str,
@@ -485,7 +485,7 @@ impl EsRepository for EsRepositoryImpl {
         if !response.status_code().is_success() {
             let error_body: String = response.text().await?;
             return Err(anyhow!(
-                "[EsRepositoryImpl::get_multi_search_query] response status is failed: {:?}",
+                "[EsRepositoryImpl::finds_by_query] response status is failed: {:?}",
                 error_body
             ));
         }
@@ -495,12 +495,12 @@ impl EsRepository for EsRepositoryImpl {
             .get("responses")
             .and_then(Value::as_array)
             .ok_or_else(|| {
-                anyhow!("[EsRepositoryImpl::get_multi_search_query] Missing 'responses' array")
+                anyhow!("[EsRepositoryImpl::finds_by_query] Missing 'responses' array")
             })?;
 
         if responses.len() != es_queries.len() {
             return Err(anyhow!(
-                "[EsRepositoryImpl::get_multi_search_query] Response count mismatch. expected={}, actual={}",
+                "[EsRepositoryImpl::finds_by_query] Response count mismatch. expected={}, actual={}",
                 es_queries.len(),
                 responses.len()
             ));
@@ -512,7 +512,7 @@ impl EsRepository for EsRepositoryImpl {
             .map(|(idx, search_response)| {
                 if let Some(error) = search_response.get("error") {
                     return Err(anyhow!(
-                        "[EsRepositoryImpl::get_multi_search_query] Query {} failed: {:?}",
+                        "[EsRepositoryImpl::finds_by_query] Query {} failed: {:?}",
                         idx,
                         error
                     ));
@@ -543,7 +543,7 @@ impl EsRepository for EsRepositoryImpl {
     /// - Network request fails
     /// - Document violates index mapping (type mismatch)
     /// - Index is read-only or unavailable
-    async fn post_query(&self, document: &Value, index_name: &str) -> anyhow::Result<()> {
+    async fn input_document(&self, document: &Value, index_name: &str) -> anyhow::Result<()> {
         // Send index request with the document as body
         let response: Response = self
             .es_client
@@ -554,11 +554,11 @@ impl EsRepository for EsRepositoryImpl {
 
         // Verify successful indexing
         if response.status_code().is_success() {
-            info!("[EsRepositoryImpl::post_query] index_name: {}", index_name);
+            info!("[EsRepositoryImpl::input_document] index_name: {}", index_name);
             Ok(())
         } else {
             let error_message = format!(
-                "[EsRepositoryImpl::post_query] Failed to index document: Status Code: {}",
+                "[EsRepositoryImpl::input_document] Failed to index document: Status Code: {}",
                 response.status_code()
             );
             Err(anyhow!(error_message))
@@ -585,7 +585,7 @@ impl EsRepository for EsRepositoryImpl {
     /// - Network request fails
     /// - Document with specified ID does not exist (404)
     /// - Index is read-only or unavailable
-    async fn delete_query(&self, doc_id: &str, index_name: &str) -> anyhow::Result<()> {
+    async fn delete_by_id(&self, doc_id: &str, index_name: &str) -> anyhow::Result<()> {
         // Send delete request for the specified document
         let response: Response = self
             .es_client
@@ -596,13 +596,13 @@ impl EsRepository for EsRepositoryImpl {
         // Verify successful deletion
         if response.status_code().is_success() {
             info!(
-                "[EsRepositoryImpl::delete_query] index name: {}, doc_id: {}",
+                "[EsRepositoryImpl::delete_by_id] index name: {}, doc_id: {}",
                 index_name, doc_id
             );
             Ok(())
         } else {
             let error_message = format!(
-                "[EsRepositoryImpl::delete_query] Failed to delete document: Status Code: {}, Document ID: {}",
+                "[EsRepositoryImpl::delete_by_id] Failed to delete document: Status Code: {}, Document ID: {}",
                 response.status_code(),
                 doc_id
             );
@@ -611,7 +611,7 @@ impl EsRepository for EsRepositoryImpl {
     }
 
     /// Creates a new Elasticsearch index with the provided settings and mappings.
-    async fn create_index(
+    async fn initialize_index(
         &self,
         index_name: &str,
         settings: &Value,
@@ -632,14 +632,14 @@ impl EsRepository for EsRepositoryImpl {
 
         if response.status_code().is_success() {
             info!(
-                "[EsRepositoryImpl::create_index] Successfully created index: {}",
+                "[EsRepositoryImpl::initialize_index] Successfully created index: {}",
                 index_name
             );
             Ok(())
         } else {
             let error_body = response.text().await?;
             Err(anyhow!(
-                "[EsRepositoryImpl::create_index] Failed to create index {}: {}",
+                "[EsRepositoryImpl::initialize_index] Failed to create index {}: {}",
                 index_name,
                 error_body
             ))
@@ -647,7 +647,7 @@ impl EsRepository for EsRepositoryImpl {
     }
 
     /// Updates settings on an existing Elasticsearch index.
-    async fn update_index_settings(
+    async fn modify_index_settings(
         &self,
         index_name: &str,
         settings: &Value,
@@ -662,14 +662,14 @@ impl EsRepository for EsRepositoryImpl {
 
         if response.status_code().is_success() {
             info!(
-                "[EsRepositoryImpl::update_index_settings] Successfully updated settings for index: {}",
+                "[EsRepositoryImpl::modify_index_settings] Successfully updated settings for index: {}",
                 index_name
             );
             Ok(())
         } else {
             let error_body: String = response.text().await?;
             Err(anyhow!(
-                "[EsRepositoryImpl::update_index_settings] Failed to update settings for index {}: {}",
+                "[EsRepositoryImpl::modify_index_settings] Failed to update settings for index {}: {}",
                 index_name,
                 error_body
             ))
@@ -677,7 +677,7 @@ impl EsRepository for EsRepositoryImpl {
     }
 
     /// Sends a bulk-index request for the provided documents.
-    async fn bulk_index<T: Serialize + Send + Sync>(
+    async fn input_bulk<T: Serialize + Send + Sync>(
         &self,
         index_name: &str,
         documents: Vec<T>,
@@ -703,7 +703,7 @@ impl EsRepository for EsRepositoryImpl {
                     })
                     .ok_or_else(|| {
                         anyhow!(
-                            "[EsRepositoryImpl::bulk_index] Missing '{}' field in document",
+                            "[EsRepositoryImpl::input_bulk] Missing '{}' field in document",
                             field
                         )
                     })?;
@@ -718,7 +718,7 @@ impl EsRepository for EsRepositoryImpl {
             body.push(doc_json.into());
         }
 
-        //info!("[EsRepositoryImpl::bulk_index] Indexing {} documents to '{}'", body.len() / 2, index_name);
+        //info!("[EsRepositoryImpl::input_bulk] Indexing {} documents to '{}'", body.len() / 2, index_name);
 
         let response: Response = self
             .es_client
@@ -735,13 +735,13 @@ impl EsRepository for EsRepositoryImpl {
                 && errors.as_bool() == Some(true)
             {
                 return Err(anyhow!(
-                    "[EsRepositoryImpl::bulk_index] Some documents failed to index: {:?}",
+                    "[EsRepositoryImpl::input_bulk] Some documents failed to index: {:?}",
                     response_body.get("items")
                 ));
             }
 
             info!(
-                "[EsRepositoryImpl::bulk_index] Successfully bulk indexed documents to: {}",
+                "[EsRepositoryImpl::input_bulk] Successfully bulk indexed documents to: {}",
                 index_name
             );
 
@@ -749,7 +749,7 @@ impl EsRepository for EsRepositoryImpl {
         } else {
             let error_body: String = response.text().await?;
             Err(anyhow!(
-                "[EsRepositoryImpl::bulk_index] Failed to bulk index to {}: {}",
+                "[EsRepositoryImpl::input_bulk] Failed to bulk index to {}: {}",
                 index_name,
                 error_body
             ))
@@ -757,7 +757,7 @@ impl EsRepository for EsRepositoryImpl {
     }
 
     /// Sends a bulk-update request for the provided documents.
-    async fn bulk_update<T: Serialize + Send + Sync>(
+    async fn modify_bulk<T: Serialize + Send + Sync>(
         &self,
         index_name: &str,
         documents: Vec<T>,
@@ -778,7 +778,7 @@ impl EsRepository for EsRepositoryImpl {
                 .and_then(|v| v.as_i64())
                 .ok_or_else(|| {
                     anyhow!(
-                        "[EsRepositoryImpl::bulk_update] Missing '{}' field in document",
+                        "[EsRepositoryImpl::modify_bulk] Missing '{}' field in document",
                         doc_id_field
                     )
                 })?;
@@ -813,20 +813,20 @@ impl EsRepository for EsRepositoryImpl {
                 && errors.as_bool() == Some(true)
             {
                 return Err(anyhow!(
-                    "[EsRepositoryImpl::bulk_update] Some documents failed to update: {:?}",
+                    "[EsRepositoryImpl::modify_bulk] Some documents failed to update: {:?}",
                     response_body.get("items")
                 ));
             }
 
             info!(
-                "[EsRepositoryImpl::bulk_update] Successfully bulk updated documents in: {}",
+                "[EsRepositoryImpl::modify_bulk] Successfully bulk updated documents in: {}",
                 index_name
             );
             Ok(())
         } else {
             let error_body: String = response.text().await?;
             Err(anyhow!(
-                "[EsRepositoryImpl::bulk_update] Failed to bulk update to {}: {}",
+                "[EsRepositoryImpl::modify_bulk] Failed to bulk update to {}: {}",
                 index_name,
                 error_body
             ))
@@ -834,7 +834,7 @@ impl EsRepository for EsRepositoryImpl {
     }
 
     /// Sends a bulk-delete request for the provided document IDs.
-    async fn bulk_delete(&self, index_name: &str, doc_ids: Vec<i64>) -> anyhow::Result<()> {
+    async fn delete_bulk(&self, index_name: &str, doc_ids: Vec<i64>) -> anyhow::Result<()> {
         if doc_ids.is_empty() {
             return Ok(());
         }
@@ -866,13 +866,13 @@ impl EsRepository for EsRepositoryImpl {
                 && errors.as_bool() == Some(true)
             {
                 return Err(anyhow!(
-                    "[EsRepositoryImpl::bulk_delete] Some documents failed to delete: {:?}",
+                    "[EsRepositoryImpl::delete_bulk] Some documents failed to delete: {:?}",
                     response_body.get("items")
                 ));
             }
 
             info!(
-                "[EsRepositoryImpl::bulk_delete] Successfully bulk deleted documents from: {}",
+                "[EsRepositoryImpl::delete_bulk] Successfully bulk deleted documents from: {}",
                 index_name
             );
 
@@ -880,7 +880,7 @@ impl EsRepository for EsRepositoryImpl {
         } else {
             let error_body: String = response.text().await?;
             Err(anyhow!(
-                "[EsRepositoryImpl::bulk_delete] Failed to bulk delete from {}: {}",
+                "[EsRepositoryImpl::delete_bulk] Failed to bulk delete from {}: {}",
                 index_name,
                 error_body
             ))
@@ -888,7 +888,7 @@ impl EsRepository for EsRepositoryImpl {
     }
 
     /// Refreshes an Elasticsearch index so recent writes become searchable.
-    async fn refresh_index(&self, index_name: &str) -> anyhow::Result<()> {
+    async fn modify_index_refresh(&self, index_name: &str) -> anyhow::Result<()> {
         let response: Response = self
             .es_client
             .indices()
@@ -898,14 +898,14 @@ impl EsRepository for EsRepositoryImpl {
 
         if response.status_code().is_success() {
             info!(
-                "[EsRepositoryImpl::refresh_index] Successfully refreshed index: {}",
+                "[EsRepositoryImpl::modify_index_refresh] Successfully refreshed index: {}",
                 index_name
             );
             Ok(())
         } else {
             let error_body: String = response.text().await?;
             Err(anyhow!(
-                "[EsRepositoryImpl::refresh_index] Failed to refresh index {}: {}",
+                "[EsRepositoryImpl::modify_index_refresh] Failed to refresh index {}: {}",
                 index_name,
                 error_body
             ))
@@ -913,7 +913,7 @@ impl EsRepository for EsRepositoryImpl {
     }
 
     /// Atomically removes an alias from old indices and adds it to `new_index_name`.
-    async fn swap_alias(&self, alias_name: &str, new_index_name: &str) -> anyhow::Result<()> {
+    async fn modify_alias(&self, alias_name: &str, new_index_name: &str) -> anyhow::Result<()> {
         // First, check if the alias exists and get the old index
         let get_alias_response: std::result::Result<Response, elasticsearch::Error> = self
             .es_client
@@ -965,14 +965,14 @@ impl EsRepository for EsRepositoryImpl {
 
         if response.status_code().is_success() {
             info!(
-                "[EsRepositoryImpl::swap_alias] Successfully swapped alias {} to index {}",
+                "[EsRepositoryImpl::modify_alias] Successfully swapped alias {} to index {}",
                 alias_name, new_index_name
             );
             Ok(())
         } else {
             let error_body: String = response.text().await?;
             Err(anyhow!(
-                "[EsRepositoryImpl::swap_alias] Failed to swap alias {} to {}: {}",
+                "[EsRepositoryImpl::modify_alias] Failed to swap alias {} to {}: {}",
                 alias_name,
                 new_index_name,
                 error_body
@@ -981,7 +981,7 @@ impl EsRepository for EsRepositoryImpl {
     }
 
     /// Looks up all index names currently bound to an alias.
-    async fn get_index_by_alias(&self, alias_name: &str) -> anyhow::Result<Vec<String>> {
+    async fn find_index_by_alias(&self, alias_name: &str) -> anyhow::Result<Vec<String>> {
         let response: Response = self
             .es_client
             .indices()
@@ -989,7 +989,7 @@ impl EsRepository for EsRepositoryImpl {
             .send()
             .await
             .inspect_err(|e| {
-                error!("[EsRepositoryImpl::get_index_by_alias] Failed to send request for alias '{}': {:#}", alias_name, e);
+                error!("[EsRepositoryImpl::find_index_by_alias] Failed to send request for alias '{}': {:#}", alias_name, e);
             })?;
 
         if response.status_code() == 404 {
@@ -998,7 +998,7 @@ impl EsRepository for EsRepositoryImpl {
 
         let body: Value = response.json().await.inspect_err(|e| {
             error!(
-                "[EsRepositoryImpl::get_index_by_alias] Failed to parse response body: {:#}",
+                "[EsRepositoryImpl::find_index_by_alias] Failed to parse response body: {:#}",
                 e
             );
         })?;

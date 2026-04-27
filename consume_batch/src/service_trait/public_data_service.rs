@@ -9,7 +9,7 @@ pub trait PublicDataService: Send + Sync {
     /// Fetches Korean legal holidays for every year in `start_year..=end_year`.
     ///
     /// Returns a `HashSet<NaiveDate>` containing only dates where `isHoliday == "Y"`.
-    async fn fetch_korea_holiday_set(
+    async fn find_korea_holiday_set(
         &self,
         start_year: i32,
         end_year: i32,

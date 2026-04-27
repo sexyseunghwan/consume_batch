@@ -186,13 +186,13 @@ where
         public_data_service: D,
         indexing_service: I,
     ) -> Result<Self> {
-        let app_config: &AppConfig = AppConfig::global().inspect_err(|e| {
+        let app_config: &AppConfig = AppConfig::get_global().inspect_err(|e| {
             error!("[BatchServiceImpl::new] app_config: {:#}", e);
         })?;
         let batch_schedule: &str = app_config.batch_schedule().as_str();
 
         let schedule_config: BatchScheduleConfig =
-            BatchScheduleConfig::load_from_file(batch_schedule).inspect_err(|e| {
+            BatchScheduleConfig::find_from_file(batch_schedule).inspect_err(|e| {
                 error!("[BatchServiceImpl::new] schedule_config: {:#}", e);
             })?;
 
@@ -200,7 +200,7 @@ where
             info,
             "Loaded {} batch schedules ({} enabled)",
             schedule_config.batch_schedule().len(),
-            schedule_config.get_enabled_schedules().len()
+            schedule_config.find_enabled_schedules().len()
         );
 
         Ok(Self {
@@ -221,8 +221,8 @@ where
     /// # Returns
     ///
     /// A vector of references to enabled [`BatchScheduleItem`]s.
-    pub fn get_enabled_schedules(&self) -> Vec<&BatchScheduleItem> {
-        self.schedule_config.get_enabled_schedules()
+    pub fn find_enabled_schedules(&self) -> Vec<&BatchScheduleItem> {
+        self.schedule_config.find_enabled_schedules()
     }
 
     /// Registers all enabled cron-based jobs into a new [`JobScheduler`] and starts it.
@@ -240,32 +240,32 @@ where
     /// - The scheduler cannot be created
     /// - Any cron expression is invalid
     /// - Jobs cannot be added to the scheduler
-    async fn build_and_start_cron_scheduler(&self) -> anyhow::Result<JobScheduler> {
+    async fn initialize_cron_scheduler(&self) -> anyhow::Result<JobScheduler> {
         let scheduler: JobScheduler = JobScheduler::new()
             .await
             .inspect_err(|e| {
-                error!("[BatchServiceImpl::build_and_start_cron_scheduler] Failed to create JobScheduler: {:#}", e);
+                error!("[BatchServiceImpl::initialize_cron_scheduler] Failed to create JobScheduler: {:#}", e);
             })?;
 
         let cron_schedules: Vec<&BatchScheduleItem> = self
-            .get_enabled_schedules()
+            .find_enabled_schedules()
             .into_iter()
             .filter(|item| *item.cron_schedule_apply())
             .collect();
 
         batch_log!(
             info,
-            "[BatchServiceImpl::build_and_start_cron_scheduler] Registering {} cron job(s)",
+            "[BatchServiceImpl::initialize_cron_scheduler] Registering {} cron job(s)",
             cron_schedules.len()
         );
 
         for schedule_item in cron_schedules {
-            let job: Job = self.create_index_job(schedule_item)?;
+            let job: Job = self.initialize_index_job(schedule_item)?;
             scheduler.add(job).await?;
 
             batch_log!(
                 info,
-                "[BatchServiceImpl::build_and_start_cron_scheduler] {} Cron job registered (schedule: {})",
+                "[BatchServiceImpl::initialize_cron_scheduler] {} Cron job registered (schedule: {})",
                 schedule_item.index_name(),
                 schedule_item.cron_schedule()
             );
@@ -275,7 +275,7 @@ where
 
         batch_log!(
             info,
-            "[BatchServiceImpl::build_and_start_cron_scheduler] Cron scheduler started successfully"
+            "[BatchServiceImpl::initialize_cron_scheduler] Cron scheduler started successfully"
         );
 
         Ok(scheduler)
@@ -289,18 +289,18 @@ where
     /// # Returns
     ///
     /// Returns a [`JoinSet`] containing handles to all spawned immediate jobs.
-    fn spawn_immediate_jobs(&self) -> JoinSet<()> {
+    fn initialize_immediate_jobs(&self) -> JoinSet<()> {
         let mut immediate_jobs: JoinSet<()> = JoinSet::new();
 
         let immediate_schedules: Vec<&BatchScheduleItem> = self
-            .get_enabled_schedules()
+            .find_enabled_schedules()
             .into_iter()
             .filter(|item| *item.immediate_apply())
             .collect();
 
         batch_log!(
             info,
-            "[BatchServiceImpl::spawn_immediate_jobs] Spawning {} immediate job(s)",
+            "[BatchServiceImpl::initialize_immediate_jobs] Spawning {} immediate job(s)",
             immediate_schedules.len()
         );
 
@@ -313,14 +313,14 @@ where
 
             batch_log!(
                 info,
-                "[BatchServiceImpl::spawn_immediate_jobs] {} Spawning immediate job (one-time execution)",
+                "[BatchServiceImpl::initialize_immediate_jobs] {} Spawning immediate job (one-time execution)",
                 immediate_item.index_name()
             );
 
             immediate_jobs.spawn(async move {
                 batch_log!(info, "[{}] Immediate job started", item.index_name());
 
-                match Self::process_batch(&item, &mysql, &elastic, &public_data, &indexing).await {
+                match Self::input_batch_by_schedule(&item, &mysql, &elastic, &public_data, &indexing).await {
                     Ok(()) => {
                         batch_log!(
                             info,
@@ -354,7 +354,7 @@ where
     /// # Errors
     ///
     /// Returns an error if the cron expression is invalid.
-    fn create_index_job(&self, schedule_item: &BatchScheduleItem) -> Result<Job> {
+    fn initialize_index_job(&self, schedule_item: &BatchScheduleItem) -> Result<Job> {
         let index_name: String = schedule_item.index_name().clone();
         let cron_expr: String = schedule_item.cron_schedule().clone();
 
@@ -368,7 +368,7 @@ where
 
         batch_log!(
             info,
-            "[BatchServiceImpl::create_index_job] {} Registering cron job with schedule: {}",
+            "[BatchServiceImpl::initialize_index_job] {} Registering cron job with schedule: {}",
             index_name,
             cron_expr
         );
@@ -386,7 +386,7 @@ where
                 batch_log!(info, "[{}] Cron job triggered", schedule_item.index_name());
 
                 // Call the batch processing logic with schedule_item
-                match Self::process_batch(&schedule_item, &mysql, &elastic, &public_data, &indexing)
+                match Self::input_batch_by_schedule(&schedule_item, &mysql, &elastic, &public_data, &indexing)
                     .await
                 {
                     Ok(()) => {
@@ -438,7 +438,7 @@ where
     ///
     /// This is an associated function (not `&self` method) to allow calling
     /// from within `'static` closures used by the cron scheduler.
-    async fn process_batch(
+    async fn input_batch_by_schedule(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
         elastic_service: &Arc<E>,
@@ -451,43 +451,43 @@ where
 
         batch_log!(
             info,
-            "[BatchServiceImpl::process_batch] {} Starting batch indexing job",
+            "[BatchServiceImpl::input_batch_by_schedule] {} Starting batch indexing job",
             index_name
         );
         
         match batch_name {
             "spent_detail_full" => {
                 indexing_service
-                    .run_spent_detail_full(schedule_item)
+                    .input_spent_detail_full(schedule_item)
                     .await
                     .inspect_err(|e| {
                         error!(
-                            "[BatchServiceImpl::process_batch] spent_detail_full: {:#}",
+                            "[BatchServiceImpl::input_batch_by_schedule] spent_detail_full: {:#}",
                             e
                         );
                     })?;
             }
             "spent_detail_incremental" => {
                 indexing_service
-                    .run_spent_detail_incremental(schedule_item)
+                    .input_spent_detail_incremental(schedule_item)
                     .await
                     .inspect_err(|e| {
                         error!(
-                            "[BatchServiceImpl::process_batch] spent_detail_incremental: {:#}",
+                            "[BatchServiceImpl::input_batch_by_schedule] spent_detail_incremental: {:#}",
                             e
                         );
                     })?;
             }
             "spent_type" => {
                 indexing_service
-                    .run_spent_type_full(schedule_item)
+                    .input_spent_type_full(schedule_item)
                     .await
                     .inspect_err(|e| {
-                        error!("[BatchServiceImpl::process_batch] spent_type: {:#}", e);
+                        error!("[BatchServiceImpl::input_batch_by_schedule] spent_type: {:#}", e);
                     })?;
             }
             "all_change_spent_detail_type" => {
-                Self::process_update_all_check_type_detail(
+                Self::modify_all_spent_detail_type(
                     schedule_item,
                     mysql_service,
                     elastic_service,
@@ -495,13 +495,13 @@ where
                 .await
                 .inspect_err(|e| {
                     error!(
-                        "[BatchServiceImpl::process_batch] all_change_spent_detail_type: {:#}",
+                        "[BatchServiceImpl::input_batch_by_schedule] all_change_spent_detail_type: {:#}",
                         e
                     );
                 })?;
             }
             "dimension_date_table" => {
-                Self::process_update_date_information(
+                Self::input_date_dimension_data(
                     schedule_item,
                     mysql_service,
                     public_data_service,
@@ -509,7 +509,7 @@ where
                 .await
                 .inspect_err(|e| {
                     error!(
-                        "[BatchServiceImpl::process_batch] dimension_date_table: {:#}",
+                        "[BatchServiceImpl::input_batch_by_schedule] dimension_date_table: {:#}",
                         e
                     );
                 })?;
@@ -517,7 +517,7 @@ where
             _ => {
                 batch_log!(
                     warn,
-                    "[BatchServiceImpl::process_batch] Unknown batch_name: {}, skipping",
+                    "[BatchServiceImpl::input_batch_by_schedule] Unknown batch_name: {}, skipping",
                     batch_name
                 );
             }
@@ -527,7 +527,7 @@ where
 
         batch_log!(
             info,
-            "[BatchServiceImpl::process_batch] {} completed in {}ms",
+            "[BatchServiceImpl::input_batch_by_schedule] {} completed in {}ms",
             index_name,
             elapsed.num_milliseconds()
         );
@@ -556,7 +556,7 @@ where
     /// Returns an error if:
     /// - MySQL fetch or batch update fails
     /// - Elasticsearch type judgement query fails
-    async fn process_update_all_check_type_detail(
+    async fn modify_all_spent_detail_type(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
         elastic_service: &Arc<E>,
@@ -565,7 +565,7 @@ where
 
         batch_log!(
             info,
-            "[BatchServiceImpl::process_update_all_check_type_detail] Starting. batch_size={}",
+            "[BatchServiceImpl::modify_all_spent_detail_type] Starting. batch_size={}",
             batch_size
         );
 
@@ -601,7 +601,7 @@ where
 
                 let mut result: Option<Vec<SpentDetail>> = None;
                 for attempt in 1..=MAX_RETRIES {
-                    match mysql_service.fetch_spent_details(offset, batch_size).await {
+                    match mysql_service.find_spent_details(offset, batch_size).await {
                         Ok(rows) => {
                             result = Some(rows);
                             break;
@@ -610,7 +610,7 @@ where
                             let delay_secs: u64 = 2u64.pow(attempt - 1); // 1s, 2s, 4s
                             batch_log!(
                                 error,
-                                "[BatchServiceImpl::process_update_all_check_type_detail] fetch failed (attempt {}/{}, offset={}, retry in {}s): {:#}",
+                                "[BatchServiceImpl::modify_all_spent_detail_type] fetch failed (attempt {}/{}, offset={}, retry in {}s): {:#}",
                                 attempt, MAX_RETRIES, offset, delay_secs, e
                             );
                             last_err = Some(e);
@@ -626,7 +626,7 @@ where
                     None => {
                         batch_log!(
                             error,
-                            "[BatchServiceImpl::process_update_all_check_type_detail] Aborting: all {} retries exhausted at offset={}. Last error: {:#}",
+                            "[BatchServiceImpl::modify_all_spent_detail_type] Aborting: all {} retries exhausted at offset={}. Last error: {:#}",
                             MAX_RETRIES, offset, last_err.unwrap()
                         );
                         break;
@@ -669,15 +669,15 @@ where
                 ]
             */
             let spent_types: Vec<ConsumingIndexProdtType> = elastic_service
-                .get_consume_type_judgements(&spent_names)
+                .find_consume_type_judgements(&spent_names)
                 .await
                 .inspect_err(|e| {
-                    error!("[BatchServiceImpl::process_update_all_check_type_detail] spent_types: {:#}", e);
+                    error!("[BatchServiceImpl::modify_all_spent_detail_type] spent_types: {:#}", e);
                 })?;
 
             if spent_types.len() != details.len() {
                 return Err(anyhow!(
-                    "[BatchServiceImpl::process_update_all_check_type_detail] spent_types length mismatch. details={}, spent_types={}",
+                    "[BatchServiceImpl::modify_all_spent_detail_type] spent_types length mismatch. details={}, spent_types={}",
                     details.len(),
                     spent_types.len()
                 ));
@@ -702,11 +702,11 @@ where
             if !updates.is_empty() {
                 let update_count: usize = updates.len();
                 let updated: u64 = mysql_service
-                    .update_spent_detail_type_batch(updates, batch_size as usize)
+                    .modify_spent_detail_type_batch(updates, batch_size as usize)
                     .await
                     .inspect_err(|e| {
                         error!(
-                            "[process_update_all_check_type_detail] Failed to update batch: {:#}",
+                            "[modify_all_spent_detail_type] Failed to update batch: {:#}",
                             e
                         );
                     })?;
@@ -715,7 +715,7 @@ where
 
                 batch_log!(
                     info,
-                    "[process_update_all_check_type_detail] Batch offset={}, updated {}/{} records",
+                    "[modify_all_spent_detail_type] Batch offset={}, updated {}/{} records",
                     offset,
                     update_count,
                     batch_count
@@ -727,7 +727,7 @@ where
 
         batch_log!(
             info,
-            "[process_update_all_check_type_detail] Completed. processed={}, updated={}",
+            "[modify_all_spent_detail_type] Completed. processed={}, updated={}",
             total_processed,
             total_updated
         );
@@ -745,7 +745,7 @@ where
     /// are fetched from the 공공데이터포털 API and used to populate
     /// `is_holiday`, `is_before_holiday`, and `is_after_holiday`.
     /// If the key is absent or the API call fails, all three fields default to `0`.
-    async fn process_update_date_information(
+    async fn input_date_dimension_data(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
         public_data_service: &Arc<D>,
@@ -756,7 +756,7 @@ where
 
         batch_log!(
             info,
-            "[BatchServiceImpl::process_update_date_information] Starting. range={}-{}, batch_size={}",
+            "[BatchServiceImpl::input_date_dimension_data] Starting. range={}-{}, batch_size={}",
             start_year,
             end_year,
             batch_size
@@ -786,23 +786,23 @@ where
         // Fetch Korean holidays for the full year range via the injected service.
         batch_log!(
             info,
-            "[BatchServiceImpl::process_update_date_information] Fetching Korean holidays from public data API"
+            "[BatchServiceImpl::input_date_dimension_data] Fetching Korean holidays from public data API"
         );
         let holiday_set: HashSet<NaiveDate> = match public_data_service
-            .fetch_korea_holiday_set(start_year, end_year)
+            .find_korea_holiday_set(start_year, end_year)
             .await
         {
             Ok(set) => {
                 batch_log!(
                     info,
-                    "[BatchServiceImpl::process_update_date_information] Fetched {} holiday dates",
+                    "[BatchServiceImpl::input_date_dimension_data] Fetched {} holiday dates",
                     set.len()
                 );
                 set
             }
             Err(e) => {
                 error!(
-                    "[BatchServiceImpl::process_update_date_information] Holiday API failed, proceeding without holiday data: {:#}",
+                    "[BatchServiceImpl::input_date_dimension_data] Holiday API failed, proceeding without holiday data: {:#}",
                     e
                 );
                 HashSet::new()
@@ -863,18 +863,18 @@ where
             if batch.len() >= batch_size {
                 let count: usize = batch.len();
                 mysql_service
-                    .insert_dim_calendar_bulk(std::mem::take(&mut batch))
+                    .input_dim_calendar_bulk(std::mem::take(&mut batch))
                     .await
                     .inspect_err(|e| {
                         error!(
-                            "[BatchServiceImpl::process_update_date_information] Bulk insert failed: {:#}",
+                            "[BatchServiceImpl::input_date_dimension_data] Bulk insert failed: {:#}",
                             e
                         );
                     })?;
                 total_inserted += count as u64;
                 batch_log!(
                     info,
-                    "[BatchServiceImpl::process_update_date_information] Inserted {} rows (total so far: {})",
+                    "[BatchServiceImpl::input_date_dimension_data] Inserted {} rows (total so far: {})",
                     count,
                     total_inserted
                 );
@@ -889,11 +889,11 @@ where
         if !batch.is_empty() {
             let count: usize = batch.len();
             mysql_service
-                .insert_dim_calendar_bulk(batch)
+                .input_dim_calendar_bulk(batch)
                 .await
                 .inspect_err(|e| {
                     error!(
-                        "[BatchServiceImpl::process_update_date_information] Final bulk insert failed: {:#}",
+                        "[BatchServiceImpl::input_date_dimension_data] Final bulk insert failed: {:#}",
                         e
                     );
                 })?;
@@ -902,7 +902,7 @@ where
 
         batch_log!(
             info,
-            "[BatchServiceImpl::process_update_date_information] Completed. total_inserted={}",
+            "[BatchServiceImpl::input_date_dimension_data] Completed. total_inserted={}",
             total_inserted
         );
 
@@ -961,20 +961,20 @@ where
     /// service.main_batch_task().await?;
     /// # Ok::<(), anyhow::Error>(())
     /// ```
-    async fn main_batch_task(&self) -> anyhow::Result<()> {
+    async fn initialize_batch_task(&self) -> anyhow::Result<()> {
         batch_log!(
             info,
-            "[BatchServiceImpl::main_batch_task] Starting batch service main task"
+            "[BatchServiceImpl::initialize_batch_task] Starting batch service main task"
         );
 
         /* 1. Start scheduler tasks */
-        let mut scheduler: JobScheduler = self.build_and_start_cron_scheduler().await?;
+        let mut scheduler: JobScheduler = self.initialize_cron_scheduler().await?;
         /* 2. Start immediate job tasks */
-        let mut immediate_jobs: JoinSet<()> = self.spawn_immediate_jobs();
+        let mut immediate_jobs: JoinSet<()> = self.initialize_immediate_jobs();
 
         batch_log!(
             info,
-            "[BatchServiceImpl::main_batch_task] Scheduler is running. Press Ctrl+C to shutdown gracefully."
+            "[BatchServiceImpl::initialize_batch_task] Scheduler is running. Press Ctrl+C to shutdown gracefully."
         );
 
         // Wait for either:
@@ -984,18 +984,18 @@ where
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 batch_log!(info,
-                    "[BatchServiceImpl::main_batch_task] Shutdown signal received, stopping scheduler..."
+                    "[BatchServiceImpl::initialize_batch_task] Shutdown signal received, stopping scheduler..."
                 );
             }
             _ = async {
                 // Wait for all immediate jobs to complete
                 while let Some(result) = immediate_jobs.join_next().await {
                     if let Err(e) = result {
-                        batch_log!(error,"[BatchServiceImpl::main_batch_task] Immediate job panicked: {:?}", e);
+                        batch_log!(error,"[BatchServiceImpl::initialize_batch_task] Immediate job panicked: {:?}", e);
                     }
                 }
 
-                batch_log!(info,"[BatchServiceImpl::main_batch_task] All immediate jobs completed, keeping service alive until Ctrl+C...");
+                batch_log!(info,"[BatchServiceImpl::initialize_batch_task] All immediate jobs completed, keeping service alive until Ctrl+C...");
 
                 // Always keep running until Ctrl+C (socket server + cron jobs may still be active)
                 // pending -> std::future::pending returns a `Future` that never resolves to `Ready`.
@@ -1007,14 +1007,14 @@ where
         // Gracefully shutdown the scheduler
         scheduler.shutdown().await.inspect_err(|e| {
             error!(
-                "[BatchServiceImpl::main_batch_task] Failed to shutdown scheduler: {:#}",
+                "[BatchServiceImpl::initialize_batch_task] Failed to shutdown scheduler: {:#}",
                 e
             );
         })?;
 
         batch_log!(
             info,
-            "[BatchServiceImpl::main_batch_task] Scheduler stopped gracefully. Goodbye!"
+            "[BatchServiceImpl::initialize_batch_task] Scheduler stopped gracefully. Goodbye!"
         );
 
         Ok(())
@@ -1036,8 +1036,8 @@ where
     /// # Errors
     ///
     /// Returns an error if the underlying batch processing fails.
-    async fn run_batch(&self, schedule_item: &BatchScheduleItem) -> anyhow::Result<()> {
-        Self::process_batch(
+    async fn input_batch(&self, schedule_item: &BatchScheduleItem) -> anyhow::Result<()> {
+        Self::input_batch_by_schedule(
             schedule_item,
             &self.mysql_service,
             &self.elastic_service,

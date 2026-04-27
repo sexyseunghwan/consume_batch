@@ -133,7 +133,7 @@ pub trait KafkaRepository: Send + Sync {
     /// - Consumer creation fails
     /// - Topic subscription fails
     /// - Message deserialization fails
-    async fn consume_messages(
+    async fn find_messages(
         &self,
         topic: &str,
         max_messages: usize,
@@ -158,15 +158,15 @@ pub trait KafkaRepository: Send + Sync {
     ///
     /// ```rust,no_run
     /// // Two different consumers for the same topic with independent offsets
-    /// let full_msgs = repo.consume_messages_with_group("spent_topic", 100, "full-index").await?;
-    /// let incr_msgs = repo.consume_messages_with_group("spent_topic", 100, "incremental").await?;
+    /// let full_msgs = repo.find_messages_by_group("spent_topic", 100, "full-index").await?;
+    /// let incr_msgs = repo.find_messages_by_group("spent_topic", 100, "incremental").await?;
     /// ```
     ///
     /// # Returns
     ///
     /// Returns `Ok(Vec<Value>)` containing the consumed messages as JSON values.
     /// Consumes messages from a topic using a dedicated consumer-group suffix.
-    async fn consume_messages_with_group(
+    async fn find_messages_by_group(
         &self,
         topic: &str,
         max_messages: usize,
@@ -182,7 +182,7 @@ pub trait KafkaRepository: Send + Sync {
     /// # Returns
     ///
     /// Returns `Ok(Some(Value))` if a message is available, `Ok(None)` if no message.
-    async fn consume_one(&self, topic: &str) -> Result<Option<Value>, anyhow::Error>;
+    async fn find_one(&self, topic: &str) -> Result<Option<Value>, anyhow::Error>;
 
     /// Sends a JSON message to a Kafka topic.
     ///
@@ -201,7 +201,7 @@ pub trait KafkaRepository: Send + Sync {
     /// Returns an error if:
     /// - Message serialization fails
     /// - Producer fails to send message
-    async fn send_message(
+    async fn input_message(
         &self,
         topic: &str,
         key: Option<&str>,
@@ -220,7 +220,7 @@ pub trait KafkaRepository: Send + Sync {
     /// # Returns
     ///
     /// Returns `Ok(())` if all records were successfully deleted.
-    async fn purge_topic(&self, topic: &str) -> Result<(), anyhow::Error>;
+    async fn delete_topic_records(&self, topic: &str) -> Result<(), anyhow::Error>;
 
     /// 특정 토픽에서 source 컨슈머 그룹의 committed offset을 target 컨슈머 그룹에 안전하게 복사한다.
     ///
@@ -262,7 +262,7 @@ pub trait KafkaRepository: Send + Sync {
     /// 복사 중 실패 시 target 그룹 상태:
     /// - consumer가 비활성화된 상태로 남을 수 있음
     /// - consumer 애플리케이션을 재시작하면 자동으로 재활성화됨
-    async fn copy_consumer_group_offsets(
+    async fn modify_consumer_group_offsets(
         &self,
         topic: &str,
         source_group: &str,
@@ -282,7 +282,7 @@ pub trait KafkaRepository: Send + Sync {
     ///
     /// Returns `Ok(total)` where `total` is the sum of committed offsets across all partitions.
     /// Partitions with no committed offset (e.g. `OffsetBeginning`) are counted as 0.
-    async fn get_committed_offsets_total(&self, topic: &str, group_suffix: &str)
+    async fn find_committed_offsets_total(&self, topic: &str, group_suffix: &str)
     -> anyhow::Result<i64>;
 
     /// Returns committed offsets per partition for a consumer group.
@@ -301,7 +301,7 @@ pub trait KafkaRepository: Send + Sync {
     /// Returns `Ok(HashMap<partition_id, offset>)` where each entry represents
     /// the committed offset for a specific partition.
     /// Partitions with no committed offset (e.g. `OffsetBeginning`) are set to 0.
-    async fn get_committed_offsets_by_partition(
+    async fn find_committed_offsets_by_partition(
         &self,
         topic: &str,
         group_suffix: &str,
@@ -349,10 +349,10 @@ pub trait KafkaRepository: Send + Sync {
 /// let repo2 = kafka_repo.clone();
 ///
 /// let handle1 = tokio::spawn(async move {
-///     repo1.consume_messages("topic_1", 100).await
+///     repo1.find_messages("topic_1", 100).await
 /// });
 /// let handle2 = tokio::spawn(async move {
-///     repo2.consume_messages("topic_2", 100).await
+///     repo2.find_messages("topic_2", 100).await
 /// });
 /// # Ok::<(), anyhow::Error>(())
 /// ```
@@ -402,7 +402,7 @@ impl KafkaRepositoryImpl {
     /// Returns `Ok(KafkaRepositoryImpl)` on successful initialization.
     pub fn new() -> anyhow::Result<Self> {
         // Load configuration from environment
-        let app_config: &AppConfig = AppConfig::global().inspect_err(|e| {
+        let app_config: &AppConfig = AppConfig::get_global().inspect_err(|e| {
             error!("[KafkaRepositoryImpl::new] app_config: {:#}", e);
         })?;
 
@@ -492,7 +492,7 @@ impl KafkaRepositoryImpl {
     /// | `auto.offset.reset`    | earliest                                 | Start from earliest        |
     /// | `enable.auto.commit`   | true                                     | Auto commit offsets        |
     /// | `session.timeout.ms`   | 6000                                     | 6 second session timeout   |
-    async fn get_or_create_consumer(
+    async fn find_or_create_consumer(
         &self,
         topic: &str,
         group_suffix: Option<&str>,
@@ -531,7 +531,7 @@ impl KafkaRepositoryImpl {
         };
 
         info!(
-            "[KafkaRepositoryImpl::get_or_create_consumer] Creating new consumer for topic: {} (group.id: {})",
+            "[KafkaRepositoryImpl::find_or_create_consumer] Creating new consumer for topic: {} (group.id: {})",
             topic, group_id
         );
 
@@ -558,14 +558,14 @@ impl KafkaRepositoryImpl {
                 .set("sasl.password", password);
 
             info!(
-                "[KafkaRepositoryImpl::get_or_create_consumer] SASL enabled (protocol: {}, mechanism: {}, user: {})",
+                "[KafkaRepositoryImpl::find_or_create_consumer] SASL enabled (protocol: {}, mechanism: {}, user: {})",
                 protocol, mechanism, username
             );
         }
 
         let consumer: StreamConsumer = client_config.create().map_err(|e| {
             anyhow!(
-                "[KafkaRepositoryImpl::get_or_create_consumer] Failed to create consumer for topic {}: {:?}",
+                "[KafkaRepositoryImpl::find_or_create_consumer] Failed to create consumer for topic {}: {:?}",
                 topic,
                 e
             )
@@ -574,7 +574,7 @@ impl KafkaRepositoryImpl {
         // Subscribe to the topic
         consumer.subscribe(&[topic]).map_err(|e| {
             anyhow!(
-                "[KafkaRepositoryImpl::get_or_create_consumer] Failed to subscribe to topic {}: {:?}",
+                "[KafkaRepositoryImpl::find_or_create_consumer] Failed to subscribe to topic {}: {:?}",
                 topic,
                 e
             )
@@ -584,7 +584,7 @@ impl KafkaRepositoryImpl {
         consumers.insert(consumer_key.clone(), Arc::clone(&consumer_arc));
 
         info!(
-            "[KafkaRepositoryImpl::get_or_create_consumer] Consumer created and subscribed to topic: {}",
+            "[KafkaRepositoryImpl::find_or_create_consumer] Consumer created and subscribed to topic: {}",
             topic
         );
 
@@ -629,7 +629,7 @@ impl KafkaRepositoryImpl {
     ///
     /// 이 구현에서는 offset 복사가 consumer가 활성 상태가 아닐 때 수행되도록
     /// 권장 사항을 로그로 남기는 방식을 사용한다.
-    async fn deactivate_consumer_group(&self, group_id: &str) -> anyhow::Result<()> {
+    async fn modify_consumer_group_deactivate(&self, group_id: &str) -> anyhow::Result<()> {
         // Kafka Admin API는 consumer group member를 직접 제거하는 기능이 없다.
         // 따라서 여기서는 경고 로그만 남기고 진행한다.
         // 실제 비활성화는 consumer 애플리케이션을 중지하여 수행해야 한다.
@@ -638,13 +638,13 @@ impl KafkaRepositoryImpl {
 
         if is_active {
             warn!(
-                "[KafkaRepositoryImpl::deactivate_consumer_group] Group '{}' has active consumers. \
+                "[KafkaRepositoryImpl::modify_consumer_group_deactivate] Group '{}' has active consumers. \
                  For safest operation, please stop consumer application before copying offsets.",
                 group_id
             );
         } else {
             info!(
-                "[KafkaRepositoryImpl::deactivate_consumer_group] Group '{}' has no active consumers. Safe to proceed.",
+                "[KafkaRepositoryImpl::modify_consumer_group_deactivate] Group '{}' has no active consumers. Safe to proceed.",
                 group_id
             );
         }
@@ -653,7 +653,7 @@ impl KafkaRepositoryImpl {
     }
 
     /// AdminClient를 생성한다.
-    fn create_admin_client(&self) -> anyhow::Result<AdminClient<DefaultClientContext>> {
+    fn initialize_admin_client(&self) -> anyhow::Result<AdminClient<DefaultClientContext>> {
         let mut admin_config: ClientConfig = ClientConfig::new();
         admin_config.set("bootstrap.servers", &self.kafka_brokers);
 
@@ -672,7 +672,7 @@ impl KafkaRepositoryImpl {
 
         admin_config.create().map_err(|e| {
             anyhow!(
-                "[KafkaRepositoryImpl::create_admin_client] Failed to create admin client: {:?}",
+                "[KafkaRepositoryImpl::initialize_admin_client] Failed to create admin client: {:?}",
                 e
             )
         })
@@ -683,7 +683,7 @@ impl KafkaRepositoryImpl {
     /// 이 함수는 target 그룹이 이미 비활성화된 상태에서 호출되어야 한다.
     /// * target 그룹: 복사를 하려는 그룹
     /// * source 그룹: 복사 대상이 되는 그룹
-    async fn copy_offsets_internal(
+    async fn modify_offsets_internal(
         &self,
         topic: &str,
         source_group: &str,
@@ -716,7 +716,7 @@ impl KafkaRepositoryImpl {
 
         let source_consumer: BaseConsumer = base_config.create().map_err(|e| {
             anyhow!(
-                "[KafkaRepositoryImpl::copy_offsets_internal] Failed to create source consumer: {:?}",
+                "[KafkaRepositoryImpl::modify_offsets_internal] Failed to create source consumer: {:?}",
                 e
             )
         })?;
@@ -728,7 +728,7 @@ impl KafkaRepositoryImpl {
             .fetch_metadata(Some(topic), Duration::from_secs(10))
             .map_err(|e| {
                 anyhow!(
-                    "[KafkaRepositoryImpl::copy_offsets_internal] Failed to fetch metadata for topic '{}': {:?}",
+                    "[KafkaRepositoryImpl::modify_offsets_internal] Failed to fetch metadata for topic '{}': {:?}",
                     topic, e
                 )
             })?;
@@ -739,14 +739,14 @@ impl KafkaRepositoryImpl {
             .find(|t| t.name() == topic)
             .ok_or_else(|| {
                 anyhow!(
-                    "[KafkaRepositoryImpl::copy_offsets_internal] Topic '{}' not found in metadata",
+                    "[KafkaRepositoryImpl::modify_offsets_internal] Topic '{}' not found in metadata",
                     topic
                 )
             })?;
 
         if topic_metadata.partitions().is_empty() {
             return Err(anyhow!(
-                "[KafkaRepositoryImpl::copy_offsets_internal] Topic '{}' has no partitions",
+                "[KafkaRepositoryImpl::modify_offsets_internal] Topic '{}' has no partitions",
                 topic
             ));
         }
@@ -762,7 +762,7 @@ impl KafkaRepositoryImpl {
 
         source_consumer.assign(&tpl).map_err(|e| {
             anyhow!(
-                "[KafkaRepositoryImpl::copy_offsets_internal] Failed to assign partitions: {:?}",
+                "[KafkaRepositoryImpl::modify_offsets_internal] Failed to assign partitions: {:?}",
                 e
             )
         })?;
@@ -771,7 +771,7 @@ impl KafkaRepositoryImpl {
             .committed(Duration::from_secs(10))
             .map_err(|e| {
                 anyhow!(
-                    "[KafkaRepositoryImpl::copy_offsets_internal] Failed to fetch committed offsets for group '{}': {:?}",
+                    "[KafkaRepositoryImpl::modify_offsets_internal] Failed to fetch committed offsets for group '{}': {:?}",
                     source_group_id, e
                 )
             })?;
@@ -786,7 +786,7 @@ impl KafkaRepositoryImpl {
                 _ => "Unknown".to_string(),
             };
             info!(
-                "[KafkaRepositoryImpl::copy_offsets_internal] Source group '{}' partition {} offset: {}",
+                "[KafkaRepositoryImpl::modify_offsets_internal] Source group '{}' partition {} offset: {}",
                 source_group_id, elem.partition(), offset_str
             );
         }
@@ -799,7 +799,7 @@ impl KafkaRepositoryImpl {
 
         if !has_valid_offset {
             info!(
-                "[KafkaRepositoryImpl::copy_offsets_internal] Source group '{}' has no committed offsets yet. Skipping copy.",
+                "[KafkaRepositoryImpl::modify_offsets_internal] Source group '{}' has no committed offsets yet. Skipping copy.",
                 source_group_id
             );
             return Ok(());
@@ -829,7 +829,7 @@ impl KafkaRepositoryImpl {
 
         let target_consumer: BaseConsumer = target_config.create().map_err(|e| {
             anyhow!(
-                "[KafkaRepositoryImpl::copy_offsets_internal] Failed to create target consumer: {:?}",
+                "[KafkaRepositoryImpl::modify_offsets_internal] Failed to create target consumer: {:?}",
                 e
             )
         })?;
@@ -841,7 +841,7 @@ impl KafkaRepositoryImpl {
 
         target_consumer.assign(&assign_tpl).map_err(|e| {
             anyhow!(
-                "[KafkaRepositoryImpl::copy_offsets_internal] Failed to assign partitions to target consumer: {:?}",
+                "[KafkaRepositoryImpl::modify_offsets_internal] Failed to assign partitions to target consumer: {:?}",
                 e
             )
         })?;
@@ -850,7 +850,7 @@ impl KafkaRepositoryImpl {
             .commit(&committed_tpl, CommitMode::Sync)
             .map_err(|e| {
                 anyhow!(
-                    "[KafkaRepositoryImpl::copy_offsets_internal] Failed to commit offsets for group '{}': {:?}",
+                    "[KafkaRepositoryImpl::modify_offsets_internal] Failed to commit offsets for group '{}': {:?}",
                     target_group_id, e
                 )
             })?;
@@ -862,13 +862,13 @@ impl KafkaRepositoryImpl {
                 _ => "N/A".to_string(),
             };
             info!(
-                "[KafkaRepositoryImpl::copy_offsets_internal] Copied to target group '{}' partition {} offset: {}",
+                "[KafkaRepositoryImpl::modify_offsets_internal] Copied to target group '{}' partition {} offset: {}",
                 target_group_id, elem.partition(), offset_str
             );
         }
 
         info!(
-            "[KafkaRepositoryImpl::copy_offsets_internal] Successfully committed offsets for target group '{}'",
+            "[KafkaRepositoryImpl::modify_offsets_internal] Successfully committed offsets for target group '{}'",
             target_group_id
         );
 
@@ -891,20 +891,20 @@ impl KafkaRepository for KafkaRepositoryImpl {
     /// # Returns
     ///
     /// Returns a vector of JSON values representing the consumed messages.
-    async fn consume_messages(
+    async fn find_messages(
         &self,
         topic: &str,
         max_messages: usize,
     ) -> anyhow::Result<Vec<Value>> {
         // Get or create topic-specific consumer (without group suffix)
-        let consumer: Arc<StreamConsumer> = self.get_or_create_consumer(topic, None).await?;
+        let consumer: Arc<StreamConsumer> = self.find_or_create_consumer(topic, None).await?;
 
         let mut messages: Vec<Value> = Vec::new();
         let mut stream: MessageStream<'_, rdkafka::consumer::DefaultConsumerContext> =
             consumer.stream();
 
         // info!(
-        //     "[KafkaRepositoryImpl::consume_messages] Starting to consume from topic: {} (max: {})",
+        //     "[KafkaRepositoryImpl::find_messages] Starting to consume from topic: {} (max: {})",
         //     topic, max_messages
         // );
 
@@ -916,7 +916,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
                         if let Some(payload) = borrowed_message.payload() {
                             let payload_str: &str = std::str::from_utf8(payload).map_err(|e| {
                                 anyhow!(
-                                    "[KafkaRepositoryImpl::consume_messages] Invalid UTF-8: {:?}",
+                                    "[KafkaRepositoryImpl::find_messages] Invalid UTF-8: {:?}",
                                     e
                                 )
                             })?;
@@ -924,7 +924,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
                             let json_value: Value =
                                 serde_json::from_str(payload_str).map_err(|e| {
                                     anyhow!(
-                                        "[KafkaRepositoryImpl::consume_messages] JSON parse error: {:?}",
+                                        "[KafkaRepositoryImpl::find_messages] JSON parse error: {:?}",
                                         e
                                     )
                                 })?;
@@ -932,7 +932,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
                             messages.push(json_value);
 
                             // info!(
-                            //     "[KafkaRepositoryImpl::consume_messages] Consumed message {}/{} from topic: {}, partition: {}, offset: {}",
+                            //     "[KafkaRepositoryImpl::find_messages] Consumed message {}/{} from topic: {}, partition: {}, offset: {}",
                             //     messages.len(),
                             //     max_messages,
                             //     topic,
@@ -943,21 +943,21 @@ impl KafkaRepository for KafkaRepositoryImpl {
                     }
                     Err(e) => {
                         warn!(
-                            "[KafkaRepositoryImpl::consume_messages] Error consuming message from {}: {:?}",
+                            "[KafkaRepositoryImpl::find_messages] Error consuming message from {}: {:?}",
                             topic, e
                         );
                     }
                 },
                 Ok(None) => {
                     info!(
-                        "[KafkaRepositoryImpl::consume_messages] Stream ended for topic: {}",
+                        "[KafkaRepositoryImpl::find_messages] Stream ended for topic: {}",
                         topic
                     );
                     break;
                 }
                 Err(_) => {
                     info!(
-                        "[KafkaRepositoryImpl::consume_messages] Timeout reached for topic: {}, consumed {} messages",
+                        "[KafkaRepositoryImpl::find_messages] Timeout reached for topic: {}, consumed {} messages",
                         topic,
                         messages.len()
                     );
@@ -967,7 +967,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
         }
 
         info!(
-            "[KafkaRepositoryImpl::consume_messages] Finished consuming {} messages from topic: {}",
+            "[KafkaRepositoryImpl::find_messages] Finished consuming {} messages from topic: {}",
             messages.len(),
             topic
         );
@@ -976,7 +976,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
     }
 
     /// Consumes messages from a topic using a dedicated consumer-group suffix.
-    async fn consume_messages_with_group(
+    async fn find_messages_by_group(
         &self,
         topic: &str,
         max_messages: usize,
@@ -984,7 +984,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
     ) -> anyhow::Result<Vec<Value>> {
         // Get or create consumer with custom group suffix
         let consumer: Arc<StreamConsumer> = self
-            .get_or_create_consumer(topic, Some(group_suffix))
+            .find_or_create_consumer(topic, Some(group_suffix))
             .await?;
 
         let mut messages: Vec<Value> = Vec::new();
@@ -999,7 +999,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
                         if let Some(payload) = borrowed_message.payload() {
                             let payload_str: &str = std::str::from_utf8(payload).map_err(|e| {
                                 anyhow!(
-                                    "[KafkaRepositoryImpl::consume_messages_with_group] Invalid UTF-8: {:?}",
+                                    "[KafkaRepositoryImpl::find_messages_with_group] Invalid UTF-8: {:?}",
                                     e
                                 )
                             })?;
@@ -1007,7 +1007,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
                             let json_value: Value =
                                 serde_json::from_str(payload_str).map_err(|e| {
                                     anyhow!(
-                                        "[KafkaRepositoryImpl::consume_messages_with_group] JSON parse error: {:?}",
+                                        "[KafkaRepositoryImpl::find_messages_with_group] JSON parse error: {:?}",
                                         e
                                     )
                                 })?;
@@ -1017,21 +1017,21 @@ impl KafkaRepository for KafkaRepositoryImpl {
                     }
                     Err(e) => {
                         error!(
-                            "[KafkaRepositoryImpl::consume_messages_with_group] Kafka error: {:?}",
+                            "[KafkaRepositoryImpl::find_messages_with_group] Kafka error: {:?}",
                             e
                         );
                     }
                 },
                 Ok(None) => {
                     info!(
-                        "[KafkaRepositoryImpl::consume_messages_with_group] Stream ended for topic: {} (group: {})",
+                        "[KafkaRepositoryImpl::find_messages_with_group] Stream ended for topic: {} (group: {})",
                         topic, group_suffix
                     );
                     break;
                 }
                 Err(_) => {
                     info!(
-                        "[KafkaRepositoryImpl::consume_messages_with_group] Timeout reached for topic: {} (group: {}), consumed {} messages",
+                        "[KafkaRepositoryImpl::find_messages_with_group] Timeout reached for topic: {} (group: {}), consumed {} messages",
                         topic,
                         group_suffix,
                         messages.len()
@@ -1042,7 +1042,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
         }
 
         info!(
-            "[KafkaRepositoryImpl::consume_messages_with_group] Finished consuming {} messages from topic: {} (group: {})",
+            "[KafkaRepositoryImpl::find_messages_with_group] Finished consuming {} messages from topic: {} (group: {})",
             messages.len(),
             topic,
             group_suffix
@@ -1063,8 +1063,8 @@ impl KafkaRepository for KafkaRepositoryImpl {
     ///
     /// Returns `Ok(Some(Value))` if a message is available within timeout,
     /// `Ok(None)` if no message is available.
-    async fn consume_one(&self, topic: &str) -> anyhow::Result<Option<Value>> {
-        let messages: Vec<Value> = self.consume_messages(topic, 1).await?;
+    async fn find_one(&self, topic: &str) -> anyhow::Result<Option<Value>> {
+        let messages: Vec<Value> = self.find_messages(topic, 1).await?;
         Ok(messages.into_iter().next())
     }
 
@@ -1087,7 +1087,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
     /// Returns an error if:
     /// - Message serialization fails
     /// - Producer fails to send message within timeout (30 seconds)
-    async fn send_message(
+    async fn input_message(
         &self,
         topic: &str,
         key: Option<&str>,
@@ -1095,7 +1095,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
     ) -> anyhow::Result<()> {
         let payload_str: String = serde_json::to_string(payload).map_err(|e| {
             anyhow!(
-                "[KafkaRepositoryImpl::send_message] Failed to serialize payload: {:?}",
+                "[KafkaRepositoryImpl::input_message] Failed to serialize payload: {:?}",
                 e
             )
         })?;
@@ -1110,14 +1110,14 @@ impl KafkaRepository for KafkaRepositoryImpl {
         match self.producer.send(record, Duration::from_secs(30)).await {
             Ok(_delivery) => {
                 // info!(
-                //     "[KafkaRepositoryImpl::send_message] Message sent to topic: {}, partition: {}, offset: {}",
+                //     "[KafkaRepositoryImpl::input_message] Message sent to topic: {}, partition: {}, offset: {}",
                 //     topic, delivery.partition, delivery.offset
                 // );
                 Ok(())
             }
             Err((e, _)) => {
                 let error_message: String = format!(
-                    "[KafkaRepositoryImpl::send_message] Failed to send message to topic {}: {:?}",
+                    "[KafkaRepositoryImpl::input_message] Failed to send message to topic {}: {:?}",
                     topic, e
                 );
                 Err(anyhow!(error_message))
@@ -1146,9 +1146,9 @@ impl KafkaRepository for KafkaRepositoryImpl {
     /// - Admin client creation fails
     /// - Topic metadata or watermark fetching fails
     /// - `delete_records` call fails
-    async fn purge_topic(&self, topic: &str) -> anyhow::Result<()> {
+    async fn delete_topic_records(&self, topic: &str) -> anyhow::Result<()> {
         info!(
-            "[KafkaRepositoryImpl::purge_topic] Purging all records from topic: {}",
+            "[KafkaRepositoryImpl::delete_topic_records] Purging all records from topic: {}",
             topic
         );
 
@@ -1178,7 +1178,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
         let admin_client: AdminClient<DefaultClientContext> =
             admin_config.create().map_err(|e| {
                 anyhow!(
-                    "[KafkaRepositoryImpl::purge_topic] Failed to create admin client: {:?}",
+                    "[KafkaRepositoryImpl::delete_topic_records] Failed to create admin client: {:?}",
                     e
                 )
             })?;
@@ -1197,7 +1197,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
         // BaseConsumer 는 subscribe 없이 메타데이터만 조회할 수 있어 안전하다.
         let temp_consumer: BaseConsumer = admin_config.create().map_err(|e| {
             anyhow!(
-                "[KafkaRepositoryImpl::purge_topic] Failed to create temp consumer: {:?}",
+                "[KafkaRepositoryImpl::delete_topic_records] Failed to create temp consumer: {:?}",
                 e
             )
         })?;
@@ -1206,7 +1206,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
             .fetch_metadata(Some(topic), Duration::from_secs(10))// Kafka 브로커에서 metadata 가져올때 최대 10초동안 기다린다는 의미가 된다.
             .map_err(|e| {
                 anyhow!(
-                    "[KafkaRepositoryImpl::purge_topic] Failed to fetch metadata for topic {}: {:?}",
+                    "[KafkaRepositoryImpl::delete_topic_records] Failed to fetch metadata for topic {}: {:?}",
                     topic,
                     e
                 )
@@ -1219,7 +1219,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
             .find(|t| t.name() == topic)
             .ok_or_else(|| {
                 anyhow!(
-                    "[KafkaRepositoryImpl::purge_topic] Topic {} not found in metadata",
+                    "[KafkaRepositoryImpl::delete_topic_records] Topic {} not found in metadata",
                     topic
                 )
             })?;
@@ -1227,7 +1227,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
         // 파티션이 하나도 없으면 비정상 상태
         if topic_metadata.partitions().is_empty() {
             return Err(anyhow!(
-                "[KafkaRepositoryImpl::purge_topic] Topic {} has no partitions",
+                "[KafkaRepositoryImpl::delete_topic_records] Topic {} has no partitions",
                 topic
             ));
         }
@@ -1252,7 +1252,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
                 .fetch_watermarks(topic, partition.id(), Duration::from_secs(10))
                 .map_err(|e| {
                     anyhow!(
-                        "[KafkaRepositoryImpl::purge_topic] Failed to fetch watermarks for {}[{}]: {:?}",
+                        "[KafkaRepositoryImpl::delete_topic_records] Failed to fetch watermarks for {}[{}]: {:?}",
                         topic,
                         partition.id(),
                         e
@@ -1263,14 +1263,14 @@ impl KafkaRepository for KafkaRepositoryImpl {
             // → 삭제 대상 목록(TopicPartitionList)에 추가
             if high > 0 {
                 info!(
-                    "[KafkaRepositoryImpl::purge_topic] Partition {}: deleting records up to offset {}",
+                    "[KafkaRepositoryImpl::delete_topic_records] Partition {}: deleting records up to offset {}",
                     partition.id(),
                     high
                 );
                 tpl.add_partition_offset(topic, partition.id(), Offset::Offset(high))
                     .map_err(|e| {
                         anyhow!(
-                            "[KafkaRepositoryImpl::purge_topic] Failed to set partition offset: {:?}",
+                            "[KafkaRepositoryImpl::delete_topic_records] Failed to set partition offset: {:?}",
                             e
                         )
                     })?;
@@ -1280,7 +1280,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
         // 모든 파티션의 high watermark 가 0이면 이미 빈 토픽
         if tpl.count() == 0 {
             info!(
-                "[KafkaRepositoryImpl::purge_topic] Topic {} is already empty, nothing to purge",
+                "[KafkaRepositoryImpl::delete_topic_records] Topic {} is already empty, nothing to purge",
                 topic
             );
             return Ok(());
@@ -1297,14 +1297,14 @@ impl KafkaRepository for KafkaRepositoryImpl {
             .await
             .map_err(|e| {
                 anyhow!(
-                    "[KafkaRepositoryImpl::purge_topic] Failed to delete records from topic {}: {:?}",
+                    "[KafkaRepositoryImpl::delete_topic_records] Failed to delete records from topic {}: {:?}",
                     topic,
                     e
                 )
             })?;
 
         info!(
-            "[KafkaRepositoryImpl::purge_topic] Successfully purged all records from topic: {}",
+            "[KafkaRepositoryImpl::delete_topic_records] Successfully purged all records from topic: {}",
             topic
         );
 
@@ -1318,7 +1318,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
     /// 2. target 그룹의 모든 consumer 비활성화 (members 제거)
     /// 3. source 그룹의 committed offset 조회 및 target 그룹에 복사
     /// 4. 복사 성공 여부를 로그에 기록
-    async fn copy_consumer_group_offsets(
+    async fn modify_consumer_group_offsets(
         &self,
         topic: &str,
         source_group: &str,
@@ -1329,7 +1329,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
         let target_group_id: String = format!("{}-{}-{}", self.base_group_id, topic, target_group);
 
         info!(
-            "[KafkaRepositoryImpl::copy_consumer_group_offsets] Starting safe offset copy: '{}' → '{}' (topic: '{}')",
+            "[KafkaRepositoryImpl::modify_consumer_group_offsets] Starting safe offset copy: '{}' → '{}' (topic: '{}')",
             source_group_id, target_group_id, topic
         );
 
@@ -1340,12 +1340,12 @@ impl KafkaRepository for KafkaRepositoryImpl {
 
         if is_active {
             info!(
-                "[KafkaRepositoryImpl::copy_consumer_group_offsets] Target group '{}' has active consumers. Will deactivate before copying.",
+                "[KafkaRepositoryImpl::modify_consumer_group_offsets] Target group '{}' has active consumers. Will deactivate before copying.",
                 target_group_id
             );
         } else {
             info!(
-                "[KafkaRepositoryImpl::copy_consumer_group_offsets] Target group '{}' is already inactive.",
+                "[KafkaRepositoryImpl::modify_consumer_group_offsets] Target group '{}' is already inactive.",
                 target_group_id
             );
         }
@@ -1353,10 +1353,10 @@ impl KafkaRepository for KafkaRepositoryImpl {
         // ──────────────────────────────────────────────────────────────
         // [2단계] target 그룹 비활성화
         // ──────────────────────────────────────────────────────────────
-        self.deactivate_consumer_group(&target_group_id).await?;
+        self.modify_consumer_group_deactivate(&target_group_id).await?;
 
         info!(
-            "[KafkaRepositoryImpl::copy_consumer_group_offsets] Target group '{}' deactivated successfully.",
+            "[KafkaRepositoryImpl::modify_consumer_group_offsets] Target group '{}' deactivated successfully.",
             target_group_id
         );
 
@@ -1364,27 +1364,27 @@ impl KafkaRepository for KafkaRepositoryImpl {
         // [3단계] offset 복사 수행 (실패 시에도 일관성 유지)
         // ──────────────────────────────────────────────────────────────
         let copy_result = self
-            .copy_offsets_internal(topic, source_group, target_group)
+            .modify_offsets_internal(topic, source_group, target_group)
             .await;
 
         match &copy_result {
             Ok(_) => {
                 info!(
-                    "[KafkaRepositoryImpl::copy_consumer_group_offsets] ✓ Successfully copied offsets from '{}' to '{}' for topic '{}'",
+                    "[KafkaRepositoryImpl::modify_consumer_group_offsets] ✓ Successfully copied offsets from '{}' to '{}' for topic '{}'",
                     source_group_id, target_group_id, topic
                 );
                 info!(
-                    "[KafkaRepositoryImpl::copy_consumer_group_offsets] Target group '{}' can now be reactivated by starting consumer application.",
+                    "[KafkaRepositoryImpl::modify_consumer_group_offsets] Target group '{}' can now be reactivated by starting consumer application.",
                     target_group_id
                 );
             }
             Err(e) => {
                 error!(
-                    "[KafkaRepositoryImpl::copy_consumer_group_offsets] ✗ Failed to copy offsets: {:?}",
+                    "[KafkaRepositoryImpl::modify_consumer_group_offsets] ✗ Failed to copy offsets: {:?}",
                     e
                 );
                 error!(
-                    "[KafkaRepositoryImpl::copy_consumer_group_offsets] Target group '{}' remains deactivated. Restart consumer application to reactivate.",
+                    "[KafkaRepositoryImpl::modify_consumer_group_offsets] Target group '{}' remains deactivated. Restart consumer application to reactivate.",
                     target_group_id
                 );
             }
@@ -1397,7 +1397,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
     ///
     /// Assembles the full group ID as `{base_group_id}-{topic}-{group_suffix}`,
     /// consistent with `get_or_create_consumer`.
-    async fn get_committed_offsets_total(
+    async fn find_committed_offsets_total(
         &self,
         topic: &str,
         group_suffix: &str,
@@ -1425,7 +1425,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
 
         let consumer: BaseConsumer = config.create().map_err(|e| {
             anyhow!(
-                "[KafkaRepositoryImpl::get_committed_offsets_total] Failed to create consumer for group '{}': {:?}",
+                "[KafkaRepositoryImpl::find_committed_offsets_total] Failed to create consumer for group '{}': {:?}",
                 group_id, e
             )
         })?;
@@ -1434,7 +1434,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
             .fetch_metadata(Some(topic), Duration::from_secs(10))
             .map_err(|e| {
                 anyhow!(
-                    "[KafkaRepositoryImpl::get_committed_offsets_total] Failed to fetch metadata for topic '{}': {:?}",
+                    "[KafkaRepositoryImpl::find_committed_offsets_total] Failed to fetch metadata for topic '{}': {:?}",
                     topic, e
                 )
             })?;
@@ -1445,7 +1445,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
             .find(|t| t.name() == topic)
             .ok_or_else(|| {
                 anyhow!(
-                    "[KafkaRepositoryImpl::get_committed_offsets_total] Topic '{}' not found in metadata",
+                    "[KafkaRepositoryImpl::find_committed_offsets_total] Topic '{}' not found in metadata",
                     topic
                 )
             })?;
@@ -1461,7 +1461,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
 
         consumer.assign(&tpl).map_err(|e| {
             anyhow!(
-                "[KafkaRepositoryImpl::get_committed_offsets_total] Failed to assign partitions: {:?}",
+                "[KafkaRepositoryImpl::find_committed_offsets_total] Failed to assign partitions: {:?}",
                 e
             )
         })?;
@@ -1470,7 +1470,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
             .committed(Duration::from_secs(10))
             .map_err(|e| {
                 anyhow!(
-                    "[KafkaRepositoryImpl::get_committed_offsets_total] Failed to fetch committed offsets for group '{}': {:?}",
+                    "[KafkaRepositoryImpl::find_committed_offsets_total] Failed to fetch committed offsets for group '{}': {:?}",
                     group_id, e
                 )
             })?;
@@ -1485,7 +1485,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
             .sum();
 
         info!(
-            "[KafkaRepositoryImpl::get_committed_offsets_total] group='{}' topic='{}' total_offset={}",
+            "[KafkaRepositoryImpl::find_committed_offsets_total] group='{}' topic='{}' total_offset={}",
             group_id, topic, total
         );
 
@@ -1496,7 +1496,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
     ///
     /// Assembles the full group ID as `{base_group_id}-{topic}-{group_suffix}`,
     /// consistent with `get_or_create_consumer`.
-    async fn get_committed_offsets_by_partition(
+    async fn find_committed_offsets_by_partition(
         &self,
         topic: &str,
         group_suffix: &str,
@@ -1524,7 +1524,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
 
         let consumer: BaseConsumer = config.create().map_err(|e| {
             anyhow!(
-                "[KafkaRepositoryImpl::get_committed_offsets_by_partition] Failed to create consumer for group '{}': {:?}",
+                "[KafkaRepositoryImpl::find_committed_offsets_by_partition] Failed to create consumer for group '{}': {:?}",
                 group_id, e
             )
         })?;
@@ -1533,7 +1533,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
             .fetch_metadata(Some(topic), Duration::from_secs(10))
             .map_err(|e| {
                 anyhow!(
-                    "[KafkaRepositoryImpl::get_committed_offsets_by_partition] Failed to fetch metadata for topic '{}': {:?}",
+                    "[KafkaRepositoryImpl::find_committed_offsets_by_partition] Failed to fetch metadata for topic '{}': {:?}",
                     topic, e
                 )
             })?;
@@ -1544,7 +1544,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
             .find(|t| t.name() == topic)
             .ok_or_else(|| {
                 anyhow!(
-                    "[KafkaRepositoryImpl::get_committed_offsets_by_partition] Topic '{}' not found in metadata",
+                    "[KafkaRepositoryImpl::find_committed_offsets_by_partition] Topic '{}' not found in metadata",
                     topic
                 )
             })?;
@@ -1560,7 +1560,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
 
         consumer.assign(&tpl).map_err(|e| {
             anyhow!(
-                "[KafkaRepositoryImpl::get_committed_offsets_by_partition] Failed to assign partitions: {:?}",
+                "[KafkaRepositoryImpl::find_committed_offsets_by_partition] Failed to assign partitions: {:?}",
                 e
             )
         })?;
@@ -1569,7 +1569,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
             .committed(Duration::from_secs(10))
             .map_err(|e| {
                 anyhow!(
-                    "[KafkaRepositoryImpl::get_committed_offsets_by_partition] Failed to fetch committed offsets for group '{}': {:?}",
+                    "[KafkaRepositoryImpl::find_committed_offsets_by_partition] Failed to fetch committed offsets for group '{}': {:?}",
                     group_id, e
                 )
             })?;
@@ -1585,7 +1585,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
         }
 
         info!(
-            "[KafkaRepositoryImpl::get_committed_offsets_by_partition] group='{}' topic='{}' partition_offsets={:?}",
+            "[KafkaRepositoryImpl::find_committed_offsets_by_partition] group='{}' topic='{}' partition_offsets={:?}",
             group_id, topic, partition_offsets
         );
 

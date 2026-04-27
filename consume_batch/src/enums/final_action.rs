@@ -28,7 +28,7 @@ impl FinalAction {
     /// | UpsertExisting| UpsertExisting| UpsertExisting| Delete  |
     /// | Delete        | UpsertExisting| UpsertExisting| Delete  |
     /// | Noop          | UpsertNew     | UpsertNew     | Noop    |
-    pub fn merge(self, event: IndexingType) -> Self {
+    pub fn modify_by_event(self, event: IndexingType) -> Self {
         match (self, event) {
             // UpsertNew: I가 첫 이벤트였던 상태
             (Self::UpsertNew, IndexingType::Insert) => Self::UpsertNew,
@@ -53,7 +53,7 @@ impl FinalAction {
     }
 
     /// 초기 이벤트(prev 상태 없음)로부터 첫 FinalAction을 결정한다.
-    pub fn from_first_event(event: IndexingType) -> Self {
+    pub fn initialize_from_first_event(event: IndexingType) -> Self {
         match event {
             IndexingType::Insert => Self::UpsertNew,
             IndexingType::Update => Self::UpsertExisting,
@@ -62,7 +62,7 @@ impl FinalAction {
     }
 
     /// 이 FinalAction이 ES upsert 작업이 필요한지 여부.
-    pub fn needs_upsert(&self) -> bool {
+    pub fn is_upsert_required(&self) -> bool {
         matches!(self, Self::UpsertNew | Self::UpsertExisting)
     }
 }

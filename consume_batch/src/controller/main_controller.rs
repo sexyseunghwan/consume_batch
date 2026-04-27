@@ -69,7 +69,7 @@ where
     /// ```text
     /// main_task()
     ///      │
-    ///      ├── tokio::spawn ──► cli_service.start_socket_server()  [background]
+    ///      ├── tokio::spawn ──► .initialize_socket_server()  [background]
     ///      │
     ///      └── batch_service.main_batch_task()  [foreground, blocks until Ctrl+C]
     /// ```
@@ -83,7 +83,7 @@ where
             let cli_service: Arc<CS> = Arc::clone(&self.cli_service);
 
             tokio::spawn(async move {
-                if let Err(e) = cli_service.start_socket_server().await {
+                if let Err(e) = cli_service.initialize_socket_server().await {
                     error!(
                         "[MainController::main_task] CLI socket server error: {:#}",
                         e
@@ -93,7 +93,7 @@ where
         }
 
         // Run batch scheduler in the foreground (blocks until Ctrl+C)
-        match self.batch_service.main_batch_task().await {
+        match self.batch_service.initialize_batch_task().await {
             Ok(_) => (),
             Err(e) => {
                 error!("[MainController::main_task] {:#}", e);

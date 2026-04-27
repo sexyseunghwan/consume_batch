@@ -16,13 +16,13 @@ where
     K: KafkaRepository + Send + Sync,
 {
     /// Produces a raw JSON payload to a Kafka topic.
-    async fn produce_message(
+    async fn input_message(
         &self,
         topic: &str,
         key: Option<&str>,
         payload: &Value,
     ) -> Result<(), anyhow::Error> {
-        self.kafka_conn.send_message(topic, key, payload).await
+        self.kafka_conn.input_message(topic, key, payload).await
     }
 
     #[doc = "Produce a single serializable object to a specific Kafka topic"]
@@ -33,7 +33,7 @@ where
     ///
     /// # Returns
     /// * `Result<(), anyhow::Error>` - Ok if message sent successfully
-    async fn produce_object_to_topic<T>(
+    async fn input_object_to_topic<T>(
         &self,
         topic: &str,
         object: &T,
@@ -45,24 +45,24 @@ where
         // Serialize object to JSON Value
         let json_value: Value = serde_json::to_value(object).map_err(|e| {
             anyhow!(
-                "[ProducerServiceImpl::produce_object_to_topic] Failed to serialize object: {:?}",
+                "[ProducerServiceImpl::input_object_to_topic] Failed to serialize object: {:?}",
                 e
             )
         })?;
 
         // Send message
         self.kafka_conn
-            .send_message(topic, key, &json_value)
+            .input_message(topic, key, &json_value)
             .await
             .map_err(|e| {
                 anyhow!(
-                    "[ProducerServiceImpl::produce_object_to_topic] Failed to send message: {:?}",
+                    "[ProducerServiceImpl::input_object_to_topic] Failed to send message: {:?}",
                     e
                 )
             })?;
 
         // info!(
-        //     "[ProducerServiceImpl::produce_object_to_topic] Successfully sent message to topic: {}",
+        //     "[ProducerServiceImpl::input_object_to_topic] Successfully sent message to topic: {}",
         //     topic
         // );
 
@@ -93,7 +93,7 @@ where
     ///     Some(&|obj| format!("user:{}", obj.user_seq))
     /// ).await?;
     /// ```
-    async fn produce_objects_to_topic<T, F>(
+    async fn input_objects_to_topic<T, F>(
         &self,
         topic: &str,
         objects: &[T],
@@ -116,7 +116,7 @@ where
             // Serialize object to JSON Value
             let json_value: Value = serde_json::to_value(obj).map_err(|e| {
                 anyhow!(
-                    "[ProducerServiceImpl::produce_objects_to_topic] Failed to serialize object at index {}: {:?}",
+                    "[ProducerServiceImpl::input_objects_to_topic] Failed to serialize object at index {}: {:?}",
                     idx,
                     e
                 )
@@ -128,21 +128,21 @@ where
             // Send message
             match self
                 .kafka_conn
-                .send_message(topic, key.as_deref(), &json_value)
+                .input_message(topic, key.as_deref(), &json_value)
                 .await
             {
                 Ok(_) => {
                     success_count += 1;
                     if success_count % 100 == 0 {
                         info!(
-                            "[ProducerServiceImpl::produce_objects_to_topic] Sent {} messages to {}",
+                            "[ProducerServiceImpl::input_objects_to_topic] Sent {} messages to {}",
                             success_count, topic
                         );
                     }
                 }
                 Err(e) => {
                     error!(
-                        "[ProducerServiceImpl::produce_objects_to_topic] Failed to send object at index {}: {:?}",
+                        "[ProducerServiceImpl::input_objects_to_topic] Failed to send object at index {}: {:?}",
                         idx, e
                     );
                     return Err(anyhow!("Failed to send object at index {}: {}", idx, e));
@@ -151,7 +151,7 @@ where
         }
 
         // info!(
-        //     "[ProducerServiceImpl::produce_objects_to_topic] Completed producing {} objects to topic: {}",
+        //     "[ProducerServiceImpl::input_objects_to_topic] Completed producing {} objects to topic: {}",
         //     success_count, topic
         // );
 
@@ -167,11 +167,11 @@ where
     ///
     /// # Returns
     /// * `Result<(), anyhow::Error>` - Ok if records were successfully deleted
-    async fn purge_topic(&self, topic: &str) -> Result<(), anyhow::Error> {
+    async fn delete_topic_records(&self, topic: &str) -> Result<(), anyhow::Error> {
         info!(
-            "[ProducerServiceImpl::purge_topic] Requesting purge for topic: {}",
+            "[ProducerServiceImpl::delete_topic_records] Requesting purge for topic: {}",
             topic
         );
-        self.kafka_conn.purge_topic(topic).await
+        self.kafka_conn.delete_topic_records(topic).await
     }
 }

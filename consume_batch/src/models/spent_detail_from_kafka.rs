@@ -10,7 +10,7 @@ pub struct SpentDetailFromKafka {
 }
 
 impl SpentDetailFromKafka {
-    pub fn convert_indexing_type(&self) -> anyhow::Result<IndexingType> {
+    pub fn to_indexing_type(&self) -> anyhow::Result<IndexingType> {
         self.indexing_type
             .parse::<IndexingType>()
             .map_err(|e| anyhow::anyhow!(e))

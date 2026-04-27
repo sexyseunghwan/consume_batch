@@ -55,12 +55,12 @@ impl CliClientController {
         let mut writer: tokio::io::WriteHalf<UnixStream> = write_half;
 
         loop {
-            if let Err(e) = Self::read_until_prompt(&mut reader).await {
+            if let Err(e) = Self::find_until_prompt(&mut reader).await {
                 eprintln!("[ERROR] Failed to read from server: {}", e);
                 break;
             }
 
-            let user_input: String = match Self::read_user_input().await {
+            let user_input: String = match Self::find_user_input().await {
                 Some(input) => input,
                 None => break,
             };
@@ -71,7 +71,7 @@ impl CliClientController {
             }
 
             if Self::is_exit_command(&user_input) {
-                let _ = Self::read_until_prompt(&mut reader).await;
+                let _ = Self::find_until_prompt(&mut reader).await;
                 break;
             }
         }
@@ -81,7 +81,7 @@ impl CliClientController {
     ///
     /// Stops when a line ending with `"Input:"` is found, which signals that the
     /// server is waiting for user input.
-    async fn read_until_prompt(
+    async fn find_until_prompt(
         reader: &mut tokio::io::BufReader<tokio::io::ReadHalf<UnixStream>>,
     ) -> std::io::Result<()> {
         let mut buffer: String = String::new();
@@ -117,7 +117,7 @@ impl CliClientController {
     /// Reads a single line of input from stdin without blocking the async runtime.
     ///
     /// Returns `Some(String)` with the user's input, or `None` on EOF or error.
-    async fn read_user_input() -> Option<String> {
+    async fn find_user_input() -> Option<String> {
         tokio::task::spawn_blocking(|| {
             let mut line: String = String::new();
             match std::io::stdin().read_line(&mut line) {

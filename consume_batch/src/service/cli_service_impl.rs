@@ -15,7 +15,7 @@
 //!               ├── accept connection
 //!               ├── send menu
 //!               ├── read user selection
-//!               └── batch_service.run_batch(schedule_item)
+//!               └── batch_service.input_batch(schedule_item)
 //! ```
 //!
 //! # Usage
@@ -73,9 +73,9 @@ where
     /// Handles a single socket connection from a CLI client.
     ///
     /// Displays a numbered menu of available batch jobs and executes the
-    /// selected job via `batch_service.run_batch()`. Exits when the client
+    /// selected job via `batch_service.input_batch()`. Exits when the client
     /// sends `0` or `q`.
-    async fn handle_socket_connection(
+    async fn find_socket_session(
         stream: tokio::net::UnixStream,
         batch_service: Arc<B>,
         schedule_config: BatchScheduleConfig,
@@ -105,7 +105,7 @@ where
             }
         });
 
-        let batch_items: Vec<&BatchScheduleItem> = schedule_config.get_enabled_schedules();
+        let batch_items: Vec<&BatchScheduleItem> = schedule_config.find_enabled_schedules();
 
         loop {
             // Send numbered batch menu to client
@@ -143,7 +143,7 @@ where
                     let batch_name: &str = schedule_item.batch_name();
 
                     info!(
-                        "[CliServiceImpl::handle_socket_connection] CLI triggered: {}",
+                        "[CliServiceImpl::find_socket_session] CLI triggered: {}",
                         batch_name
                     );
 
@@ -172,7 +172,7 @@ where
                     // When the scope exits, log_tx is dropped, which closes log_rx
                     // and causes the forwarding task above to exit cleanly.
                     let result: std::result::Result<(), anyhow::Error> = CLI_LOG_TX
-                        .scope(Some(log_tx), batch_service.run_batch(schedule_item))
+                        .scope(Some(log_tx), batch_service.input_batch(schedule_item))
                         .await;
 
                     match result {
@@ -212,10 +212,10 @@ where
     ///
     /// Listens on the path configured in `AppConfig::socket_path` and
     /// spawns a separate task for each incoming connection.
-    async fn start_socket_server(&self) -> anyhow::Result<()> {
-        let socket_path: &str = AppConfig::global()
+    async fn initialize_socket_server(&self) -> anyhow::Result<()> {
+        let socket_path: &str = AppConfig::get_global()
             .inspect_err(|e| {
-                error!("[CliServiceImpl::start_socket_server] app_config: {:#}", e);
+                error!("[CliServiceImpl::initialize_socket_server] app_config: {:#}", e);
             })?
             .socket_path();
 
@@ -223,7 +223,7 @@ where
         match std::fs::remove_file(socket_path) {
             Ok(_) => {},
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(anyhow!("[CliServiceImpl::start_socket_server] {:#}", e))
+            Err(e) => return Err(anyhow!("[CliServiceImpl::initialize_socket_server] {:#}", e))
         }
 
         // [2] Create the socket file and bind the listner
@@ -232,13 +232,13 @@ where
         // 내부적으로 backlog queue 생성됨.
         let listener: UnixListener = UnixListener::bind(socket_path).inspect_err(|e| {
             error!(
-                "[CliServiceImpl::start_socket_server] Failed to bind socket: {:#}",
+                "[CliServiceImpl::initialize_socket_server] Failed to bind socket: {:#}",
                 e
             );
         })?;
 
         info!(
-            "[CliServiceImpl::start_socket_server] CLI socket server listening on {}",
+            "[CliServiceImpl::initialize_socket_server] CLI socket server listening on {}",
             socket_path
         );
 
@@ -249,7 +249,7 @@ where
                 .await
                 .inspect_err(|e| {
                     error!(
-                        "[CliServiceImpl::start_socket_server] Failed to accept connection: {:#}",
+                        "[CliServiceImpl::initialize_socket_server] Failed to accept connection: {:#}",
                         e
                     );
                 })?;
@@ -259,9 +259,9 @@ where
 
             // accept queue에서 꺼낸 연결 처리를 task로 넘겨주기.
             tokio::spawn(async move {
-                if let Err(e) = Self::handle_socket_connection(stream, batch, config).await {
+                if let Err(e) = Self::find_socket_session(stream, batch, config).await {
                     error!(
-                        "[CliServiceImpl::handle_socket_connection] Connection error: {:#}",
+                        "[CliServiceImpl::find_socket_session] Connection error: {:#}",
                         e
                     );
                 }

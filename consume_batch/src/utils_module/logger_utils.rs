@@ -18,15 +18,15 @@ pub fn set_global_logger() {
             Naming::Timestamps,        /* Use timestamps for file names */
             Cleanup::KeepLogFiles(10), /* Maintain up to 10 log files */
         )
-        .format_for_files(custom_format)
-        .format_for_stdout(custom_format)
+        .format_for_files(to_log_format)
+        .format_for_stdout(to_log_format)
         .duplicate_to_stdout(Duplicate::Info) /* Duplicate Info-level logs to stdout */
         .start()
         .unwrap_or_else(|e| panic!("Logger initialization failed: {}", e));
 }
 
 /// Formats a single log record for file and stdout output.
-fn custom_format(
+fn to_log_format(
     w: &mut dyn Write,
     now: &mut flexi_logger::DeferredNow,
     record: &Record,

@@ -52,7 +52,7 @@ impl AppConfig {
     /// println!("Socket path: {}", config.socket_path());
     /// # Ok::<(), anyhow::Error>(())
     /// ```
-    pub fn init() -> Result<(), String> {
+    pub fn initialize() -> Result<(), String> {
         dotenv::dotenv().ok();
 
         let config: AppConfig = AppConfig {
@@ -106,10 +106,10 @@ impl AppConfig {
     /// println!("Topic: {}", config.consume_topic);
     /// # Ok::<(), anyhow::Error>(())
     /// ```
-    pub fn global() -> anyhow::Result<&'static AppConfig> {
+    pub fn get_global() -> anyhow::Result<&'static AppConfig> {
         APP_CONFIG
             .get()
-            .ok_or_else(|| anyhow!("AppConfig not initialized. Call AppConfig::init() first."))
+            .ok_or_else(|| anyhow!("AppConfig not initialized. Call AppConfig::initialize() first."))
     }
 
     /// Try to get a reference to the global configuration
@@ -118,7 +118,7 @@ impl AppConfig {
     /// # Returns
     /// * `Option<&'static AppConfig>` - Some if initialized, None otherwise
     #[allow(dead_code)]
-    pub fn try_global() -> Option<&'static AppConfig> {
+    pub fn find_global() -> Option<&'static AppConfig> {
         APP_CONFIG.get()
     }
 }
@@ -131,12 +131,12 @@ mod tests {
     /// Verifies that the global configuration can be initialized and accessed in tests.
     fn test_config_access() -> anyhow::Result<()> {
         // Note: This test requires .env file to be present
-        if AppConfig::try_global().is_none() {
-            assert!(AppConfig::global().is_err());
-            let _ = AppConfig::init();
+        if AppConfig::find_global().is_none() {
+            assert!(AppConfig::get_global().is_err());
+            let _ = AppConfig::initialize();
         }
 
-        let _config: &AppConfig = AppConfig::global()?;
+        let _config: &AppConfig = AppConfig::get_global()?;
         // assert!(!config.produce_topic.is_empty());
         // assert!(!config.kafka_brokers.is_empty());
         Ok(())

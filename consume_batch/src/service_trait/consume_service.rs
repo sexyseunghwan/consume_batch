@@ -18,7 +18,7 @@ pub trait ConsumeService: Send + Sync {
     /// # Returns
     ///
     /// Returns `Ok(Vec<Value>)` containing the consumed messages as JSON values.
-    async fn consume_messages(
+    async fn find_messages(
         &self,
         topic: &str,
         max_messages: usize,
@@ -33,10 +33,10 @@ pub trait ConsumeService: Send + Sync {
     /// # Returns
     ///
     /// Returns `Ok(Some(Value))` if a message is available, `Ok(None)` if no message.
-    async fn consume_one(&self, topic: &str) -> Result<Option<Value>, anyhow::Error>;
+    async fn find_one(&self, topic: &str) -> Result<Option<Value>, anyhow::Error>;
 
     /// Consumes messages from a Kafka topic and deserializes them into `T`.
-    async fn consume_messages_as<T>(
+    async fn find_messages_as<T>(
         &self,
         topic: &str,
         max_messages: usize,
@@ -61,7 +61,7 @@ pub trait ConsumeService: Send + Sync {
     /// let full_msgs = service.consume_messages_with_group("orders", 100, "full-index").await?;
     /// let incr_msgs = service.consume_messages_with_group("orders", 100, "incremental").await?;
     /// ```
-    async fn consume_messages_with_group(
+    async fn find_messages_by_group(
         &self,
         topic: &str,
         max_messages: usize,
@@ -73,7 +73,7 @@ pub trait ConsumeService: Send + Sync {
     /// # Type Parameters
     ///
     /// * `T` - Target type for deserialization (must implement `DeserializeOwned`)
-    async fn consume_messages_as_with_group<T>(
+    async fn find_messages_as_by_group<T>(
         &self,
         topic: &str,
         max_messages: usize,
@@ -83,7 +83,7 @@ pub trait ConsumeService: Send + Sync {
         T: DeserializeOwned;
 
     /// Copies committed offsets from one consumer group to another.
-    async fn replicate_consumer_group_offsets(
+    async fn modify_consumer_group_offsets(
         &self,
         topic: &str,
         source_group: &str,
@@ -100,7 +100,7 @@ pub trait ConsumeService: Send + Sync {
     ///
     /// This method sums all partition offsets and compares totals, which can be misleading.
     /// Use `get_consumer_group_lag_by_partition` instead for accurate per-partition lag tracking.
-    async fn get_consumer_group_lag(
+    async fn find_consumer_group_lag(
         &self,
         topic: &str,
         reference_group: &str,
@@ -136,7 +136,7 @@ pub trait ConsumeService: Send + Sync {
     /// }
     /// println!("Total lag: {}", lag_info.total_lag);
     /// ```
-    async fn get_consumer_group_lag_by_partition(
+    async fn find_consumer_group_lag_by_partition(
         &self,
         topic: &str,
         reference_group: &str,

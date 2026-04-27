@@ -94,7 +94,7 @@ pub trait MysqlRepository {
     /// - Database connection fails
     /// - Constraint violation occurs (unique, foreign key, etc.)
     /// - Data type mismatch
-    async fn insert<A>(&self, active_model: A) -> anyhow::Result<()>
+    async fn input<A>(&self, active_model: A) -> anyhow::Result<()>
     where
         A: ActiveModelTrait + ActiveModelBehavior + Send + 'static,
         <A::Entity as EntityTrait>::Model: Sync + IntoActiveModel<A>;
@@ -127,8 +127,8 @@ pub trait MysqlRepository {
     /// # Note
     ///
     /// For atomic operations where all records must succeed or fail together,
-    /// use [`insert_many_with_transaction`] instead.
-    async fn insert_many<A>(&self, active_models: Vec<A>) -> anyhow::Result<()>
+    /// use [`input_many_with_transaction`] instead.
+    async fn input_many<A>(&self, active_models: Vec<A>) -> anyhow::Result<()>
     where
         A: ActiveModelTrait + ActiveModelBehavior + Send + 'static,
         <A::Entity as EntityTrait>::Model: Sync + IntoActiveModel<A>;
@@ -171,7 +171,7 @@ pub trait MysqlRepository {
     ///     │
     /// END
     /// ```
-    async fn insert_many_with_transaction<A>(&self, active_models: Vec<A>) -> anyhow::Result<()>
+    async fn input_many_with_transaction<A>(&self, active_models: Vec<A>) -> anyhow::Result<()>
     where
         A: ActiveModelTrait + ActiveModelBehavior + Send + 'static,
         <A::Entity as EntityTrait>::Model: Sync + IntoActiveModel<A>;
@@ -272,7 +272,7 @@ impl MysqlRepositoryImpl {
     pub async fn new() -> anyhow::Result<Self> {
         // Load database URL from environment
         //let db_url: String = ENV.mysql().database_url().to_string();
-        let app_config: &AppConfig = AppConfig::global().inspect_err(|e| {
+        let app_config: &AppConfig = AppConfig::get_global().inspect_err(|e| {
             error!("[MysqlRepositoryImpl::new] app_config: {:#}", e);
         })?;
         let db_url: &String = app_config.database_url();
@@ -304,7 +304,7 @@ impl MysqlRepository for MysqlRepositoryImpl {
     /// # Errors
     ///
     /// Returns an error if the insert operation fails.
-    async fn insert<A>(&self, active_model: A) -> anyhow::Result<()>
+    async fn input<A>(&self, active_model: A) -> anyhow::Result<()>
     where
         A: ActiveModelTrait + ActiveModelBehavior + Send + 'static,
         <A::Entity as EntityTrait>::Model: Sync + IntoActiveModel<A>,
@@ -313,7 +313,7 @@ impl MysqlRepository for MysqlRepositoryImpl {
         active_model
             .insert(&self.db_conn)
             .await
-            .map_err(|e| anyhow!("[MysqlRepositoryImpl::insert] Failed to insert: {:?}", e))?;
+            .map_err(|e| anyhow!("[MysqlRepositoryImpl::input] Failed to insert: {:?}", e))?;
 
         Ok(())
     }
@@ -334,8 +334,8 @@ impl MysqlRepository for MysqlRepositoryImpl {
     /// # Note
     ///
     /// This method does NOT use transactions. For atomic operations,
-    /// use `insert_many_with_transaction` instead.
-    async fn insert_many<A>(&self, active_models: Vec<A>) -> anyhow::Result<()>
+    /// use `input_many_with_transaction` instead.
+    async fn input_many<A>(&self, active_models: Vec<A>) -> anyhow::Result<()>
     where
         A: ActiveModelTrait + ActiveModelBehavior + Send + 'static,
         <A::Entity as EntityTrait>::Model: Sync + IntoActiveModel<A>,
@@ -351,7 +351,7 @@ impl MysqlRepository for MysqlRepositoryImpl {
             .await
             .map_err(|e| {
                 anyhow!(
-                    "[MysqlRepositoryImpl::insert_many] Failed to bulk insert: {:?}",
+                    "[MysqlRepositoryImpl::input_many] Failed to bulk insert: {:?}",
                     e
                 )
             })?;
@@ -377,7 +377,7 @@ impl MysqlRepository for MysqlRepositoryImpl {
     /// 1. Begin transaction
     /// 2. Execute bulk insert (single query for performance)
     /// 3. Commit on success / Rollback on failure
-    async fn insert_many_with_transaction<A>(&self, active_models: Vec<A>) -> anyhow::Result<()>
+    async fn input_many_with_transaction<A>(&self, active_models: Vec<A>) -> anyhow::Result<()>
     where
         A: ActiveModelTrait + ActiveModelBehavior + Send + 'static,
         <A::Entity as EntityTrait>::Model: Sync + IntoActiveModel<A>,
@@ -394,7 +394,7 @@ impl MysqlRepository for MysqlRepositoryImpl {
             .await
             .map_err(|e| {
                 anyhow!(
-                    "[MysqlRepositoryImpl::insert_many_with_transaction] Failed to begin transaction: {:?}",
+                    "[MysqlRepositoryImpl::input_many_with_transaction] Failed to begin transaction: {:?}",
                     e
                 )
             })?;
@@ -405,7 +405,7 @@ impl MysqlRepository for MysqlRepositoryImpl {
             .await
             .map_err(|e| {
                 anyhow!(
-                    "[MysqlRepositoryImpl::insert_many_with_transaction] Failed to bulk insert: {:?}",
+                    "[MysqlRepositoryImpl::input_many_with_transaction] Failed to bulk insert: {:?}",
                     e
                 )
             })?;
@@ -413,7 +413,7 @@ impl MysqlRepository for MysqlRepositoryImpl {
         // Commit transaction on success
         txn.commit().await.map_err(|e| {
             anyhow!(
-                "[MysqlRepositoryImpl::insert_many_with_transaction] Failed to commit transaction: {:?}",
+                "[MysqlRepositoryImpl::input_many_with_transaction] Failed to commit transaction: {:?}",
                 e
             )
         })?;

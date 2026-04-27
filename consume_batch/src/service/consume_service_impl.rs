@@ -34,7 +34,7 @@
 //!
 //! ```rust,no_run
 //! // In batch processing
-//! let messages = consume_service.consume_messages("my_topic", 100).await?;
+//! let messages = consume_service.find_messages("my_topic", 100).await?;
 //! for msg in messages {
 //!     // Process each message
 //! }
@@ -85,26 +85,26 @@ where
     /// # Example
     ///
     /// ```rust,no_run
-    /// let messages = service.consume_messages("orders_topic", 50).await?;
+    /// let messages = service.find_messages("orders_topic", 50).await?;
     /// info!("Consumed {} messages", messages.len());
     /// ```
-    async fn consume_messages(
+    async fn find_messages(
         &self,
         topic: &str,
         max_messages: usize,
     ) -> Result<Vec<Value>, anyhow::Error> {
         info!(
-            "[ConsumeServiceImpl::consume_messages] Consuming from topic: {}, max: {}",
+            "[ConsumeServiceImpl::find_messages] Consuming from topic: {}, max: {}",
             topic, max_messages
         );
 
         let messages: Vec<Value> = self
             .kafka_conn
-            .consume_messages(topic, max_messages)
+            .find_messages(topic, max_messages)
             .await?;
 
         info!(
-            "[ConsumeServiceImpl::consume_messages] Consumed {} messages from topic: {}",
+            "[ConsumeServiceImpl::find_messages] Consumed {} messages from topic: {}",
             messages.len(),
             topic
         );
@@ -123,22 +123,22 @@ where
     /// # Returns
     ///
     /// Returns `Some(Value)` if a message is available, `None` otherwise.
-    async fn consume_one(&self, topic: &str) -> Result<Option<Value>, anyhow::Error> {
+    async fn find_one(&self, topic: &str) -> Result<Option<Value>, anyhow::Error> {
         info!(
-            "[ConsumeServiceImpl::consume_one] Consuming single message from topic: {}",
+            "[ConsumeServiceImpl::find_one] Consuming single message from topic: {}",
             topic
         );
 
-        let message = self.kafka_conn.consume_one(topic).await?;
+        let message = self.kafka_conn.find_one(topic).await?;
 
         if message.is_some() {
             info!(
-                "[ConsumeServiceImpl::consume_one] Successfully consumed one message from topic: {}",
+                "[ConsumeServiceImpl::find_one] Successfully consumed one message from topic: {}",
                 topic
             );
         } else {
             info!(
-                "[ConsumeServiceImpl::consume_one] No message available from topic: {}",
+                "[ConsumeServiceImpl::find_one] No message available from topic: {}",
                 topic
             );
         }
@@ -166,24 +166,24 @@ where
     /// Returns an error if:
     /// - Kafka connection fails
     /// - Message consumption fails
-    async fn consume_messages_with_group(
+    async fn find_messages_by_group(
         &self,
         topic: &str,
         max_messages: usize,
         group_suffix: &str,
     ) -> Result<Vec<Value>, anyhow::Error> {
         info!(
-            "[ConsumeServiceImpl::consume_messages_with_group] Consuming from topic: {}, max: {}, group_suffix: {}",
+            "[ConsumeServiceImpl::find_messages_by_group] Consuming from topic: {}, max: {}, group_suffix: {}",
             topic, max_messages, group_suffix
         );
 
         let messages: Vec<Value> = self
             .kafka_conn
-            .consume_messages_with_group(topic, max_messages, group_suffix)
+            .find_messages_by_group(topic, max_messages, group_suffix)
             .await?;
 
         info!(
-            "[ConsumeServiceImpl::consume_messages_with_group] Consumed {} messages from topic: {} (group: {})",
+            "[ConsumeServiceImpl::find_messages_by_group] Consumed {} messages from topic: {} (group: {})",
             messages.len(),
             topic,
             group_suffix
@@ -217,7 +217,7 @@ where
     /// Returns an error if:
     /// - Kafka consumption fails
     /// - JSON deserialization fails for any message
-    async fn consume_messages_as_with_group<T>(
+    async fn find_messages_as_by_group<T>(
         &self,
         topic: &str,
         max_messages: usize,
@@ -227,17 +227,17 @@ where
         T: DeserializeOwned,
     {
         info!(
-            "[ConsumeServiceImpl::consume_messages_as_with_group] Consuming from topic: {}, max: {}, group_suffix: {}",
+            "[ConsumeServiceImpl::find_messages_as_by_group] Consuming from topic: {}, max: {}, group_suffix: {}",
             topic, max_messages, group_suffix
         );
 
         let messages: Vec<Value> = self
             .kafka_conn
-            .consume_messages_with_group(topic, max_messages, group_suffix)
+            .find_messages_by_group(topic, max_messages, group_suffix)
             .await?;
 
         info!(
-            "[ConsumeServiceImpl::consume_messages_as_with_group] Consumed {} messages from topic: {} (group: {}), deserializing...",
+            "[ConsumeServiceImpl::find_messages_as_by_group] Consumed {} messages from topic: {} (group: {}), deserializing...",
             messages.len(),
             topic,
             group_suffix
@@ -248,13 +248,13 @@ where
         for (index, msg) in messages.into_iter().enumerate() {
             let deserialized: T = serde_json::from_value(msg)
                 .inspect_err(|e| {
-                    error!("[ConsumeServiceImpl::consume_messages_as_with_group] Failed to deserialize message at index {} from topic: {} (group: {}): {:#}", index, topic, group_suffix, e);
+                    error!("[ConsumeServiceImpl::find_messages_as_by_group] Failed to deserialize message at index {} from topic: {} (group: {}): {:#}", index, topic, group_suffix, e);
                 })?;
             results.push(deserialized);
         }
 
         info!(
-            "[ConsumeServiceImpl::consume_messages_as_with_group] Successfully deserialized {} messages from topic: {} (group: {})",
+            "[ConsumeServiceImpl::find_messages_as_by_group] Successfully deserialized {} messages from topic: {} (group: {})",
             results.len(),
             topic,
             group_suffix
@@ -297,10 +297,10 @@ where
     /// }
     ///
     /// let orders: Vec<OrderMessage> = service
-    ///     .consume_messages_as("orders_topic", 50)
+    ///     .find_messages_as("orders_topic", 50)
     ///     .await?;
     /// ```
-    async fn consume_messages_as<T>(
+    async fn find_messages_as<T>(
         &self,
         topic: &str,
         max_messages: usize,
@@ -309,17 +309,17 @@ where
         T: DeserializeOwned,
     {
         info!(
-            "[ConsumeServiceImpl::consume_messages_as] Consuming from topic: {}, max: {}",
+            "[ConsumeServiceImpl::find_messages_as] Consuming from topic: {}, max: {}",
             topic, max_messages
         );
 
         let messages: Vec<Value> = self
             .kafka_conn
-            .consume_messages(topic, max_messages)
+            .find_messages(topic, max_messages)
             .await?;
 
         info!(
-            "[ConsumeServiceImpl::consume_messages_as] Consumed {} messages from topic: {}, deserializing...",
+            "[ConsumeServiceImpl::find_messages_as] Consumed {} messages from topic: {}, deserializing...",
             messages.len(),
             topic
         );
@@ -329,13 +329,13 @@ where
         for (index, msg) in messages.into_iter().enumerate() {
             let deserialized: T = serde_json::from_value(msg)
                 .inspect_err(|e| {
-                    error!("[ConsumeServiceImpl::consume_messages_as] Failed to deserialize message at index {} from topic: {}: {:#}", index, topic, e);
+                    error!("[ConsumeServiceImpl::find_messages_as] Failed to deserialize message at index {} from topic: {}: {:#}", index, topic, e);
                 })?;
             results.push(deserialized);
         }
 
         info!(
-            "[ConsumeServiceImpl::consume_messages_as] Successfully deserialized {} messages from topic: {}",
+            "[ConsumeServiceImpl::find_messages_as] Successfully deserialized {} messages from topic: {}",
             results.len(),
             topic
         );
@@ -373,17 +373,17 @@ where
     ///     .await?;
     /// // "replay-group" now starts consuming from where "batch-group" left off
     /// ```
-    async fn replicate_consumer_group_offsets(
+    async fn modify_consumer_group_offsets(
         &self,
         topic: &str,
         source_group: &str,
         target_group: &str,
     ) -> anyhow::Result<()> {
         self.kafka_conn
-            .copy_consumer_group_offsets(topic, source_group, target_group)
+            .modify_consumer_group_offsets(topic, source_group, target_group)
             .await
             .inspect_err(|e| {
-                error!("[ConsumeServiceImpl::replicate_consumer_group_offsets] Failed to copy consumer group offsets from source to target. {:#}", e);
+                error!("[ConsumeServiceImpl::modify_consumer_group_offsets] Failed to copy consumer group offsets from source to target. {:#}", e);
             })
     }
 
@@ -407,7 +407,7 @@ where
     ///
     /// Returns an error if:
     /// - Committed offset fetch fails for either consumer group
-    async fn get_consumer_group_lag(
+    async fn find_consumer_group_lag(
         &self,
         topic: &str,
         reference_group: &str,
@@ -415,54 +415,54 @@ where
     ) -> anyhow::Result<i64> {
         let ref_offset: i64 = self
             .kafka_conn
-            .get_committed_offsets_total(topic, reference_group)
+            .find_committed_offsets_total(topic, reference_group)
             .await
             .inspect_err(|e| {
-                error!("[ConsumeServiceImpl::get_consumer_group_lag] Failed to get reference offset for '{}': {:#}", reference_group, e);
+                error!("[ConsumeServiceImpl::find_consumer_group_lag] Failed to get reference offset for '{}': {:#}", reference_group, e);
             })?;
 
         let catchup_offset: i64 = self
             .kafka_conn
-            .get_committed_offsets_total(topic, catchup_group)
+            .find_committed_offsets_total(topic, catchup_group)
             .await
             .inspect_err(|e| {
-                error!("[ConsumeServiceImpl::get_consumer_group_lag] Failed to get catchup offset for '{}': {:#}", catchup_group, e);
+                error!("[ConsumeServiceImpl::find_consumer_group_lag] Failed to get catchup offset for '{}': {:#}", catchup_group, e);
             })?;
 
         Ok((ref_offset - catchup_offset).max(0))
     }
 
     /// Computes per-partition lag information between two consumer groups.
-    async fn get_consumer_group_lag_by_partition(
+    async fn find_consumer_group_lag_by_partition(
         &self,
         topic: &str,
         reference_group: &str,
         catchup_group: &str,
     ) -> anyhow::Result<ConsumerGroupLag> {
         info!(
-            "[ConsumeServiceImpl::get_consumer_group_lag_by_partition] Calculating lag for topic '{}': reference='{}', catchup='{}'",
+            "[ConsumeServiceImpl::find_consumer_group_lag_by_partition] Calculating lag for topic '{}': reference='{}', catchup='{}'",
             topic, reference_group, catchup_group
         );
 
         // Fetch per-partition offsets for both groups
         let ref_offsets: HashMap<i32, i64> = self
             .kafka_conn
-            .get_committed_offsets_by_partition(topic, reference_group)
+            .find_committed_offsets_by_partition(topic, reference_group)
             .await
             .inspect_err(|e| {
                 error!(
-                    "[ConsumeServiceImpl::get_consumer_group_lag_by_partition] Failed to get reference offsets for '{}': {:#}",
+                    "[ConsumeServiceImpl::find_consumer_group_lag_by_partition] Failed to get reference offsets for '{}': {:#}",
                     reference_group, e
                 );
             })?;
 
         let catchup_offsets: HashMap<i32, i64> = self
             .kafka_conn
-            .get_committed_offsets_by_partition(topic, catchup_group)
+            .find_committed_offsets_by_partition(topic, catchup_group)
             .await
             .inspect_err(|e| {
                 error!(
-                    "[ConsumeServiceImpl::get_consumer_group_lag_by_partition] Failed to get catchup offsets for '{}': {:#}",
+                    "[ConsumeServiceImpl::find_consumer_group_lag_by_partition] Failed to get catchup offsets for '{}': {:#}",
                     catchup_group, e
                 );
             })?;
@@ -506,7 +506,7 @@ where
         };
 
         info!(
-            "[ConsumeServiceImpl::get_consumer_group_lag_by_partition] Calculated lag for topic '{}': total_lag={}, partitions={}",
+            "[ConsumeServiceImpl::find_consumer_group_lag_by_partition] Calculated lag for topic '{}': total_lag={}, partitions={}",
             topic,
             result.total_lag,
             result.partition_lags.len()

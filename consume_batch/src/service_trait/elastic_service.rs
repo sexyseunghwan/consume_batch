@@ -23,7 +23,7 @@ pub trait ElasticService {
     /// - Index already exists
     /// - Invalid settings or mappings
     /// - Network/connection failure
-    async fn create_index(
+    async fn initialize_index(
         &self,
         index_name: &str,
         settings: &Value,
@@ -47,7 +47,7 @@ pub trait ElasticService {
     /// - Index does not exist
     /// - Invalid settings
     /// - Network/connection failure
-    async fn update_index_settings(&self, index_name: &str, settings: &Value)
+    async fn modify_index_settings(&self, index_name: &str, settings: &Value)
     -> anyhow::Result<()>;
 
     /// Performs bulk indexing of documents with an explicit document ID field.
@@ -74,7 +74,7 @@ pub trait ElasticService {
     /// - Any document fails to index
     /// - Mapping conflicts occur
     /// - Network/connection failure
-    async fn bulk_index<T: Serialize + Send + Sync>(
+    async fn input_bulk<T: Serialize + Send + Sync>(
         &self,
         index_name: &str,
         documents: Vec<T>,
@@ -102,7 +102,7 @@ pub trait ElasticService {
     /// Returns an error if:
     /// - Any document fails to update
     /// - Network/connection failure
-    async fn bulk_update<T: Serialize + Send + Sync>(
+    async fn modify_bulk<T: Serialize + Send + Sync>(
         &self,
         index_name: &str,
         documents: Vec<T>,
@@ -125,7 +125,7 @@ pub trait ElasticService {
     /// Returns an error if:
     /// - Any document fails to delete
     /// - Network/connection failure
-    async fn bulk_delete(&self, index_name: &str, doc_ids: Vec<i64>) -> anyhow::Result<()>;
+    async fn delete_bulk(&self, index_name: &str, doc_ids: Vec<i64>) -> anyhow::Result<()>;
 
     /// Swaps index alias from old index to new index atomically.
     ///
@@ -150,7 +150,7 @@ pub trait ElasticService {
     /// - New index does not exist
     /// - Alias update fails
     /// - Network/connection failure
-    async fn swap_alias(&self, alias_name: &str, new_index_name: &str) -> anyhow::Result<()>;
+    async fn modify_alias(&self, alias_name: &str, new_index_name: &str) -> anyhow::Result<()>;
 
     /// Updates write alias to point to a specific index.
     ///
@@ -166,7 +166,7 @@ pub trait ElasticService {
     /// # Returns
     ///
     /// Returns `Ok(())` on successful alias update.
-    async fn update_write_alias(&self, write_alias: &str, target_index: &str)
+    async fn modify_write_alias(&self, write_alias: &str, target_index: &str)
     -> anyhow::Result<()>;
 
     /// Updates read alias.
@@ -179,10 +179,10 @@ pub trait ElasticService {
     /// # Returns
     ///
     /// Returns `Ok(())` on successful alias update.
-    async fn update_read_alias(&self, read_alias: &str, new_index: &str) -> anyhow::Result<()>;
+    async fn modify_read_alias(&self, read_alias: &str, new_index: &str) -> anyhow::Result<()>;
 
     /// Restores production settings on an index after bulk loading completes.
-    async fn revert_index_setting(&self, index_name: &str) -> anyhow::Result<()>;
+    async fn modify_index_setting(&self, index_name: &str) -> anyhow::Result<()>;
 
     /// Prepares a new Elasticsearch index for full indexing.
     ///
@@ -191,7 +191,7 @@ pub trait ElasticService {
     /// 3. Creates a new timestamped index (e.g. `{index_alias}_20260213120000`)
     ///
     /// Returns the created index name.
-    async fn prepare_full_index(
+    async fn initialize_full_index(
         &self,
         index_name: &str,
         mapping_schema_path: &str,
@@ -235,10 +235,10 @@ pub trait ElasticService {
     /// # Errors
     ///
     /// Returns an error if the Elasticsearch request fails.
-    async fn get_index_name_by_alias(&self, alias: &str) -> anyhow::Result<Vec<String>>;
+    async fn find_index_name_by_alias(&self, alias: &str) -> anyhow::Result<Vec<String>>;
 
     /// Predicts the consume keyword type for a given product name.
-    async fn get_consume_type_judgement(
+    async fn find_consume_type_judgement(
         &self,
         prodt_name: &str,
     ) -> Result<ConsumingIndexProdtType, anyhow::Error>;
@@ -246,13 +246,13 @@ pub trait ElasticService {
     /// Predicts consume keyword types for multiple product names in one batch.
     ///
     /// The returned vector preserves the order of `prodt_names`.
-    async fn get_consume_type_judgements(
+    async fn find_consume_type_judgements(
         &self,
         prodt_names: &[String],
     ) -> Result<Vec<ConsumingIndexProdtType>, anyhow::Error>;
 
     /// Converts a raw Elasticsearch response into typed search results.
-    async fn get_query_result_vec<T: DeserializeOwned>(
+    async fn find_query_result_vec<T: DeserializeOwned>(
         &self,
         response_body: &Value,
     ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error>;

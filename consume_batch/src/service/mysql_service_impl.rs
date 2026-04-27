@@ -47,7 +47,7 @@ where
     /// # Returns
     ///
     /// Returns a vector of `SpentTypeKeyword` instances.
-    async fn fetch_spent_type_keywords_batch(
+    async fn find_spent_type_keywords_batch(
         &self,
         offset: u64,
         limit: u64,
@@ -70,7 +70,7 @@ where
             .all(db)
             .await
             .inspect_err(|e| {
-                error!("[MysqlServiceImpl::fetch_spent_type_keywords_batch] Failed to execute query: {:#}", e);
+                error!("[MysqlServiceImpl::find_spent_type_keywords_batch] Failed to execute query: {:#}", e);
             })?;
 
         Ok(results)
@@ -115,7 +115,7 @@ where
     /// - Database connection fails
     /// - Query execution fails
     /// - Data cannot be mapped to the model
-    async fn fetch_spent_details_for_indexing(
+    async fn find_spent_details_for_indexing(
         &self,
         spent_idxs: &[i64],
     ) -> anyhow::Result<Vec<SpentDetailWithRelations>> {
@@ -155,7 +155,7 @@ where
             .all(db)
             .await
             .inspect_err(|e| {
-                error!("[MysqlServiceImpl::fetch_spent_details_for_indexing] Failed to execute query: {:#}", e);
+                error!("[MysqlServiceImpl::find_spent_details_for_indexing] Failed to execute query: {:#}", e);
             })?;
             
         Ok(results)
@@ -222,7 +222,7 @@ where
     /// - Database connection fails
     /// - Query execution fails
     /// - Data cannot be mapped to the model
-    async fn fetch_spent_detail_indexing_by_ids(
+    async fn find_spent_detail_indexing_by_ids(
         &self,
         ids: &[i64],
     ) -> anyhow::Result<Vec<SpentDetailIndexing>> {
@@ -253,7 +253,7 @@ where
             .all(db)
             .await
             .inspect_err(|e| {
-                error!("[MysqlServiceImpl::fetch_spent_detail_indexing_by_ids] Failed to execute query: {:#}", e);
+                error!("[MysqlServiceImpl::find_spent_detail_indexing_by_ids] Failed to execute query: {:#}", e);
             })?;
 
         Ok(results)
@@ -290,7 +290,7 @@ where
     /// - Database connection fails
     /// - Query execution fails
     /// - Data cannot be mapped to the model
-    async fn fetch_spent_detail_indexing_for_index(
+    async fn find_spent_detail_indexing_for_index(
         &self,
         offset: u64,
         limit: u64,
@@ -320,7 +320,7 @@ where
             .all(db)
             .await
             .inspect_err(|e| {
-                error!("[MysqlServiceImpl::fetch_spent_detail_indexing_for_index] Failed to execute query: {:#}", e);
+                error!("[MysqlServiceImpl::find_spent_detail_indexing_for_index] Failed to execute query: {:#}", e);
             })?;
 
         Ok(results)
@@ -353,7 +353,7 @@ where
     /// - Database connection fails
     /// - Query execution fails
     /// - Data cannot be mapped to the model
-    async fn fetch_spent_details(
+    async fn find_spent_details(
         &self,
         offset: u64,
         limit: u64,
@@ -380,7 +380,7 @@ where
             .await
             .inspect_err(|e| {
                 error!(
-                    "[MysqlServiceImpl::fetch_spent_details] Failed to execute query: {:#}",
+                    "[MysqlServiceImpl::find_spent_details] Failed to execute query: {:#}",
                     e
                 );
             })?;
@@ -417,7 +417,7 @@ where
     ///   ├─ On failure → ROLLBACK → return Err
     ///   └─ All success → COMMIT
     /// ```
-    async fn update_spent_detail_type_batch(
+    async fn modify_spent_detail_type_batch(
         &self,
         updates: Vec<(i64, i64)>,
         batch_size: usize
@@ -431,7 +431,7 @@ where
         // Wrap all chunks in a single transaction.
         let txn: DatabaseTransaction = db.begin().await
             .inspect_err(|e| {
-                error!("[MysqlServiceImpl::update_spent_detail_type_batch] Failed to begin transaction: {:#}", e);
+                error!("[MysqlServiceImpl::modify_spent_detail_type_batch] Failed to begin transaction: {:#}", e);
             })?;
 
         let mut total_affected: u64 = 0;
@@ -489,7 +489,7 @@ where
                     .exec(&txn)
                     .await
                     .inspect_err(|e| {
-                        error!("[MysqlServiceImpl::update_spent_detail_type_batch] Failed to bulk update: {:#}", e);
+                        error!("[MysqlServiceImpl::modify_spent_detail_type_batch] Failed to bulk update: {:#}", e);
                     })?;
 
                 total_affected += result.rows_affected;
@@ -502,12 +502,12 @@ where
         // Explicit ROLLBACK on failure
         if let Err(e) = result {
             error!(
-                "[MysqlServiceImpl::update_spent_detail_type_batch] Rolling back transaction: {}",
+                "[MysqlServiceImpl::modify_spent_detail_type_batch] Rolling back transaction: {}",
                 e
             );
             txn.rollback().await
                 .inspect_err(|e| {
-                    error!("[MysqlServiceImpl::update_spent_detail_type_batch] Failed to rollback transaction: {:#}", e);
+                    error!("[MysqlServiceImpl::modify_spent_detail_type_batch] Failed to rollback transaction: {:#}", e);
                 })?;
             return Err(e);
         }
@@ -515,7 +515,7 @@ where
         // COMMIT when all chunks succeed
         txn.commit().await
             .inspect_err(|e| {
-                error!("[MysqlServiceImpl::update_spent_detail_type_batch] Failed to commit transaction: {:#}", e);
+                error!("[MysqlServiceImpl::modify_spent_detail_type_batch] Failed to commit transaction: {:#}", e);
             })?;
 
         Ok(total_affected)
@@ -533,7 +533,7 @@ where
     /// SET consume_keyword_type_id = ?
     /// WHERE spent_idx = ?
     /// ```
-    async fn update_spent_detail_type_one_by_one(
+    async fn modify_spent_detail_type_one_by_one(
         &self,
         updates: Vec<(i64, i64)>,
     ) -> anyhow::Result<u64> {
@@ -545,7 +545,7 @@ where
 
         let txn: DatabaseTransaction = db.begin().await
             .inspect_err(|e| {
-                error!("[MysqlServiceImpl::update_spent_detail_type_one_by_one] Failed to begin transaction: {:#}", e);
+                error!("[MysqlServiceImpl::modify_spent_detail_type_one_by_one] Failed to begin transaction: {:#}", e);
             })?;
 
         let mut total_affected: u64 = 0;
@@ -561,7 +561,7 @@ where
                     .exec(&txn)
                     .await
                     .inspect_err(|e| {
-                        error!("[MysqlServiceImpl::update_spent_detail_type_one_by_one] Failed to update row: {:#}", e);
+                        error!("[MysqlServiceImpl::modify_spent_detail_type_one_by_one] Failed to update row: {:#}", e);
                     })?;
 
                 total_affected += result.rows_affected;
@@ -573,20 +573,20 @@ where
 
         if let Err(e) = result {
             error!(
-                "[MysqlServiceImpl::update_spent_detail_type_one_by_one] Rolling back transaction: {}",
+                "[MysqlServiceImpl::modify_spent_detail_type_one_by_one] Rolling back transaction: {}",
                 e
             );
             txn.rollback()
                 .await
                 .inspect_err(|e| {
-                    error!("[MysqlServiceImpl::update_spent_detail_type_one_by_one] Failed to rollback transaction: {:#}", e);
+                    error!("[MysqlServiceImpl::modify_spent_detail_type_one_by_one] Failed to rollback transaction: {:#}", e);
                 })?;
             return Err(e);
         }
 
         txn.commit().await
             .inspect_err(|e| {
-                error!("[MysqlServiceImpl::update_spent_detail_type_one_by_one] Failed to commit transaction: {:#}", e);
+                error!("[MysqlServiceImpl::modify_spent_detail_type_one_by_one] Failed to commit transaction: {:#}", e);
             })?;
 
         Ok(total_affected)
@@ -629,7 +629,7 @@ where
     /// - Database connection fails
     /// - Insert query fails
     /// - Transaction commit fails
-    async fn insert_dim_calendar_bulk(
+    async fn input_dim_calendar_bulk(
         &self,
         rows: Vec<dim_calendar::ActiveModel>,
     ) -> anyhow::Result<()> {
@@ -641,7 +641,7 @@ where
 
         let txn: DatabaseTransaction = db.begin().await.inspect_err(|e| {
             error!(
-                "[MysqlServiceImpl::insert_dim_calendar_bulk] Failed to begin transaction: {:#}",
+                "[MysqlServiceImpl::input_dim_calendar_bulk] Failed to begin transaction: {:#}",
                 e
             );
         })?;
@@ -679,12 +679,12 @@ where
 
         if let Err(e) = result {
             error!(
-                "[MysqlServiceImpl::insert_dim_calendar_bulk] Bulk insert failed, rolling back: {:#}",
+                "[MysqlServiceImpl::input_dim_calendar_bulk] Bulk insert failed, rolling back: {:#}",
                 e
             );
             txn.rollback().await.inspect_err(|e| {
                 error!(
-                    "[MysqlServiceImpl::insert_dim_calendar_bulk] Rollback failed: {:#}",
+                    "[MysqlServiceImpl::input_dim_calendar_bulk] Rollback failed: {:#}",
                     e
                 );
             })?;
@@ -693,7 +693,7 @@ where
 
         txn.commit().await.inspect_err(|e| {
             error!(
-                "[MysqlServiceImpl::insert_dim_calendar_bulk] Commit failed: {:#}",
+                "[MysqlServiceImpl::input_dim_calendar_bulk] Commit failed: {:#}",
                 e
             );
         })?;
@@ -729,7 +729,7 @@ where
     /// Returns an error if:
     /// - Database connection fails
     /// - Query execution fails
-    async fn upsert_spent_detail_indexing(
+    async fn modify_spent_detail_indexing(
         &self,
         upsert_list: Vec<SpentDetailWithRelations>,
     ) -> anyhow::Result<()> {
@@ -766,7 +766,7 @@ where
 
         let txn: DatabaseTransaction = db.begin().await.inspect_err(|e| {
             error!(
-                "[MysqlServiceImpl::upsert_spent_detail_indexing] Failed to begin transaction: {:#}",
+                "[MysqlServiceImpl::modify_spent_detail_indexing] Failed to begin transaction: {:#}",
                 e
             );
         })?;
@@ -797,13 +797,13 @@ where
         if let Err(e) = result {
             
             error!(
-                "[MysqlServiceImpl::upsert_spent_detail_indexing] Upsert failed (spent_idxs={:?}): {:#}",
+                "[MysqlServiceImpl::modify_spent_detail_indexing] Upsert failed (spent_idxs={:?}): {:#}",
                 spent_idxs, e
             );
 
             txn.rollback().await.inspect_err(|e| {
                 error!(
-                    "[MysqlServiceImpl::upsert_spent_detail_indexing] Rollback failed: {:#}",
+                    "[MysqlServiceImpl::modify_spent_detail_indexing] Rollback failed: {:#}",
                     e
                 );
             })?;
@@ -813,7 +813,7 @@ where
 
         txn.commit().await.inspect_err(|e| {
             error!(
-                "[MysqlServiceImpl::upsert_spent_detail_indexing] Commit failed (spent_idxs={:?}): {:#}",
+                "[MysqlServiceImpl::modify_spent_detail_indexing] Commit failed (spent_idxs={:?}): {:#}",
                 spent_idxs, e
             );
         })?;

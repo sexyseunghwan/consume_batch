@@ -25,24 +25,24 @@ pub trait MysqlService {
     /// - Database connection fails
     /// - Query execution fails
     /// - Data cannot be mapped to the model
-    async fn fetch_spent_type_keywords_batch(
+    async fn find_spent_type_keywords_batch(
         &self,
         offset: u64,
         limit: u64,
     ) -> anyhow::Result<Vec<SpentTypeKeyword>>;
     // Fetches spent details with related information for indexing. (deprecated — replaced by spent_idxs variant)
-    // async fn fetch_spent_details_for_indexing(
+    // async fn find_spent_details_for_indexing(
     //     &self,
     //     offset: u64,
     //     limit: u64,
     // ) -> anyhow::Result<Vec<SpentDetailWithRelations>>;
 
-    async fn fetch_spent_details_for_indexing(
+    async fn find_spent_details_for_indexing(
         &self,
         spent_idxs: &[i64],
     ) -> anyhow::Result<Vec<SpentDetailWithRelations>>;
 
-    async fn fetch_spent_detail_indexing_for_index(
+    async fn find_spent_detail_indexing_for_index(
         &self,
         offset: u64,
         limit: u64,
@@ -51,13 +51,13 @@ pub trait MysqlService {
     /// 증분 색인용: 주어진 `spent_idx` 목록에 해당하는 역정규화 행을 조회한다.
     ///
     /// `WHERE spent_idx IN (...)` 쿼리로 동작하며, 존재하지 않는 ID는 결과에서 자동으로 제외된다.
-    async fn fetch_spent_detail_indexing_by_ids(
+    async fn find_spent_detail_indexing_by_ids(
         &self,
         ids: &[i64],
     ) -> anyhow::Result<Vec<SpentDetailIndexing>>;
 
     /// Fetches raw spent-detail rows without joining related tables.
-    async fn fetch_spent_details(
+    async fn find_spent_details(
         &self,
         offset: u64,
         limit: u64,
@@ -72,22 +72,22 @@ pub trait MysqlService {
     /// # Returns
     ///
     /// Returns the number of updated rows.
-    async fn update_spent_detail_type_batch(&self, updates: Vec<(i64, i64)>, batch_size: usize)
+    async fn modify_spent_detail_type_batch(&self, updates: Vec<(i64, i64)>, batch_size: usize)
     -> anyhow::Result<u64>;
 
     /// Updates consume_keyword_type_id one row at a time (for performance comparison).
-    async fn update_spent_detail_type_one_by_one(
+    async fn modify_spent_detail_type_one_by_one(
         &self,
         updates: Vec<(i64, i64)>,
     ) -> anyhow::Result<u64>;
 
     /// Bulk-inserts DIM_CALENDAR rows, ignoring duplicate PKs (dt).
-    async fn insert_dim_calendar_bulk(
+    async fn input_dim_calendar_bulk(
         &self,
         rows: Vec<dim_calendar::ActiveModel>,
     ) -> anyhow::Result<()>;
 
-    async fn upsert_spent_detail_indexing(
+    async fn modify_spent_detail_indexing(
         &self,
         upsert_list: Vec<SpentDetailWithRelations>,
     ) -> anyhow::Result<()>;

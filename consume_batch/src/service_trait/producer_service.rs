@@ -4,7 +4,7 @@ use crate::common::*;
 #[async_trait]
 pub trait ProducerService {
     /// Produces a raw JSON payload to a Kafka topic.
-    async fn produce_message(
+    async fn input_message(
         &self,
         topic: &str,
         key: Option<&str>,
@@ -25,7 +25,7 @@ pub trait ProducerService {
     /// let spent_detail = SpentDetail { ... };
     /// producer.produce_object_to_topic("dev_spent_detail", &spent_detail, None).await?;
     /// ```
-    async fn produce_object_to_topic<T>(
+    async fn input_object_to_topic<T>(
         &self,
         topic: &str,
         object: &T,
@@ -59,7 +59,7 @@ pub trait ProducerService {
     ///     Some(|obj: &SpentDetail| format!("user:{}", obj.user_seq))
     /// ).await?;
     /// ```
-    async fn produce_objects_to_topic<T, F>(
+    async fn input_objects_to_topic<T, F>(
         &self,
         topic: &str,
         objects: &[T],
@@ -80,5 +80,5 @@ pub trait ProducerService {
     ///
     /// # Returns
     /// * `Result<(), anyhow::Error>` - Ok if records were successfully deleted
-    async fn purge_topic(&self, topic: &str) -> Result<(), anyhow::Error>;
+    async fn delete_topic_records(&self, topic: &str) -> Result<(), anyhow::Error>;
 }

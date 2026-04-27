@@ -87,7 +87,7 @@ where
     /// Returns an error if:
     /// - MySQL fetch fails
     /// - Elasticsearch bulk indexing fails
-    async fn process_spent_detail_full(
+    async fn input_spent_detail_full_data(
         &self,
         schedule_item: &BatchScheduleItem,
         new_index_name: &str,
@@ -101,11 +101,11 @@ where
             
             let rows: Vec<SpentDetailIndexing> = self
                 .mysql_service
-                .fetch_spent_detail_indexing_for_index(offset, batch_size as u64)
+                .find_spent_detail_indexing_for_index(offset, batch_size as u64)
                 .await
                 .inspect_err(|e| {
                     error!(
-                        "[IndexingServiceImpl::process_spent_detail_static] Failed to load from DB: {:#}",
+                        "[IndexingServiceImpl::input_spent_detail_full_data] Failed to load from DB: {:#}",
                         e
                     );
                 })?;
@@ -113,7 +113,7 @@ where
             if rows.is_empty() {
                 batch_log!(
                     info,
-                    "[IndexingServiceImpl::process_spent_detail_static] No more rows in DB, finishing"
+                    "[IndexingServiceImpl::input_spent_detail_full_data] No more rows in DB, finishing"
                 );
                 break;
             }
@@ -121,11 +121,11 @@ where
             let batch_count: usize = rows.len();
 
             self.elastic_service
-                .bulk_index(new_index_name, rows, Some("spent_idx"))
+                .input_bulk(new_index_name, rows, Some("spent_idx"))
                 .await
                 .inspect_err(|e| {
                     error!(
-                        "[IndexingServiceImpl::process_spent_detail_static] bulk_index failed: {:#}",
+                        "[IndexingServiceImpl::input_spent_detail_full_data] bulk_index failed: {:#}",
                         e
                     );
                 })?;
@@ -135,7 +135,7 @@ where
 
             batch_log!(
                 info,
-                "[IndexingServiceImpl::process_spent_detail_static] Indexed {} docs so far",
+                "[IndexingServiceImpl::input_spent_detail_full_data] Indexed {} docs so far",
                 total_indexed
             );
         }
@@ -168,7 +168,7 @@ where
     /// - Kafka message consumption fails
     /// - MySQL upsert or delete fails
     /// - Elasticsearch bulk operation fails
-    async fn process_spent_detail_incremental(
+    async fn input_spent_detail_incremental_data(
         &self,
         indexer_topic: &str,
         consumer_group: &str,
@@ -181,12 +181,12 @@ where
         
         let messages: Vec<SpentDetailFromKafka> = self
             .consume_service
-            .consume_messages_as_with_group(indexer_topic, batch_size, consumer_group)
+            .find_messages_as_by_group(indexer_topic, batch_size, consumer_group)
             .await
             .inspect_err(|e| {
                 batch_log!(
                     error,
-                    "[IndexingServiceImpl::process_spent_detail_incremental] consume failed: {:#}",
+                    "[IndexingServiceImpl::input_spent_detail_incremental_data] consume failed: {:#}",
                     e
                 );
             })?;
@@ -194,7 +194,7 @@ where
         if messages.is_empty() {
             batch_log!(
                 info,
-                "[IndexingServiceImpl::process_spent_detail_incremental] No messages, waiting..."
+                "[IndexingServiceImpl::input_spent_detail_incremental_data] No messages, waiting..."
             );
             tokio::time::sleep(Duration::from_millis(1000)).await;
         }
@@ -203,17 +203,17 @@ where
 
         batch_log!(
             info,
-            "[IndexingServiceImpl::process_spent_detail_incremental] Consumed {} messages from '{}'",
+            "[IndexingServiceImpl::input_spent_detail_incremental_data] Consumed {} messages from '{}'",
             batch_count,
             indexer_topic
         );
 
         // Batch 내 동일 ID 이벤트를 압축해 최종 upsert / delete ID 목록을 결정한다.
-        let (upsert_ids, delete_ids) = Self::merge_batch_events(messages)?;
+        let (upsert_ids, delete_ids) = Self::to_merged_batch_events(messages)?;
 
         batch_log!(
             info,
-            "[IndexingServiceImpl::run_spent_detail_incremental] After merge (reg_at-based): raw={}, upsert={}, delete={}",
+            "[IndexingServiceImpl::input_spent_detail_incremental] After merge (reg_at-based): raw={}, upsert={}, delete={}",
             batch_count,
             upsert_ids.len(),
             delete_ids.len()
@@ -225,32 +225,32 @@ where
 
             batch_log!(
                 info,
-                "[IndexingServiceImpl::run_spent_detail_incremental] Upsert {} docs from '{}'",
+                "[IndexingServiceImpl::input_spent_detail_incremental] Upsert {} docs from '{}'",
                 upsert_ids_size,
                 target_index_name
             );
 
             let upsert_list: Vec<SpentDetailWithRelations> = self
                 .mysql_service
-                .fetch_spent_details_for_indexing(&upsert_ids)
+                .find_spent_details_for_indexing(&upsert_ids)
                 .await?;
 
             // 역정규화 테이블에 데이터 insert 또는 update
             self.mysql_service
-                .upsert_spent_detail_indexing(upsert_list)
+                .modify_spent_detail_indexing(upsert_list)
                 .await?;
 
             let to_es_upsert_list: Vec<SpentDetailIndexing> = self
                 .mysql_service
-                .fetch_spent_detail_indexing_by_ids(&upsert_ids)
+                .find_spent_detail_indexing_by_ids(&upsert_ids)
                 .await?;
 
             self.elastic_service
-                .bulk_index(target_index_name, to_es_upsert_list, Some("spent_idx"))
+                .input_bulk(target_index_name, to_es_upsert_list, Some("spent_idx"))
                 .await
                 .inspect_err(|e| {
                     error!(
-                        "[IndexingServiceImpl::run_spent_detail_incremental] bulk_index failed: {:#}",
+                        "[IndexingServiceImpl::input_spent_detail_incremental] bulk_index failed: {:#}",
                         e
                     );
                 })?;
@@ -264,7 +264,7 @@ where
 
             batch_log!(
                 info,
-                "[IndexingServiceImpl::run_spent_detail_incremental] Deleting {} docs from '{}'",
+                "[IndexingServiceImpl::input_spent_detail_incremental] Deleting {} docs from '{}'",
                 delete_ids.len(),
                 target_index_name
             );
@@ -274,11 +274,11 @@ where
                 .await?;
 
             self.elastic_service
-                .bulk_delete(target_index_name, delete_ids)
+                .delete_bulk(target_index_name, delete_ids)
                 .await
                 .inspect_err(|e| {
                     error!(
-                        "[IndexingServiceImpl::run_spent_detail_incremental] bulk_delete failed: {:#}",
+                        "[IndexingServiceImpl::input_spent_detail_incremental] bulk_delete failed: {:#}",
                         e
                     );
                 })?;
@@ -313,7 +313,7 @@ where
     /// - Consumer group lag fetch fails
     /// - Index settings revert fails
     /// - Alias swap fails
-    async fn process_spent_detail_catch_up(
+    async fn modify_spent_detail_catch_up(
         &self,
         schedule_item: &BatchScheduleItem,
         index_name: &str,
@@ -328,7 +328,7 @@ where
 
         batch_log!(
             info,
-            "[IndexingServiceImpl::process_spent_detail_catch_up] Starting. topic='{}', index='{}', ref='{}', catchup='{}'",
+            "[IndexingServiceImpl::modify_spent_detail_catch_up] Starting. topic='{}', index='{}', ref='{}', catchup='{}'",
             relation_topic,
             index_name,
             consumer_group,
@@ -346,7 +346,7 @@ where
             
             let lag_info: ConsumerGroupLag = self
                 .consume_service
-                .get_consumer_group_lag_by_partition(
+                .find_consumer_group_lag_by_partition(
                     relation_topic,
                     consumer_group,
                     consumer_group_sub,
@@ -354,7 +354,7 @@ where
                 .await
                 .inspect_err(|e| {
                     error!(
-                        "[IndexingServiceImpl::process_spent_detail_catch_up] Failed to get lag: {:#}",
+                        "[IndexingServiceImpl::modify_spent_detail_catch_up] Failed to get lag: {:#}",
                         e
                     );
                 })?;
@@ -363,7 +363,7 @@ where
 
             batch_log!(
                 info,
-                "[IndexingServiceImpl::process_spent_detail_catch_up] lag={}, batch_size={}, partitions={}",
+                "[IndexingServiceImpl::modify_spent_detail_catch_up] lag={}, batch_size={}, partitions={}",
                 lag,
                 batch_size,
                 lag_info.partition_lags.len()
@@ -372,7 +372,7 @@ where
             for partition_lag in &lag_info.partition_lags {
                 if partition_lag.lag > 0 {
                     info!(
-                        "[IndexingServiceImpl::process_spent_detail_catch_up] Partition {}: lag={} (ref={}, catchup={})",
+                        "[IndexingServiceImpl::modify_spent_detail_catch_up] Partition {}: lag={} (ref={}, catchup={})",
                         partition_lag.partition,
                         partition_lag.lag,
                         partition_lag.reference_offset,
@@ -384,7 +384,7 @@ where
             if !indexing_paused && lag <= batch_size as i64 {
                 batch_log!(
                     info,
-                    "[IndexingServiceImpl::process_spent_detail_catch_up] Almost caught up (lag={}). Pausing incremental indexing.",
+                    "[IndexingServiceImpl::modify_spent_detail_catch_up] Almost caught up (lag={}). Pausing incremental indexing.",
                     lag
                 );
 
@@ -397,44 +397,44 @@ where
                 
                 batch_log!(
                     info,
-                    "[IndexingServiceImpl::process_spent_detail_catch_up] Fully caught up. total_processed={}. Swapping aliases.",
+                    "[IndexingServiceImpl::modify_spent_detail_catch_up] Fully caught up. total_processed={}. Swapping aliases.",
                     total_upsert_processed + total_delete_processed
                 );
 
                 // 현재 인덱스 설정정보 원복해준다 -> refresh, replication
                 self.elastic_service
-                    .revert_index_setting(index_name)
+                    .modify_index_setting(index_name)
                     .await
                     .inspect_err(|e| {
                         error!(
-                            "[IndexingServiceImpl::process_spent_detail_catch_up] Failed to revert the index settings.{:#}",
+                            "[IndexingServiceImpl::modify_spent_detail_catch_up] Failed to revert the index settings.{:#}",
                             e
                         );
                     })?;
 
                 self.elastic_service
-                    .update_write_alias(&write_alias, index_name)
+                    .modify_write_alias(&write_alias, index_name)
                     .await
                     .inspect_err(|e| {
                         error!(
-                            "[IndexingServiceImpl::process_spent_detail_catch_up] update_write_alias failed: {:#}",
+                            "[IndexingServiceImpl::modify_spent_detail_catch_up] update_write_alias failed: {:#}",
                             e
                         );
                     })?;
 
                 self.elastic_service
-                    .update_read_alias(&read_alias, index_name)
+                    .modify_read_alias(&read_alias, index_name)
                     .await
                     .inspect_err(|e| {
                         error!(
-                            "[IndexingServiceImpl::process_spent_detail_catch_up] update_read_alias failed: {:#}",
+                            "[IndexingServiceImpl::modify_spent_detail_catch_up] update_read_alias failed: {:#}",
                             e
                         );
                     })?;
 
                 batch_log!(
                     info,
-                    "[IndexingServiceImpl::process_spent_detail_catch_up] Alias swap complete. Resuming incremental indexing."
+                    "[IndexingServiceImpl::modify_spent_detail_catch_up] Alias swap complete. Resuming incremental indexing."
                 );
 
                 // 실시간 증분색인 재개
@@ -446,7 +446,7 @@ where
 
             // 증분 catch-up 색인 진행
             let (upsert_processed, delete_processed) = match self
-                .process_spent_detail_incremental(
+                .input_spent_detail_incremental_data(
                     relation_topic,
                     consumer_group,
                     &write_alias,
@@ -461,12 +461,12 @@ where
                 Err(e) => {
                     consecutive_errors += 1;
                     error!(
-                        "[IndexingServiceImpl::process_spent_detail_catch_up] error ({}/{}): {:#}",
+                        "[IndexingServiceImpl::modify_spent_detail_catch_up] error ({}/{}): {:#}",
                         consecutive_errors, MAX_CONSECUTIVE_ERRORS, e
                     );
                     if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
                         return Err(anyhow!(
-                            "[IndexingServiceImpl::process_spent_detail_catch_up] Aborting catch-up after {} consecutive errors. Last error: {:#}",
+                            "[IndexingServiceImpl::modify_spent_detail_catch_up] Aborting catch-up after {} consecutive errors. Last error: {:#}",
                             MAX_CONSECUTIVE_ERRORS, e
                         ));
                     }
@@ -478,7 +478,7 @@ where
 
             batch_log!(
                 info,
-                "[IndexingServiceImpl::process_spent_detail_catch_up] upsert: {}, delete: {} (total: {})",
+                "[IndexingServiceImpl::modify_spent_detail_catch_up] upsert: {}, delete: {} (total: {})",
                 upsert_processed,
                 delete_processed,
                 upsert_processed + delete_processed
@@ -497,19 +497,19 @@ where
     /// (full indexing, catch-up, settings revert, alias swap). Prevents index accumulation
     /// across repeated failed runs. Errors here are only logged — the original error
     /// that triggered cleanup is returned to the caller instead.
-    async fn cleanup_orphaned_index(&self, index_name: &str) {
+    async fn delete_orphaned_index(&self, index_name: &str) {
         error!(
-            "[IndexingServiceImpl::cleanup_orphaned_index] Cleaning up orphaned index '{}' due to pipeline failure",
+            "[IndexingServiceImpl::delete_orphaned_index] Cleaning up orphaned index '{}' due to pipeline failure",
             index_name
         );
         if let Err(e) = self.elastic_service.delete_indices(&[index_name.to_string()]).await {
             error!(
-                "[IndexingServiceImpl::cleanup_orphaned_index] Failed to delete orphaned index '{}': {:#}",
+                "[IndexingServiceImpl::delete_orphaned_index] Failed to delete orphaned index '{}': {:#}",
                 index_name, e
             );
         } else {
             error!(
-                "[IndexingServiceImpl::cleanup_orphaned_index] Successfully deleted orphaned index '{}'",
+                "[IndexingServiceImpl::delete_orphaned_index] Successfully deleted orphaned index '{}'",
                 index_name
             );
         }
@@ -533,7 +533,7 @@ where
     /// # Errors
     ///
     /// Returns an error if any message contains an unrecognized `indexing_type` string.
-    fn merge_batch_events(
+    fn to_merged_batch_events(
         messages: Vec<SpentDetailFromKafka>,
     ) -> anyhow::Result<(Vec<i64>, Vec<i64>)> {
         use std::collections::hash_map::Entry;
@@ -558,7 +558,7 @@ where
         let mut delete_ids: Vec<i64> = Vec::new();
 
         for (id, msg) in latest {
-            match msg.convert_indexing_type()? {
+            match msg.to_indexing_type()? {
                 IndexingType::Insert | IndexingType::Update => upsert_ids.push(id),
                 IndexingType::Delete => delete_ids.push(id),
             }
@@ -597,7 +597,7 @@ where
     /// - Elasticsearch bulk indexing fails
     /// - Index finalization or alias swap fails
     /// - Old index deletion fails
-    async fn process_spent_type_full(
+    async fn input_spent_type_full_data(
         &self,
         schedule_item: &BatchScheduleItem,
     ) -> anyhow::Result<()> {
@@ -606,29 +606,29 @@ where
 
         batch_log!(
             info,
-            "[IndexingServiceImpl::process_spent_type_full] Processing {} (index: {})",
+            "[IndexingServiceImpl::input_spent_type_full_data] Processing {} (index: {})",
             schedule_item.batch_name(),
             index_alias
         );
 
         let old_indexies: Vec<String> = self
             .elastic_service
-            .get_index_name_by_alias(index_alias)
+            .find_index_name_by_alias(index_alias)
             .await
             .inspect_err(|e| {
                 error!(
-                    "[IndexingServiceImpl::process_spent_type_full] Failed to find any existing indices associated with the specified alias: {:#}",
+                    "[IndexingServiceImpl::input_spent_type_full_data] Failed to find any existing indices associated with the specified alias: {:#}",
                     e
                 )
             })?;
 
         let new_index_name: String = self
             .elastic_service
-            .prepare_full_index(index_alias, schedule_item.mapping_schema())
+            .initialize_full_index(index_alias, schedule_item.mapping_schema())
             .await
             .inspect_err(|e| {
                 error!(
-                    "[IndexingServiceImpl::process_spent_type_full] prepare_full_index: {:#}",
+                    "[IndexingServiceImpl::input_spent_type_full_data] prepare_full_index: {:#}",
                     e
                 );
             })?;
@@ -639,18 +639,18 @@ where
         loop {
             batch_log!(
                 info,
-                "[IndexingServiceImpl::process_spent_type_full] Fetching batch at offset={}, batch_size={}",
+                "[IndexingServiceImpl::input_spent_type_full_data] Fetching batch at offset={}, batch_size={}",
                 offset,
                 batch_size
             );
 
             let keywords: Vec<SpentTypeKeyword> = self
                 .mysql_service
-                .fetch_spent_type_keywords_batch(offset, batch_size as u64)
+                .find_spent_type_keywords_batch(offset, batch_size as u64)
                 .await
                 .inspect_err(|e| {
                     error!(
-                        "[IndexingServiceImpl::process_spent_type_full] Failed to fetch keywords: {:#}",
+                        "[IndexingServiceImpl::input_spent_type_full_data] Failed to fetch keywords: {:#}",
                         e
                     );
                 })?;
@@ -658,7 +658,7 @@ where
             if keywords.is_empty() {
                 batch_log!(
                     info,
-                    "[IndexingServiceImpl::process_spent_type_full] No more data to index"
+                    "[IndexingServiceImpl::input_spent_type_full_data] No more data to index"
                 );
                 break;
             }
@@ -667,16 +667,16 @@ where
 
             batch_log!(
                 info,
-                "[IndexingServiceImpl::process_spent_type_full] Indexing {} documents",
+                "[IndexingServiceImpl::input_spent_type_full_data] Indexing {} documents",
                 batch_count
             );
 
             self.elastic_service
-                .bulk_index(&new_index_name, keywords, None)
+                .input_bulk(&new_index_name, keywords, None)
                 .await
                 .inspect_err(|e| {
                     error!(
-                        "[IndexingServiceImpl::process_spent_type_full] bulk_index failed: {:#}",
+                        "[IndexingServiceImpl::input_spent_type_full_data] bulk_index failed: {:#}",
                         e
                     );
                 })?;
@@ -686,26 +686,26 @@ where
 
             batch_log!(
                 info,
-                "[IndexingServiceImpl::process_spent_type_full] Indexed {} documents so far",
+                "[IndexingServiceImpl::input_spent_type_full_data] Indexed {} documents so far",
                 total_indexed
             );
         }
 
         self.elastic_service
-            .revert_index_setting(&new_index_name)
+            .modify_index_setting(&new_index_name)
             .await
             .inspect_err(|e| {
                 error!(
-                    "[IndexingServiceImpl::process_spent_type_full] Failed to revert the index settings.: {:#}",
+                    "[IndexingServiceImpl::input_spent_type_full_data] Failed to revert the index settings.: {:#}",
                     e
                 )
             })?;
 
         self.elastic_service
-            .swap_alias(index_alias, &new_index_name)
+            .modify_alias(index_alias, &new_index_name)
             .await
             .inspect_err(|e| {
-                error!("[IndexingServiceImpl::process_spent_type_full] Failed to switch the alias to the new index. {:#}", e);
+                error!("[IndexingServiceImpl::input_spent_type_full_data] Failed to switch the alias to the new index. {:#}", e);
             })?;
 
         self.elastic_service
@@ -713,14 +713,14 @@ where
             .await
             .inspect_err(|e| {
                 error!(
-                    "[IndexingServiceImpl::process_spent_type_full] delete_indices failed: {:#}",
+                    "[IndexingServiceImpl::input_spent_type_full_data] delete_indices failed: {:#}",
                     e
                 );
             })?;
 
         batch_log!(
             info,
-            "[IndexingServiceImpl::process_spent_type_full] Completed. total_indexed={}",
+            "[IndexingServiceImpl::input_spent_type_full_data] Completed. total_indexed={}",
             total_indexed
         );
 
@@ -763,7 +763,7 @@ where
     /// # Errors
     ///
     /// Returns an error if any step in the pipeline fails.
-    async fn run_spent_detail_full(&self, schedule_item: &BatchScheduleItem) -> anyhow::Result<()> {
+    async fn input_spent_detail_full(&self, schedule_item: &BatchScheduleItem) -> anyhow::Result<()> {
         
         let index_alias: &str = schedule_item.index_name();
         let incre_topic_name: &str = schedule_item.relation_topic_sub();
@@ -772,38 +772,38 @@ where
 
         batch_log!(
             info,
-            "[IndexingServiceImpl::run_spent_detail_full] Starting full indexing for '{}'",
+            "[IndexingServiceImpl::input_spent_detail_full] Starting full indexing for '{}'",
             index_alias
         );
 
         // Step 1: 기존 alias 에 지정된 index 이름들을 가져와준다.
         let old_indxies: Vec<String> = self
             .elastic_service
-            .get_index_name_by_alias(index_alias)
+            .find_index_name_by_alias(index_alias)
             .await?;
 
         // Step 2: create new index
         let new_index_name: String = self
             .elastic_service
-            .prepare_full_index(index_alias, schedule_item.mapping_schema())
+            .initialize_full_index(index_alias, schedule_item.mapping_schema())
             .await
             .inspect_err(|e| {
                 error!(
-                    "[IndexingServiceImpl::run_spent_detail_full] prepare_full_index failed: {:#}",
+                    "[IndexingServiceImpl::input_spent_detail_full] prepare_full_index failed: {:#}",
                     e
                 );
             })?;
 
         batch_log!(
             info,
-            "[IndexingServiceImpl::run_spent_detail_full] Created new index: {}",
+            "[IndexingServiceImpl::input_spent_detail_full] Created new index: {}",
             new_index_name
         );
 
         // Step 3: snapshot incremental offset
         match self
             .consume_service
-            .replicate_consumer_group_offsets(
+            .modify_consumer_group_offsets(
                 incre_topic_name,
                 incre_source_group,
                 incre_target_group,
@@ -813,7 +813,7 @@ where
             Ok(_) => (),
             Err(e) => {
                 error!(
-                    "[IndexingServiceImpl::run_spent_detail_full] replicate offsets: {:#}",
+                    "[IndexingServiceImpl::input_spent_detail_full] replicate offsets: {:#}",
                     e
                 );
             }
@@ -821,61 +821,61 @@ where
 
         // Step 4: Full indexing
         let full_indexed: u64 = match self
-            .process_spent_detail_full(schedule_item, &new_index_name)
+            .input_spent_detail_full_data(schedule_item, &new_index_name)
             .await
         {
             Ok(n) => n,
             Err(e) => {
-                error!("[IndexingServiceImpl::run_spent_detail_full] static phase failed: {:#}", e);
-                self.cleanup_orphaned_index(&new_index_name).await;
+                error!("[IndexingServiceImpl::input_spent_detail_full] static phase failed: {:#}", e);
+                self.delete_orphaned_index(&new_index_name).await;
                 return Err(e);
             }
         };
 
         batch_log!(
             info,
-            "[IndexingServiceImpl::run_spent_detail_full] Full indexing done: {} docs",
+            "[IndexingServiceImpl::input_spent_detail_full] Full indexing done: {} docs",
             full_indexed
         );
 
         // Step 5: dynamic catch-up
         let catch_up_indexed: u64 = match self
-            .process_spent_detail_catch_up(schedule_item, &new_index_name)
+            .modify_spent_detail_catch_up(schedule_item, &new_index_name)
             .await
         {
             Ok(n) => n,
             Err(e) => {
-                error!("[IndexingServiceImpl::run_spent_detail_full] incremental phase failed: {:#}", e);
-                self.cleanup_orphaned_index(&new_index_name).await;
+                error!("[IndexingServiceImpl::input_spent_detail_full] incremental phase failed: {:#}", e);
+                self.delete_orphaned_index(&new_index_name).await;
                 return Err(e);
             }
         };
 
         batch_log!(
             info,
-            "[IndexingServiceImpl::run_spent_detail_full] incremental catch-up done: {} docs",
+            "[IndexingServiceImpl::input_spent_detail_full] incremental catch-up done: {} docs",
             catch_up_indexed
         );
 
         batch_log!(
             info,
-            "[IndexingServiceImpl::run_spent_detail_full] Total indexed: {} ({} full + {} incremental)",
+            "[IndexingServiceImpl::input_spent_detail_full] Total indexed: {} ({} full + {} incremental)",
             full_indexed + catch_up_indexed,
             full_indexed,
             catch_up_indexed
         );
 
         // Step 6. Revert index settings
-        if let Err(e) = self.elastic_service.revert_index_setting(&new_index_name).await {
-            error!("[IndexingServiceImpl::run_spent_detail_full] Failed to revert the index settings.: {:#}", e);
-            self.cleanup_orphaned_index(&new_index_name).await;
+        if let Err(e) = self.elastic_service.modify_index_setting(&new_index_name).await {
+            error!("[IndexingServiceImpl::input_spent_detail_full] Failed to revert the index settings.: {:#}", e);
+            self.delete_orphaned_index(&new_index_name).await;
             return Err(e);
         }
 
         // Step 7. Alias swap
-        if let Err(e) = self.elastic_service.swap_alias(index_alias, &new_index_name).await {
-            error!("[IndexingServiceImpl::run_spent_detail_full] Failed to switch the alias to the new index. {:#}", e);
-            self.cleanup_orphaned_index(&new_index_name).await;
+        if let Err(e) = self.elastic_service.modify_alias(index_alias, &new_index_name).await {
+            error!("[IndexingServiceImpl::input_spent_detail_full] Failed to switch the alias to the new index. {:#}", e);
+            self.delete_orphaned_index(&new_index_name).await;
             return Err(e);
         }
 
@@ -883,7 +883,7 @@ where
         self.elastic_service
             .delete_indices(&old_indxies)
             .await
-            .inspect_err(|e| error!("[IndexingServiceImpl::run_spent_detail_full] {:#}", e))?;
+            .inspect_err(|e| error!("[IndexingServiceImpl::input_spent_detail_full] {:#}", e))?;
 
         Ok(())
     }
@@ -909,7 +909,7 @@ where
     ///
     /// Individual processing errors are logged and skipped; the loop continues running.
     // 이쪽이 증분색인 !!!
-    async fn run_spent_detail_incremental(
+    async fn input_spent_detail_incremental(
         &self,
         schedule_item: &BatchScheduleItem,
     ) -> anyhow::Result<()> {
@@ -921,7 +921,7 @@ where
 
         batch_log!(
             info,
-            "[IndexingServiceImpl::run_spent_detail_incremental] Starting. topic='{}', write_alias='{}'",
+            "[IndexingServiceImpl::input_spent_detail_incremental] Starting. topic='{}', write_alias='{}'",
             relation_topic,
             write_index_alias
         );
@@ -939,7 +939,7 @@ where
             }
 
             let (upsert_processed, delete_processed) = match self
-                .process_spent_detail_incremental(
+                .input_spent_detail_incremental_data(
                     relation_topic,
                     consumer_group,
                     &write_index_alias,
@@ -954,12 +954,12 @@ where
                 Err(e) => {
                     consecutive_errors += 1;
                     error!(
-                        "[IndexingServiceImpl::run_spent_detail_incremental] error ({}/{}): {:#}",
+                        "[IndexingServiceImpl::input_spent_detail_incremental] error ({}/{}): {:#}",
                         consecutive_errors, MAX_CONSECUTIVE_ERRORS, e
                     );
                     if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
                         return Err(anyhow!(
-                            "[IndexingServiceImpl::run_spent_detail_incremental] Aborting incremental indexing after {} consecutive errors. Last error: {:#}",
+                            "[IndexingServiceImpl::input_spent_detail_incremental] Aborting incremental indexing after {} consecutive errors. Last error: {:#}",
                             MAX_CONSECUTIVE_ERRORS, e
                         ));
                     }
@@ -970,7 +970,7 @@ where
 
             batch_log!(
                 info,
-                "[IndexingServiceImpl::run_spent_detail_incremental] upsert: {}, delete: {} (total: {})",
+                "[IndexingServiceImpl::input_spent_detail_incremental] upsert: {}, delete: {} (total: {})",
                 upsert_processed,
                 delete_processed,
                 upsert_processed + delete_processed
@@ -1000,7 +1000,7 @@ where
     /// - Elasticsearch bulk indexing fails
     /// - Index finalization or alias swap fails
     /// - Old index deletion fails
-    async fn run_spent_type_full(&self, schedule_item: &BatchScheduleItem) -> anyhow::Result<()> {
-        self.process_spent_type_full(schedule_item).await
+    async fn input_spent_type_full(&self, schedule_item: &BatchScheduleItem) -> anyhow::Result<()> {
+        self.input_spent_type_full_data(schedule_item).await
     }
 }

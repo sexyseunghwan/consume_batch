@@ -37,7 +37,7 @@ use crate::common::*;
 ///
 /// # Returns
 /// * Result<T, anyhow::Error> - Returns a json-compatible object if file is successfully read
-pub fn read_toml_from_file<T: DeserializeOwned>(file_path: &str) -> Result<T, anyhow::Error> {
+pub fn find_toml_from_file<T: DeserializeOwned>(file_path: &str) -> Result<T, anyhow::Error> {
     let toml_content = std::fs::read_to_string(file_path)?;
     let toml: T = toml::from_str(&toml_content)?;
 
@@ -83,10 +83,10 @@ pub fn read_toml_from_file<T: DeserializeOwned>(file_path: &str) -> Result<T, an
 ///
 /// # Returns
 /// * Result<Value, anyhow::Error>
-pub fn convert_json_from_struct<T: Serialize>(input_struct: &T) -> Result<Value, anyhow::Error> {
+pub fn to_json_from_struct<T: Serialize>(input_struct: &T) -> Result<Value, anyhow::Error> {
     serde_json::to_value(input_struct).map_err(|err| {
         anyhow!(
-            "[Error][convert_json_from_struct()] Failed to serialize struct to JSON: {}",
+            "[Error][to_json_from_struct()] Failed to serialize struct to JSON: {}",
             err
         )
     })
