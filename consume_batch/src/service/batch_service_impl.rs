@@ -487,22 +487,7 @@ where
                     })?;
             }
             "all_change_spent_detail_type" => {
-                // SPENT_DETAIL
-                Self::modify_all_spent_detail_type(
-                    schedule_item,
-                    mysql_service,
-                    elastic_service,
-                )
-                .await
-                .inspect_err(|e| {
-                    error!(
-                        "[BatchServiceImpl::input_batch_by_schedule] all_change_spent_detail_type: {:#}",
-                        e
-                    );
-                })?;
-
-                // SPENT_DETAIL_INDEXING
-                Self::modify_all_spent_detail_indexing_type(
+                Self::modify_all_spent_detail_types(
                     schedule_item,
                     mysql_service,
                     elastic_service,
@@ -547,6 +532,31 @@ where
             elapsed.num_milliseconds()
         );
 
+        Ok(())
+    }
+
+    /// Runs `modify_all_spent_detail_type` and `modify_all_spent_detail_indexing_type` in sequence.
+    ///
+    /// # Arguments
+    ///
+    /// * `schedule_item` - The batch schedule configuration (batch size, index name, etc.)
+    /// * `mysql_service` - MySQL service for fetching and updating records
+    /// * `elastic_service` - Elasticsearch service for keyword type classification
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful completion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if either inner function fails.
+    async fn modify_all_spent_detail_types(
+        schedule_item: &BatchScheduleItem,
+        mysql_service: &Arc<M>,
+        elastic_service: &Arc<E>,
+    ) -> anyhow::Result<()> {
+        Self::modify_all_spent_detail_type(schedule_item, mysql_service, elastic_service).await?;
+        Self::modify_all_spent_detail_indexing_type(schedule_item, mysql_service, elastic_service).await?;
         Ok(())
     }
 

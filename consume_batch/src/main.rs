@@ -29,6 +29,9 @@ History     :   2025-01-01 Seunghwan Shin       # [v.1.0.0] first create.
                                                             - is         : boolean return functions (needs_upsert -> is_upsert_required)
                                                             - to         : type conversion functions (convert_* -> to_*)
                                                             - By         : preposition for "do A based on B" (process_batch -> input_batch_by_schedule)
+                2026-04-29 Seunghwan Shin       # [v.3.2.0] 1) Add modify_all_spent_detail_indexing_type to update consume_keyword_type_id and consume_keyword_type in SPENT_DETAIL_INDEXING.
+                                                            2) Add modify_spent_detail_indexing_type_batch to MysqlService trait and impl.
+                                                            3) Wrap both spent_detail type update calls into modify_all_spent_detail_types.
 */
 
 mod common;
