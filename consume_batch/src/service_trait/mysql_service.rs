@@ -75,6 +75,22 @@ pub trait MysqlService {
     async fn modify_spent_detail_type_batch(&self, updates: Vec<(i64, i64)>, batch_size: usize)
     -> anyhow::Result<u64>;
 
+    /// Updates consume_keyword_type_id for multiple spent_detail_indexing records.
+    ///
+    /// # Arguments
+    ///
+    /// * `updates` - Vec of (spent_idx, new_consume_keyword_type_id)
+    /// * `batch_size` - Number of rows to process per SQL statement
+    ///
+    /// # Returns
+    ///
+    /// Returns the number of updated rows.
+    async fn modify_spent_detail_indexing_type_batch(
+        &self,
+        updates: Vec<(i64, i64)>,
+        batch_size: usize,
+    ) -> anyhow::Result<u64>;
+
     /// Updates consume_keyword_type_id one row at a time (for performance comparison).
     async fn modify_spent_detail_type_one_by_one(
         &self,

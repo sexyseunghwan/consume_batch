@@ -41,7 +41,7 @@
 
 use crate::{app_config::*, batch_log, common::*};
 
-use crate::models::{ConsumingIndexProdtType, SpentDetail, batch_schedule::*};
+use crate::models::{ConsumingIndexProdtType, SpentDetail, SpentDetailIndexing, batch_schedule::*};
 
 use crate::service_trait::{
     batch_service::*, consume_service::ConsumeService, elastic_service::*, indexing_service::*,
@@ -487,7 +487,22 @@ where
                     })?;
             }
             "all_change_spent_detail_type" => {
+                // SPENT_DETAIL
                 Self::modify_all_spent_detail_type(
+                    schedule_item,
+                    mysql_service,
+                    elastic_service,
+                )
+                .await
+                .inspect_err(|e| {
+                    error!(
+                        "[BatchServiceImpl::input_batch_by_schedule] all_change_spent_detail_type: {:#}",
+                        e
+                    );
+                })?;
+
+                // SPENT_DETAIL_INDEXING
+                Self::modify_all_spent_detail_indexing_type(
                     schedule_item,
                     mysql_service,
                     elastic_service,
@@ -728,6 +743,163 @@ where
         batch_log!(
             info,
             "[modify_all_spent_detail_type] Completed. processed={}, updated={}",
+            total_processed,
+            total_updated
+        );
+
+        Ok(())
+    }
+
+    /// Re-evaluates and updates the `consume_keyword_type_id` for all spent detail indexing records.
+    ///
+    /// Fetches all records from `SPENT_DETAIL_INDEXING` in batches, queries Elasticsearch to determine
+    /// the correct keyword type for each record's `spent_name`, and bulk-updates
+    /// any records whose type has changed.
+    ///
+    /// # Arguments
+    ///
+    /// * `schedule_item` - The batch schedule configuration (batch size, index name, etc.)
+    /// * `mysql_service` - MySQL service for fetching and updating spent detail indexing records
+    /// * `elastic_service` - Elasticsearch service for keyword type classification
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on successful completion.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - MySQL fetch or batch update fails
+    /// - Elasticsearch type judgement query fails
+    async fn modify_all_spent_detail_indexing_type(
+        schedule_item: &BatchScheduleItem,
+        mysql_service: &Arc<M>,
+        elastic_service: &Arc<E>,
+    ) -> anyhow::Result<()> {
+        let batch_size: u64 = *schedule_item.batch_size() as u64;
+
+        batch_log!(
+            info,
+            "[BatchServiceImpl::modify_all_spent_detail_indexing_type] Starting. batch_size={}",
+            batch_size
+        );
+
+        const MAX_RETRIES: u32 = 3;
+
+        let mut offset: u64 = 0;
+        let mut total_updated: u64 = 0;
+        let mut total_processed: u64 = 0;
+
+        loop {
+            
+            let details: Vec<SpentDetailIndexing> = {
+                let mut last_err: Option<anyhow::Error> = None;
+                let mut result: Option<Vec<SpentDetailIndexing>> = None;
+
+                for attempt in 1..=MAX_RETRIES {
+                    match mysql_service
+                        .find_spent_detail_indexing_for_index(offset, batch_size)
+                        .await
+                    {
+                        Ok(rows) => {
+                            result = Some(rows);
+                            break;
+                        }
+                        Err(e) => {
+                            let delay_secs: u64 = 2u64.pow(attempt - 1);
+                            batch_log!(
+                                error,
+                                "[BatchServiceImpl::modify_all_spent_detail_indexing_type] fetch failed (attempt {}/{}, offset={}, retry in {}s): {:#}",
+                                attempt, MAX_RETRIES, offset, delay_secs, e
+                            );
+                            last_err = Some(e);
+                            if attempt < MAX_RETRIES {
+                                tokio::time::sleep(Duration::from_secs(delay_secs)).await;
+                            }
+                        }
+                    }
+                }
+
+                match result {
+                    Some(rows) => rows,
+                    None => {
+                        batch_log!(
+                            error,
+                            "[BatchServiceImpl::modify_all_spent_detail_indexing_type] Aborting: all {} retries exhausted at offset={}. Last error: {:#}",
+                            MAX_RETRIES, offset, last_err.unwrap()
+                        );
+                        break;
+                    }
+                }
+            };
+
+            if details.is_empty() {
+                break;
+            }
+
+            let batch_count: usize = details.len();
+            total_processed += batch_count as u64;
+
+            let spent_names: Vec<String> = details
+                .iter()
+                .map(|detail| detail.spent_name().clone())
+                .collect();
+
+            let spent_types: Vec<ConsumingIndexProdtType> = elastic_service
+                .find_consume_type_judgements(&spent_names)
+                .await
+                .inspect_err(|e| {
+                    error!(
+                        "[BatchServiceImpl::modify_all_spent_detail_indexing_type] spent_types: {:#}",
+                        e
+                    );
+                })?;
+
+            if spent_types.len() != details.len() {
+                return Err(anyhow!(
+                    "[BatchServiceImpl::modify_all_spent_detail_indexing_type] spent_types length mismatch. details={}, spent_types={}",
+                    details.len(),
+                    spent_types.len()
+                ));
+            }
+
+            let updates: Vec<(i64, i64)> = details
+                .iter()
+                .zip(spent_types.iter())
+                .map(|(detail, spent_type)| {
+                    (*detail.spent_idx(), *spent_type.consume_keyword_type_id())
+                })
+                .collect();
+
+            if !updates.is_empty() {
+                let update_count: usize = updates.len();
+                let updated: u64 = mysql_service
+                    .modify_spent_detail_indexing_type_batch(updates, batch_size as usize)
+                    .await
+                    .inspect_err(|e| {
+                        error!(
+                            "[modify_all_spent_detail_indexing_type] Failed to update batch: {:#}",
+                            e
+                        );
+                    })?;
+
+                total_updated += updated;
+
+                batch_log!(
+                    info,
+                    "[modify_all_spent_detail_indexing_type] Batch offset={}, updated {}/{} records",
+                    offset,
+                    update_count,
+                    batch_count
+                );
+            }
+
+            offset += batch_size;
+        }
+
+        batch_log!(
+            info,
+            "[modify_all_spent_detail_indexing_type] Completed. processed={}, updated={}",
             total_processed,
             total_updated
         );

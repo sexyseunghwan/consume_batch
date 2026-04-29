@@ -521,6 +521,102 @@ where
         Ok(total_affected)
     }
 
+    /// Bulk updates the `consume_keyword_type_id` column in the SPENT_DETAIL_INDEXING table.
+    ///
+    /// Splits the given `updates` list into chunks of `batch_size` rows each
+    /// and executes a single CASE WHEN query per chunk.
+    /// All chunks run within a single transaction;
+    /// if any chunk fails, the entire transaction is explicitly rolled back.
+    ///
+    /// ## Generated SQL (once per chunk)
+    ///
+    /// ```sql
+    /// UPDATE SPENT_DETAIL_INDEXING
+    /// SET consume_keyword_type_id = CASE
+    ///     WHEN spent_idx = 1 THEN 10
+    ///     WHEN spent_idx = 2 THEN 20
+    ///     WHEN spent_idx = 3 THEN 30
+    /// END
+    /// WHERE spent_idx IN (1, 2, 3)
+    /// ```
+    ///
+    /// ## Transaction flow
+    ///
+    /// ```text
+    /// BEGIN
+    ///   ├─ chunk[0] UPDATE ... (up to batch_size rows)
+    ///   ├─ chunk[1] UPDATE ... (up to batch_size rows)
+    ///   ├─ ...
+    ///   ├─ On failure → ROLLBACK → return Err
+    ///   └─ All success → COMMIT
+    /// ```
+    async fn modify_spent_detail_indexing_type_batch(
+        &self,
+        updates: Vec<(i64, i64)>,
+        batch_size: usize,
+    ) -> anyhow::Result<u64> {
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+
+        if updates.is_empty() {
+            return Ok(0);
+        }
+
+        let txn: DatabaseTransaction = db.begin().await
+            .inspect_err(|e| {
+                error!("[MysqlServiceImpl::modify_spent_detail_indexing_type_batch] Failed to begin transaction: {:#}", e);
+            })?;
+
+        let mut total_affected: u64 = 0;
+
+        let result: std::result::Result<(), anyhow::Error> = async {
+            for chunk in updates.chunks(batch_size) {
+                let mut case_stmt: CaseStatement = CaseStatement::new();
+                let mut ids: Vec<i64> = Vec::with_capacity(chunk.len());
+
+                for (spent_idx, new_type_id) in chunk {
+                    case_stmt = case_stmt.case(
+                        Expr::col(spent_detail_indexing::Column::SpentIdx).eq(*spent_idx),
+                        Expr::value(*new_type_id),
+                    );
+                    ids.push(*spent_idx);
+                }
+
+                let result: sea_orm::UpdateResult = spent_detail_indexing::Entity::update_many()
+                    .col_expr(spent_detail_indexing::Column::ConsumeKeywordTypeId, case_stmt.into())
+                    .filter(spent_detail_indexing::Column::SpentIdx.is_in(ids))
+                    .exec(&txn)
+                    .await
+                    .inspect_err(|e| {
+                        error!("[MysqlServiceImpl::modify_spent_detail_indexing_type_batch] Failed to bulk update: {:#}", e);
+                    })?;
+
+                total_affected += result.rows_affected;
+            }
+
+            Ok::<(), anyhow::Error>(())
+        }
+        .await;
+
+        if let Err(e) = result {
+            error!(
+                "[MysqlServiceImpl::modify_spent_detail_indexing_type_batch] Rolling back transaction: {}",
+                e
+            );
+            txn.rollback().await
+                .inspect_err(|e| {
+                    error!("[MysqlServiceImpl::modify_spent_detail_indexing_type_batch] Failed to rollback transaction: {:#}", e);
+                })?;
+            return Err(e);
+        }
+
+        txn.commit().await
+            .inspect_err(|e| {
+                error!("[MysqlServiceImpl::modify_spent_detail_indexing_type_batch] Failed to commit transaction: {:#}", e);
+            })?;
+
+        Ok(total_affected)
+    }
+
     /// Updates consume_keyword_type_id one row at a time.
     ///
     /// Executes individual UPDATE statements per row within a single transaction.
