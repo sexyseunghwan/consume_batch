@@ -792,6 +792,26 @@ where
 
         loop {
             
+
+            /*
+                details = [
+                    {
+                       spent_idx: 152,
+                       spent_name: "네이버페이",
+                       ...
+                    }, -> D1
+                    {
+                       spent_idx: 153,
+                       spent_name: "쿠팡",
+                       ...
+                    }, -> D2
+                    {
+                       spent_idx: 157,
+                       spent_name: "카카오",
+                       ...
+                    } -> D3
+                ]
+            */
             let details: Vec<SpentDetailIndexing> = {
                 let mut last_err: Option<anyhow::Error> = None;
                 let mut result: Option<Vec<SpentDetailIndexing>> = None;
@@ -862,12 +882,16 @@ where
                     spent_types.len()
                 ));
             }
-
-            let updates: Vec<(i64, i64)> = details
+            
+            let updates: Vec<(i64, i64, String)> = details
                 .iter()
                 .zip(spent_types.iter())
                 .map(|(detail, spent_type)| {
-                    (*detail.spent_idx(), *spent_type.consume_keyword_type_id())
+                    (
+                        *detail.spent_idx(),
+                        *spent_type.consume_keyword_type_id(),
+                        spent_type.consume_keyword_type().clone(),
+                    )
                 })
                 .collect();
 

@@ -521,10 +521,10 @@ where
         Ok(total_affected)
     }
 
-    /// Bulk updates the `consume_keyword_type_id` column in the SPENT_DETAIL_INDEXING table.
+    /// Bulk updates the `consume_keyword_type_id` and `consume_keyword_type` columns in the SPENT_DETAIL_INDEXING table.
     ///
     /// Splits the given `updates` list into chunks of `batch_size` rows each
-    /// and executes a single CASE WHEN query per chunk.
+    /// and executes two CASE WHEN queries per chunk (one per column).
     /// All chunks run within a single transaction;
     /// if any chunk fails, the entire transaction is explicitly rolled back.
     ///
@@ -533,11 +533,14 @@ where
     /// ```sql
     /// UPDATE SPENT_DETAIL_INDEXING
     /// SET consume_keyword_type_id = CASE
-    ///     WHEN spent_idx = 1 THEN 10
-    ///     WHEN spent_idx = 2 THEN 20
-    ///     WHEN spent_idx = 3 THEN 30
-    /// END
-    /// WHERE spent_idx IN (1, 2, 3)
+    ///         WHEN spent_idx = 1 THEN 10
+    ///         WHEN spent_idx = 2 THEN 20
+    ///     END,
+    ///     consume_keyword_type = CASE
+    ///         WHEN spent_idx = 1 THEN '인터넷 쇼핑'
+    ///         WHEN spent_idx = 2 THEN '외식'
+    ///     END
+    /// WHERE spent_idx IN (1, 2)
     /// ```
     ///
     /// ## Transaction flow
@@ -552,7 +555,7 @@ where
     /// ```
     async fn modify_spent_detail_indexing_type_batch(
         &self,
-        updates: Vec<(i64, i64)>,
+        updates: Vec<(i64, i64, String)>,
         batch_size: usize,
     ) -> anyhow::Result<u64> {
         let db: &DatabaseConnection = self.db_conn.get_connection();
@@ -570,19 +573,25 @@ where
 
         let result: std::result::Result<(), anyhow::Error> = async {
             for chunk in updates.chunks(batch_size) {
-                let mut case_stmt: CaseStatement = CaseStatement::new();
+                let mut case_id_stmt: CaseStatement = CaseStatement::new();
+                let mut case_name_stmt: CaseStatement = CaseStatement::new();
                 let mut ids: Vec<i64> = Vec::with_capacity(chunk.len());
 
-                for (spent_idx, new_type_id) in chunk {
-                    case_stmt = case_stmt.case(
+                for (spent_idx, new_type_id, new_type_name) in chunk {
+                    case_id_stmt = case_id_stmt.case(
                         Expr::col(spent_detail_indexing::Column::SpentIdx).eq(*spent_idx),
                         Expr::value(*new_type_id),
+                    );
+                    case_name_stmt = case_name_stmt.case(
+                        Expr::col(spent_detail_indexing::Column::SpentIdx).eq(*spent_idx),
+                        Expr::value(new_type_name.clone()),
                     );
                     ids.push(*spent_idx);
                 }
 
                 let result: sea_orm::UpdateResult = spent_detail_indexing::Entity::update_many()
-                    .col_expr(spent_detail_indexing::Column::ConsumeKeywordTypeId, case_stmt.into())
+                    .col_expr(spent_detail_indexing::Column::ConsumeKeywordTypeId, case_id_stmt.into())
+                    .col_expr(spent_detail_indexing::Column::ConsumeKeywordType, case_name_stmt.into())
                     .filter(spent_detail_indexing::Column::SpentIdx.is_in(ids))
                     .exec(&txn)
                     .await
