@@ -29,6 +29,8 @@ pub enum Relation {
     TelegramRoom,
     #[sea_orm(has_many = "super::user_payment_methods::Entity")]
     UserPaymentMethods,
+    #[sea_orm(has_many = "super::users_email::Entity")]
+    UsersEmail,
 }
 
 impl Related<super::spent_detail::Entity> for Entity {
@@ -49,6 +51,12 @@ impl Related<super::user_payment_methods::Entity> for Entity {
     /// Returns the relation definition to `USER_PAYMENT_METHODS`.
     fn to() -> RelationDef {
         Relation::UserPaymentMethods.def()
+    }
+}
+
+impl Related<super::users_email::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::UsersEmail.def()
     }
 }
 

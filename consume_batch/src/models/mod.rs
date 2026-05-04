@@ -31,3 +31,12 @@ pub use spent_detail_indexing::*;
 
 pub mod spent_detail_from_kafka;
 pub use spent_detail_from_kafka::*;
+
+pub mod monthly_spent_summary;
+pub use monthly_spent_summary::*;
+
+pub mod users_email;
+pub use users_email::*;
+
+pub mod send_email_agg_group;
+pub use send_email_agg_group::*;

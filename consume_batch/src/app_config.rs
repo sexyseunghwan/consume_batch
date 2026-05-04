@@ -30,6 +30,10 @@ pub struct AppConfig {
     pub es_spent_type: String,
     pub socket_path: String,
     pub public_data_api_key: Option<String>,
+    pub smtp_host: Option<String>,
+    pub smtp_id: Option<String>,
+    pub smtp_pw: Option<String>,
+    pub monthly_report_template: String,
 }
 
 /// Global static instance of AppConfig
@@ -85,6 +89,11 @@ impl AppConfig {
             socket_path: env::var("SOCKET_PATH")
                 .unwrap_or_else(|_| "./socket/consume_batch.sock".to_string()),
             public_data_api_key: env::var("PUBLIC_DATA_API_KEY").ok(),
+            smtp_host: env::var("SMTP_HOST").ok(),
+            smtp_id: env::var("SMTP_ID").ok(),
+            smtp_pw: env::var("SMTP_PW").ok(),
+            monthly_report_template: env::var("MONTHLY_REPORT_TEMPLATE")
+                .unwrap_or_else(|_| "./datas/scripts/monthly_report.html".to_string()),
         };
 
         APP_CONFIG

@@ -67,3 +67,11 @@ pub use sea_orm::{
 pub use tokio_cron_scheduler::{Job, JobScheduler};
 
 pub use tokio::{net::UnixStream, task::JoinSet};
+
+pub use lettre::{
+    AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
+    message::{MultiPart, SinglePart},
+    transport::smtp::authentication::Credentials,
+};
+
+pub use futures::future::join_all;

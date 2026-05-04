@@ -29,6 +29,10 @@ History     :   2025-01-01 Seunghwan Shin       # [v.1.0.0] first create.
                                                             - is         : boolean return functions (needs_upsert -> is_upsert_required)
                                                             - to         : type conversion functions (convert_* -> to_*)
                                                             - By         : preposition for "do A based on B" (process_batch -> input_batch_by_schedule)
+                2026-05-04 Seunghwan Shin       # [v.3.3.0] 1) Add SmtpService trait and SmtpServiceImpl using lettre crate.
+                                                            2) Add monthly_spent_report batch job: sends per-user HTML spend summary on the 1st of each month.
+                                                            3) Add find_users_monthly_spent_summary to MysqlService (GROUP BY on SPENT_DETAIL_INDEXING).
+                                                            4) Add SMTP_HOST / SMTP_ID / SMTP_PW env vars to AppConfig.
                 2026-04-29 Seunghwan Shin       # [v.3.2.0] 1) Add modify_all_spent_detail_indexing_type to update consume_keyword_type_id and consume_keyword_type in SPENT_DETAIL_INDEXING.
                                                             2) Add modify_spent_detail_indexing_type_batch to MysqlService trait and impl.
                                                             3) Wrap both spent_detail type update calls into modify_all_spent_detail_types.
@@ -50,6 +54,7 @@ use service::{
     batch_service_impl::*, cli_service_impl::CliServiceImpl, consume_service_impl::*,
     elastic_service_impl::*, indexing_service_impl::IndexingServiceImpl, mysql_service_impl::*,
     producer_service_impl::*, public_data_service_impl::PublicDataServiceImpl,
+    smtp_service_impl::SmtpServiceImpl,
 };
 
 mod service_trait;
@@ -76,6 +81,7 @@ type MysqlService = MysqlServiceImpl<MysqlRepositoryImpl>;
 type ConsumeService = ConsumeServiceImpl<KafkaRepositoryImpl>;
 type ProducerService = ProducerServiceImpl<KafkaRepositoryImpl>;
 type PublicDataSvc = PublicDataServiceImpl;
+type SmtpSvc = SmtpServiceImpl;
 type IndexingSvc =
     IndexingServiceImpl<MysqlService, ProducerService, ElasticService, ConsumeService>;
 type BatchSvc = BatchServiceImpl<
@@ -85,6 +91,7 @@ type BatchSvc = BatchServiceImpl<
     ProducerService,
     PublicDataSvc,
     IndexingSvc,
+    SmtpSvc,
 >;
 type CliSvc = CliServiceImpl<BatchSvc>;
 type Controller = MainController<BatchSvc, CliSvc>;
@@ -188,6 +195,15 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_default();
     let public_data_service: PublicDataSvc = PublicDataServiceImpl::new(public_data_api_key);
 
+    let smtp_service: SmtpSvc = {
+        let cfg = AppConfig::get_global()?;
+        SmtpServiceImpl::new(
+            cfg.smtp_host().clone().unwrap_or_default(),
+            cfg.smtp_id().clone().unwrap_or_default(),
+            cfg.smtp_pw().clone().unwrap_or_default(),
+        )
+    };
+
     // Create indexing service — shares the same service Arc refs as BatchServiceImpl
     let indexing_service: IndexingSvc = IndexingServiceImpl::new(
         Arc::clone(&mysql_query_service),
@@ -204,6 +220,7 @@ async fn main() -> anyhow::Result<()> {
         producer_service,
         public_data_service,
         indexing_service,
+        smtp_service,
     ) {
         Ok(batch_service) => batch_service,
         Err(e) => {

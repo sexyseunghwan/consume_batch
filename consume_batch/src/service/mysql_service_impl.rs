@@ -4,9 +4,15 @@ use crate::service_trait::mysql_service::*;
 
 use crate::entity::{
     agg_group, common_consume_keyword_type, common_consume_prodt_keyword, dim_calendar,
-    spent_detail, spent_detail_indexing, telegram_room, user_payment_methods, users,
+    send_email_agg_group, spent_detail, spent_detail_indexing, telegram_room, user_payment_methods,
+    users,
 };
-use crate::models::{SpentDetail, SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword};
+use crate::models::{
+    SpentDetail, SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, 
+    UserMonthlySpentSummary, SendEmailAggGroup
+};
+
+use sea_orm::{DbBackend, Statement};
 
 use sea_orm::{
     ColumnTrait, JoinType, QueryFilter, QuerySelect, RelationTrait,
@@ -1007,4 +1013,92 @@ where
 
         Ok(())
     }
+
+    /// Fetches rows from `SEND_EMAIL_AGG_GROUP` in batches.
+    ///
+    /// ## Generated SQL
+    ///
+    /// ```sql
+    /// SELECT agg_group_seq, email_id, is_active, created_at, updated_at, created_by, updated_by
+    /// FROM SEND_EMAIL_AGG_GROUP
+    /// ORDER BY agg_group_seq ASC
+    /// LIMIT {limit} OFFSET {offset}
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `offset` - The starting row number for pagination
+    /// * `limit`  - The maximum number of rows to fetch per batch
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of `SendEmailAggGroup` instances on success.
+    async fn find_send_email_agg_group(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> anyhow::Result<Vec<SendEmailAggGroup>> {
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+
+        let results: Vec<SendEmailAggGroup> = send_email_agg_group::Entity::find()
+            .select_only()
+            .column(send_email_agg_group::Column::AggGroupSeq)
+            .column(send_email_agg_group::Column::EmailId)
+            .column(send_email_agg_group::Column::IsActive)
+            .column(send_email_agg_group::Column::CreatedAt)
+            .column(send_email_agg_group::Column::UpdatedAt)
+            .column(send_email_agg_group::Column::CreatedBy)
+            .column(send_email_agg_group::Column::UpdatedBy)
+            .filter(send_email_agg_group::Column::IsActive.eq(true))
+            .offset(offset)
+            .limit(limit)
+            .order_by_asc(send_email_agg_group::Column::AggGroupSeq)
+            .into_model::<SendEmailAggGroup>()
+            .all(db)
+            .await
+            .inspect_err(|e| {
+                error!(
+                    "[MysqlServiceImpl::find_send_email_agg_group] Failed to execute query (offset={}, limit={}): {:#}",
+                    offset, limit, e
+                );
+            })?;
+
+        Ok(results)
+    }
+
+    /// Runs a GROUP BY aggregation on `SPENT_DETAIL_INDEXING` for the given year/month.
+    ///
+    /// Returns one `UserMonthlySpentSummary` row per (user, category) pair,
+    /// ordered by user_seq and consume_keyword_type.
+    async fn find_users_monthly_spent_summary(
+        &self,
+        year: i32,
+        month: u32,
+    ) -> anyhow::Result<Vec<UserMonthlySpentSummary>> {
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+
+        let results: Vec<UserMonthlySpentSummary> = UserMonthlySpentSummary::find_by_statement(
+            Statement::from_sql_and_values(
+                DbBackend::MySql,
+                r#"SELECT user_seq, user_id, consume_keyword_type, SUM(spent_money) AS total_money
+                   FROM SPENT_DETAIL_INDEXING
+                   WHERE YEAR(spent_at) = ? AND MONTH(spent_at) = ?
+                   GROUP BY user_seq, user_id, consume_keyword_type
+                   ORDER BY user_seq, consume_keyword_type"#,
+                [year.into(), month.into()],
+            ),
+        )
+        .all(db)
+        .await
+        .inspect_err(|e| {
+            error!(
+                "[MysqlServiceImpl::find_users_monthly_spent_summary] Failed to execute query (year={}, month={}): {:#}",
+                year, month, e
+            );
+        })?;
+
+        Ok(results)
+    }
+
 }
+
