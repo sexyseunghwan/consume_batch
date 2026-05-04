@@ -9,7 +9,7 @@ use crate::entity::{
 };
 use crate::models::{
     SpentDetail, SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, 
-    UserMonthlySpentSummary, SendEmailAggGroup
+    SendEmailAggGroup
 };
 
 use sea_orm::{DbBackend, Statement};
@@ -1065,40 +1065,5 @@ where
 
         Ok(results)
     }
-
-    /// Runs a GROUP BY aggregation on `SPENT_DETAIL_INDEXING` for the given year/month.
-    ///
-    /// Returns one `UserMonthlySpentSummary` row per (user, category) pair,
-    /// ordered by user_seq and consume_keyword_type.
-    async fn find_users_monthly_spent_summary(
-        &self,
-        year: i32,
-        month: u32,
-    ) -> anyhow::Result<Vec<UserMonthlySpentSummary>> {
-        let db: &DatabaseConnection = self.db_conn.get_connection();
-
-        let results: Vec<UserMonthlySpentSummary> = UserMonthlySpentSummary::find_by_statement(
-            Statement::from_sql_and_values(
-                DbBackend::MySql,
-                r#"SELECT user_seq, user_id, consume_keyword_type, SUM(spent_money) AS total_money
-                   FROM SPENT_DETAIL_INDEXING
-                   WHERE YEAR(spent_at) = ? AND MONTH(spent_at) = ?
-                   GROUP BY user_seq, user_id, consume_keyword_type
-                   ORDER BY user_seq, consume_keyword_type"#,
-                [year.into(), month.into()],
-            ),
-        )
-        .all(db)
-        .await
-        .inspect_err(|e| {
-            error!(
-                "[MysqlServiceImpl::find_users_monthly_spent_summary] Failed to execute query (year={}, month={}): {:#}",
-                year, month, e
-            );
-        })?;
-
-        Ok(results)
-    }
-
 }
 

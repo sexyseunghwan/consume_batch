@@ -1,7 +1,9 @@
 #![allow(dead_code)]
 use crate::common::*;
 
-use crate::models::{ConsumingIndexProdtType, DocumentWithId};
+use crate::models::{ConsumingIndexProdtType, DocumentWithId, AggResultSet};
+
+use crate::enums::{RangeOperator};
 
 #[async_trait]
 pub trait ElasticService {
@@ -256,4 +258,19 @@ pub trait ElasticService {
         &self,
         response_body: &Value,
     ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error>;
+
+    async fn find_info_filter_groupseq_orderby_aggs_range<T: Send + Sync + DeserializeOwned>(
+        &self,
+        index_name: &str,
+        range_field: &str,
+        start_date: DateTime<Utc>,
+        end_date: DateTime<Utc>,
+        start_op: RangeOperator,
+        end_op: RangeOperator,
+        order_by_field: &str,
+        asc_yn: bool,
+        aggs_field: &str,
+        group_seq: i64,
+    ) -> Result<AggResultSet<T>, anyhow::Error>;
+
 }

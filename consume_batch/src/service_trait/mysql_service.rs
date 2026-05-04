@@ -2,8 +2,8 @@
 use crate::common::*;
 use crate::entity::dim_calendar;
 use crate::models::{
-    SpentDetail, SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, 
-    UserMonthlySpentSummary, SendEmailAggGroup
+    SpentDetail, SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword,
+    SendEmailAggGroup
 };
 
 #[async_trait]
@@ -112,32 +112,6 @@ pub trait MysqlService {
     ) -> anyhow::Result<()>;
 
     async fn delete_spent_detail_indexing(&self, delete_list: &[i64]) -> anyhow::Result<()>;
-
-    /// Returns per-user, per-category spend totals for a given year/month.
-    ///
-    /// Runs a raw GROUP BY aggregation on `SPENT_DETAIL_INDEXING`:
-    ///
-    /// ```sql
-    /// SELECT user_seq, user_id, consume_keyword_type, SUM(spent_money) AS total_money
-    /// FROM SPENT_DETAIL_INDEXING
-    /// WHERE YEAR(spent_at) = ? AND MONTH(spent_at) = ?
-    /// GROUP BY user_seq, user_id, consume_keyword_type
-    /// ORDER BY user_seq, consume_keyword_type
-    /// ```
-    ///
-    /// # Arguments
-    ///
-    /// * `year`  - Target year
-    /// * `month` - Target month (1–12)
-    ///
-    /// # Returns
-    ///
-    /// Returns a flat list of `UserMonthlySpentSummary` rows.
-    async fn find_users_monthly_spent_summary(
-        &self,
-        year: i32,
-        month: u32,
-    ) -> anyhow::Result<Vec<UserMonthlySpentSummary>>;
 
     async fn find_send_email_agg_group(
         &self,

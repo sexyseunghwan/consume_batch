@@ -6,7 +6,9 @@ use crate::repository::es_repository::*;
 
 use crate::app_config::AppConfig;
 
-use crate::models::{ConsumingIndexProdtType, DocumentWithId, score_manager::*};
+use crate::models::{ConsumingIndexProdtType, DocumentWithId, score_manager::*, AggResultSet};
+
+use crate::enums::{RangeOperator};
 
 #[derive(Debug, Getters, Clone, new)]
 pub struct ElasticServiceImpl<R: EsRepository> {
@@ -532,5 +534,80 @@ where
             ]
         */
         Ok(consume_types)
+    }
+
+
+     async fn find_info_filter_groupseq_orderby_aggs_range<T: Send + Sync + DeserializeOwned>(
+        &self,
+        index_name: &str,
+        range_field: &str,
+        start_date: DateTime<Utc>,
+        end_date: DateTime<Utc>,
+        start_op: RangeOperator,
+        end_op: RangeOperator,
+        order_by_field: &str,
+        asc_yn: bool,
+        aggs_field: &str,
+        group_seq: i64,
+    ) -> Result<AggResultSet<T>, anyhow::Error> {
+
+        let order_by_asc: &str = if asc_yn { "asc" } else { "desc" };
+
+        let query: Value = json!({
+            "size": 10000,
+            "query": {
+                "bool": {
+                    "filter": [
+                        {
+                            "range": {
+                                range_field: {
+                                    start_op.to_str(): start_date.to_rfc3339(),
+                                    end_op.to_str(): end_date.to_rfc3339()
+                                }
+                            }
+                        },
+                        {
+                            "term": {
+                                "agg_group_seq": group_seq
+                            }
+                        }
+                    ]
+                }
+            },
+            "aggs": {
+                "aggs_result": {
+                    "sum": {
+                        "field": aggs_field
+                    }
+                }
+            },
+            "sort": {
+                order_by_field: { "order": order_by_asc }
+            }
+        });
+
+        println!("{}", query);
+
+        let response_body: Value = self
+            .elastic_conn
+            .find_by_query(&query, index_name)
+            .await?;
+
+        let agg_result: f64 = match &response_body["aggregations"]["aggs_result"]["value"].as_f64()
+        {
+            Some(agg_result) => *agg_result,
+            None => {
+                return Err(anyhow!(
+                    "[Error][find_info_filter_groupseq_orderby_aggs_range()] 'agg_result' error"
+                ))
+            }
+        };
+
+        let consume_list: Vec<DocumentWithId<T>> =
+            self.find_query_result_vec(&response_body).await?;
+
+        Ok(AggResultSet::new(agg_result, consume_list))
+
+
     }
 }
