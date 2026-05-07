@@ -5,6 +5,7 @@ use crate::app_config::AppConfig;
 
 use crate::models::{
     batch_schedule::*, AggResultSet, DocumentWithId, SendEmailAggGroup, SpentDetailIndexing,
+    SpentResultByType
 };
 
 use crate::service_trait::{
@@ -139,37 +140,40 @@ fn build_html_rows(source_list: &[DocumentWithId<SpentDetailIndexing>]) -> Strin
     html
 }
 
-/// Renders the monthly report HTML from the configured template.
+/// Renders a spend report HTML body from the configured template.
 ///
-/// Reads the monthly report template path from [`AppConfig`] and replaces date,
-/// row, and total placeholders with the calculated report values.
+/// Reads the report template path from [`AppConfig`] and replaces all
+/// placeholders with the supplied report values.
 ///
 /// # Arguments
 ///
+/// * `report_title` - Title injected into `{{REPORT_TITLE}}` (e.g. "월간 소비 리포트")
 /// * `start_date` - The first date included in the report range
 /// * `end_date` - The last date included in the report range
 /// * `rows_html` - Pre-rendered HTML table rows for spend details
 /// * `total` - Total spend amount for the report range
 ///
-/// # Returns
-///
-/// Returns the complete HTML email body.
-///
 /// # Errors
 ///
-/// Returns an error if:
-/// - Global application configuration is not initialized
-/// - Monthly report template file cannot be read
-fn build_monthly_report_html(start_date: DateTime<Utc>, end_date: DateTime<Utc>, rows_html: &str, total: i64) -> anyhow::Result<String> {
+/// Returns an error if the global config is not initialized or the template
+/// file cannot be read.
+fn build_report_html(
+    report_title: &str,
+    start_date: DateTime<Utc>,
+    end_date: DateTime<Utc>,
+    rows_html: &str,
+    total: i64,
+) -> anyhow::Result<String> {
     let app_config: &AppConfig = AppConfig::get_global().inspect_err(|e| {
-        error!("[report::build_monthly_report_html] Initialisation of `AppConfig` has failed. {:#}", e);
+        error!("[BatchServiceImpl::build_report_html] AppConfig not initialized: {:#}", e);
     })?;
     let template_path: &str = app_config.monthly_report_template();
 
     let template: String = std::fs::read_to_string(template_path)
-        .map_err(|e| anyhow!("Failed to read HTML template '{}': {}", template_path, e))?;
+        .map_err(|e| anyhow!("[BatchServiceImpl::build_report_html] Failed to read HTML template '{}': {}", template_path, e))?;
 
     let html = template
+        .replace("{{REPORT_TITLE}}", report_title)
         .replace("{{START_YEAR}}", &start_date.year().to_string())
         .replace("{{START_MONTH}}", &start_date.month().to_string())
         .replace("{{START_DAY}}", &start_date.day().to_string())
@@ -218,7 +222,7 @@ where
             .and_then(|date| date.and_hms_opt(9, 0, 0))
             .ok_or_else(|| {
                 anyhow!(
-                    "[BatchServiceImpl::send_monthly_spent_report] Failed to calculate one month ago 09:00:00 from {}",
+                    "[BatchServiceImpl::find_monthly_report_range] Failed to calculate one month ago 09:00:00 from {}",
                     now
                 )
             })?;
@@ -263,7 +267,7 @@ where
                 .await
                 .inspect_err(|e| {
                     error!(
-                        "[reports::send_monthly_spent_report] Failed to fetch send email agg group: {:#}",
+                        "[BatchServiceImpl::find_send_email_agg_group_map] Failed to fetch send email agg group: {:#}",
                         e
                     );
                 })?;
@@ -288,6 +292,62 @@ where
         }
 
         Ok((agg_group_map, total_processed))
+    }
+
+    fn find_calculate_pie_infos_from_category(
+        total_cost: f64,
+        type_map: &HashMap<String, i64>,
+    ) -> anyhow::Result<Vec<SpentResultByType>> {
+        let spent_result_by_types: Vec<SpentResultByType> = type_map
+            .iter()
+            .filter(|(_, value)| **value > 0)
+            .map(|(key, value)| {
+                let spent_type: String = key.to_string();
+                let spent_cost: i64 = *value;
+                
+                let spent_per: f64 = (spent_cost as f64 / total_cost) * 100.0;
+                let spent_per_rounded: f64 = (spent_per * 10.0).round() / 10.0; /* Round to the second decimal place */
+
+                SpentResultByType::new(spent_type, spent_cost, spent_per_rounded)
+            })
+            .collect();
+
+        Ok(spent_result_by_types)
+    }
+
+    fn find_spent_result_by_category(
+        spent_details: &AggResultSet<SpentDetailIndexing>
+    ) -> anyhow::Result<()> {
+
+        let spent_inner_details: &Vec<DocumentWithId<SpentDetailIndexing>> = spent_details.source_list();
+        let total_cost: f64 = *spent_details.agg_result();
+        
+        let mut cost_map: HashMap<String, i64> = spent_inner_details
+            .iter()
+            .fold(HashMap::new(), |mut acc, spent_detail| {
+                let spent_detail: &SpentDetailIndexing = spent_detail.source();
+                let spent_type: String = spent_detail.consume_keyword_type().to_string();
+                let spent_money: i64 = spent_detail.spent_money;
+                
+                acc.entry(spent_type)
+                    .and_modify(|value| *value += spent_money)
+                    .or_insert(spent_money);
+
+                acc
+            });
+        
+        cost_map.retain(|_, v| *v > 0);
+
+        let mut spent_result_by_types: Vec<SpentResultByType>  = Self::find_calculate_pie_infos_from_category(total_cost, &cost_map)?;
+
+        spent_result_by_types.sort_by(|a,b| {
+            b.spent_cost
+                .partial_cmp(&a.spent_cost)
+                .unwrap_or(Ordering::Equal)
+        });
+
+
+        Ok(())
     }
 
     /// Processes and sends the monthly report for one aggregate group.
@@ -321,10 +381,12 @@ where
         email_ids: Vec<String>,
         elastic_service: Arc<E>,
         smtp_service: Arc<S>,
+        report_title: String,
         index_name: &str,
         start_date: DateTime<Utc>,
         end_date: DateTime<Utc>,
     ) -> anyhow::Result<()> {
+        // 소비 정보 디테일 + 집계
         let cur_agg_infos: AggResultSet<SpentDetailIndexing> = elastic_service
             .find_info_filter_groupseq_orderby_aggs_range(
                 index_name,
@@ -339,13 +401,17 @@ where
                 agg_group_seq,
             )
             .await?;
+        
+        // 소비 정보 디테일 - 카테고리 별
+        
 
         let rows_html: String = build_html_rows(cur_agg_infos.source_list());
         let total: i64 = cur_agg_infos.agg_result().round() as i64;
 
-        let html: String = build_monthly_report_html(start_date, end_date, &rows_html, total)?;
+        let html: String = build_report_html(&report_title, start_date, end_date, &rows_html, total)?;
         let subject: String = format!(
-            "[소비 리포트] {}년 {}월 {}일 ~ {}년 {}월 {}일 소비 내역",
+            "[{}] {}년 {}월 {}일 ~ {}년 {}월 {}일 소비 내역",
+            report_title,
             start_date.year(), start_date.month(), start_date.day(),
             end_date.year(), end_date.month(), end_date.day(),
         );
@@ -391,7 +457,7 @@ where
             Some(Ok(Ok(()))) => false,
             Some(Ok(Err(e))) => {
                 error!(
-                    "[BatchServiceImpl::send_monthly_spent_report] process_agg_group failed: {:#}",
+                    "[BatchServiceImpl::collect_finished_agg_group_task] process_agg_group failed: {:#}",
                     e
                 );
                 // 실패 즉시 전체 프로세스를 중단하려면 호출부에서 Err를 반환하도록 바꾼다.
@@ -399,7 +465,7 @@ where
             }
             Some(Err(e)) => {
                 error!(
-                    "[BatchServiceImpl::send_monthly_spent_report] process_agg_group task join failed: {:#}",
+                    "[BatchServiceImpl::collect_finished_agg_group_task] process_agg_group task join failed: {:#}",
                     e
                 );
                 // task join 실패도 즉시 중단하려면 호출부에서 Err를 반환하도록 바꾼다.
@@ -430,12 +496,13 @@ where
         agg_group_map: HashMap<i64, Vec<String>>,
         elastic_service: &Arc<E>,
         smtp_service: &Arc<S>,
+        report_title: String,
         index_name: &str,
         start_date: DateTime<Utc>,
         end_date: DateTime<Utc>,
     ) -> usize {
-
-        const MONTHLY_REPORT_MAX_CONCURRENCY: usize = 10;
+        
+        const REPORT_MAX_CONCURRENCY: usize = 10;
 
         let mut join_set: JoinSet<anyhow::Result<()>> = JoinSet::new();
         let mut failed_count: usize = 0;
@@ -443,6 +510,7 @@ where
         for (agg_group_seq, email_ids) in agg_group_map {
             let elastic_service: Arc<E> = Arc::clone(elastic_service);
             let smtp_service: Arc<S> = Arc::clone(smtp_service);
+            let report_title: String = report_title.clone();
             let index_name: String = index_name.to_string();
 
             /*
@@ -457,6 +525,7 @@ where
                     email_ids,
                     elastic_service,
                     smtp_service,
+                    report_title,
                     &index_name,
                     start_date,
                     end_date,
@@ -464,7 +533,7 @@ where
                 .await
             });
 
-            if join_set.len() >= MONTHLY_REPORT_MAX_CONCURRENCY
+            if join_set.len() >= REPORT_MAX_CONCURRENCY
                 && Self::collect_finished_agg_group_task(&mut join_set).await
             {
                 failed_count += 1;
@@ -535,6 +604,7 @@ where
             agg_group_map,
             elastic_service,
             smtp_service,
+            "월간 소비 리포트".to_string(),
             &index_name,
             start_date,
             end_date,
@@ -544,6 +614,71 @@ where
         if failed_count > 0 {
             warn!(
                 "[BatchServiceImpl::send_monthly_spent_report] Completed with {} failed agg group task(s)",
+                failed_count
+            );
+        }
+
+        Ok(())
+    }
+
+
+    fn find_weekly_report_range(now: DateTime<Utc>) -> anyhow::Result<(DateTime<Utc>, DateTime<Utc>)> {
+        let seven_days_ago: DateTime<Utc> = now
+            .checked_sub_signed(chrono::Duration::days(7))
+            .ok_or_else(|| anyhow!("[BatchServiceImpl::find_weekly_report_range] Failed to calculate 7 days ago from {}", now))?;
+
+        let start_date_naive = seven_days_ago
+            .date_naive()
+            .and_hms_opt(9, 0, 0)
+            .ok_or_else(|| anyhow!("[BatchServiceImpl::find_weekly_report_range] Failed to create 09:00:00 for date {:?}", seven_days_ago.date_naive()))?;
+
+        let start_date = DateTime::<Utc>::from_naive_utc_and_offset(start_date_naive, Utc);
+
+        Ok((start_date, now))
+    }
+
+    pub(super) async fn send_weekly_spent_report(
+        schedule_item: &BatchScheduleItem,
+        elastic_service: &Arc<E>,
+        mysql_service: &Arc<M>,
+        smtp_service: &Arc<S>,
+    ) -> anyhow::Result<()> {
+        let now: DateTime<Utc> = Utc::now();
+        let (start_date, end_date) = Self::find_weekly_report_range(now)?;
+
+        batch_log!(
+            info,
+            "[BatchServiceImpl::send_weekly_spent_report] Generating report from {} to {}",
+            start_date,
+            end_date
+        );
+
+        let batch_size: u64 = *schedule_item.batch_size() as u64;
+        let index_name: String = format!("read_{}", schedule_item.index_name());
+        let (agg_group_map, total_processed) =
+            Self::find_send_email_agg_group_map(mysql_service, batch_size).await?;
+
+        batch_log!(
+            info,
+            "[BatchServiceImpl::send_weekly_spent_report] Loaded {} send-email agg group rows, active agg groups={}",
+            total_processed,
+            agg_group_map.len()
+        );
+
+        let failed_count: usize = Self::process_agg_groups_concurrently(
+            agg_group_map,
+            elastic_service,
+            smtp_service,
+            "주간 소비 리포트".to_string(),
+            &index_name,
+            start_date,
+            end_date,
+        )
+        .await;
+        
+        if failed_count > 0 {
+            warn!(
+                "[BatchServiceImpl::send_weekly_spent_report] Completed with {} failed agg group task(s)",
                 failed_count
             );
         }

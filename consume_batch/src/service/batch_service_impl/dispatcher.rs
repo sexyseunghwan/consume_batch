@@ -106,6 +106,13 @@ where
                         error!("[BatchServiceImpl::input_batch_by_schedule] monthly_spent_report: {:#}", e);
                     })?;
             }
+            "weekly_spent_report" => {
+                Self::send_weekly_spent_report(schedule_item, elastic_service, mysql_service, smtp_service)
+                    .await
+                    .inspect_err(|e| {
+                        error!("[BatchServiceImpl::input_batch_by_schedule] monthly_spent_report: {:#}", e);
+                    })?;
+            }
             _ => {
                 batch_log!(
                     warn,

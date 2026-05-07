@@ -33,10 +33,12 @@ pub mod spent_detail_from_kafka;
 pub use spent_detail_from_kafka::*;
 
 pub mod users_email;
-pub use users_email::*;
 
 pub mod send_email_agg_group;
 pub use send_email_agg_group::*;
 
 pub mod agg_result_set;
 pub use agg_result_set::*;
+
+pub mod spent_result_by_type;
+pub use spent_result_by_type::*;

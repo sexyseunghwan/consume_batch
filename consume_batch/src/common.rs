@@ -74,4 +74,3 @@ pub use lettre::{
     transport::smtp::authentication::Credentials,
 };
 
-pub use futures::future::join_all;

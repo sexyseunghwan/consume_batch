@@ -12,7 +12,6 @@ use crate::models::{
     SendEmailAggGroup
 };
 
-use sea_orm::{DbBackend, Statement};
 
 use sea_orm::{
     ColumnTrait, JoinType, QueryFilter, QuerySelect, RelationTrait,
@@ -874,7 +873,7 @@ where
                 agg_group_seq: Set(row.agg_group_seq.unwrap_or(0))
             })
             .collect();
-
+        
         let txn: DatabaseTransaction = db.begin().await.inspect_err(|e| {
             error!(
                 "[MysqlServiceImpl::modify_spent_detail_indexing] Failed to begin transaction: {:#}",
