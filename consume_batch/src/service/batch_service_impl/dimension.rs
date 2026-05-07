@@ -1,12 +1,13 @@
 //! Populate the `DIM_CALENDAR` date dimension table.
 
-use crate::{batch_log, common::*};
 use crate::models::batch_schedule::*;
 use crate::service_trait::{
-    consume_service::ConsumeService, elastic_service::ElasticService, indexing_service::IndexingService,
-    mysql_service::MysqlService, producer_service::ProducerService,
-    public_data_service::PublicDataService, smtp_service::SmtpService,
+    consume_service::ConsumeService, elastic_service::ElasticService,
+    indexing_service::IndexingService, mysql_service::MysqlService,
+    producer_service::ProducerService, public_data_service::PublicDataService,
+    smtp_service::SmtpService,
 };
+use crate::{batch_log, common::*};
 
 use super::BatchServiceImpl;
 
@@ -42,7 +43,9 @@ where
         batch_log!(
             info,
             "[BatchServiceImpl::input_date_dimension_data] Starting. range={}-{}, batch_size={}",
-            start_year, end_year, batch_size
+            start_year,
+            end_year,
+            batch_size
         );
 
         let start_date: NaiveDate = NaiveDate::from_ymd_opt(start_year, 1, 1)
@@ -93,7 +96,8 @@ where
         };
 
         let mut current: NaiveDate = start_date;
-        let mut batch: Vec<crate::entity::dim_calendar::ActiveModel> = Vec::with_capacity(batch_size);
+        let mut batch: Vec<crate::entity::dim_calendar::ActiveModel> =
+            Vec::with_capacity(batch_size);
         let mut total_inserted: u64 = 0;
 
         while current <= end_date {
@@ -153,7 +157,8 @@ where
                 batch_log!(
                     info,
                     "[BatchServiceImpl::input_date_dimension_data] Inserted {} rows (total so far: {})",
-                    count, total_inserted
+                    count,
+                    total_inserted
                 );
             }
 

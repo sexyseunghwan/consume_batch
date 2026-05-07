@@ -3,7 +3,8 @@ use crate::common::*;
 use crate::enums::IndexingType;
 use crate::global_state::*;
 use crate::models::{
-    ConsumerGroupLag, SpentDetailFromKafka, SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, batch_schedule::BatchScheduleItem,
+    ConsumerGroupLag, SpentDetailFromKafka, SpentDetailIndexing, SpentDetailWithRelations,
+    SpentTypeKeyword, batch_schedule::BatchScheduleItem,
 };
 use crate::service_trait::{
     consume_service::ConsumeService, elastic_service::ElasticService,
@@ -98,7 +99,6 @@ where
         let mut total_indexed: u64 = 0;
 
         loop {
-            
             let rows: Vec<SpentDetailIndexing> = self
                 .mysql_service
                 .find_spent_detail_indexing_for_index(offset, batch_size as u64)
@@ -175,10 +175,9 @@ where
         target_index_name: &str,
         batch_size: usize,
     ) -> anyhow::Result<(u64, u64)> {
-
         let mut upsert_processed: u64 = 0;
         let mut delete_processed: u64 = 0;
-        
+
         let messages: Vec<SpentDetailFromKafka> = self
             .consume_service
             .find_messages_as_by_group(indexer_topic, batch_size, consumer_group)
@@ -190,7 +189,7 @@ where
                     e
                 );
             })?;
-        
+
         if messages.is_empty() {
             batch_log!(
                 info,
@@ -285,7 +284,7 @@ where
 
             delete_processed += delete_ids_size;
         }
-        
+
         Ok((upsert_processed, delete_processed))
     }
 
@@ -343,7 +342,6 @@ where
         let mut consecutive_errors: u32 = 0;
 
         loop {
-            
             let lag_info: ConsumerGroupLag = self
                 .consume_service
                 .find_consumer_group_lag_by_partition(
@@ -394,7 +392,6 @@ where
             }
 
             if indexing_paused && lag == 0 {
-                
                 batch_log!(
                     info,
                     "[IndexingServiceImpl::modify_spent_detail_catch_up] Fully caught up. total_processed={}. Swapping aliases.",
@@ -443,7 +440,6 @@ where
                 break;
             }
 
-
             // 증분 catch-up 색인 진행
             let (upsert_processed, delete_processed) = match self
                 .input_spent_detail_incremental_data(
@@ -467,14 +463,14 @@ where
                     if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
                         return Err(anyhow!(
                             "[IndexingServiceImpl::modify_spent_detail_catch_up] Aborting catch-up after {} consecutive errors. Last error: {:#}",
-                            MAX_CONSECUTIVE_ERRORS, e
+                            MAX_CONSECUTIVE_ERRORS,
+                            e
                         ));
                     }
                     tokio::time::sleep(Duration::from_secs(2)).await;
                     continue;
                 }
             };
-            
 
             batch_log!(
                 info,
@@ -502,7 +498,11 @@ where
             "[IndexingServiceImpl::delete_orphaned_index] Cleaning up orphaned index '{}' due to pipeline failure",
             index_name
         );
-        if let Err(e) = self.elastic_service.delete_indices(&[index_name.to_string()]).await {
+        if let Err(e) = self
+            .elastic_service
+            .delete_indices(&[index_name.to_string()])
+            .await
+        {
             error!(
                 "[IndexingServiceImpl::delete_orphaned_index] Failed to delete orphaned index '{}': {:#}",
                 index_name, e
@@ -763,8 +763,10 @@ where
     /// # Errors
     ///
     /// Returns an error if any step in the pipeline fails.
-    async fn input_spent_detail_full(&self, schedule_item: &BatchScheduleItem) -> anyhow::Result<()> {
-        
+    async fn input_spent_detail_full(
+        &self,
+        schedule_item: &BatchScheduleItem,
+    ) -> anyhow::Result<()> {
         let index_alias: &str = schedule_item.index_name();
         let incre_topic_name: &str = schedule_item.relation_topic_sub();
         let incre_source_group: &str = schedule_item.consumer_group_sub();
@@ -803,11 +805,7 @@ where
         // Step 3: snapshot incremental offset
         match self
             .consume_service
-            .modify_consumer_group_offsets(
-                incre_topic_name,
-                incre_source_group,
-                incre_target_group,
-            )
+            .modify_consumer_group_offsets(incre_topic_name, incre_source_group, incre_target_group)
             .await
         {
             Ok(_) => (),
@@ -826,7 +824,10 @@ where
         {
             Ok(n) => n,
             Err(e) => {
-                error!("[IndexingServiceImpl::input_spent_detail_full] static phase failed: {:#}", e);
+                error!(
+                    "[IndexingServiceImpl::input_spent_detail_full] static phase failed: {:#}",
+                    e
+                );
                 self.delete_orphaned_index(&new_index_name).await;
                 return Err(e);
             }
@@ -845,7 +846,10 @@ where
         {
             Ok(n) => n,
             Err(e) => {
-                error!("[IndexingServiceImpl::input_spent_detail_full] incremental phase failed: {:#}", e);
+                error!(
+                    "[IndexingServiceImpl::input_spent_detail_full] incremental phase failed: {:#}",
+                    e
+                );
                 self.delete_orphaned_index(&new_index_name).await;
                 return Err(e);
             }
@@ -866,15 +870,29 @@ where
         );
 
         // Step 6. Revert index settings
-        if let Err(e) = self.elastic_service.modify_index_setting(&new_index_name).await {
-            error!("[IndexingServiceImpl::input_spent_detail_full] Failed to revert the index settings.: {:#}", e);
+        if let Err(e) = self
+            .elastic_service
+            .modify_index_setting(&new_index_name)
+            .await
+        {
+            error!(
+                "[IndexingServiceImpl::input_spent_detail_full] Failed to revert the index settings.: {:#}",
+                e
+            );
             self.delete_orphaned_index(&new_index_name).await;
             return Err(e);
         }
 
         // Step 7. Alias swap
-        if let Err(e) = self.elastic_service.modify_alias(index_alias, &new_index_name).await {
-            error!("[IndexingServiceImpl::input_spent_detail_full] Failed to switch the alias to the new index. {:#}", e);
+        if let Err(e) = self
+            .elastic_service
+            .modify_alias(index_alias, &new_index_name)
+            .await
+        {
+            error!(
+                "[IndexingServiceImpl::input_spent_detail_full] Failed to switch the alias to the new index. {:#}",
+                e
+            );
             self.delete_orphaned_index(&new_index_name).await;
             return Err(e);
         }
@@ -887,7 +905,6 @@ where
 
         Ok(())
     }
-
 
     /// Runs the incremental indexing loop for `SPENT_DETAIL` indefinitely.
     ///
@@ -929,7 +946,6 @@ where
         let mut consecutive_errors: u32 = 0;
 
         loop {
-
             let indexing_check: bool = get_spent_detail_indexing().await;
 
             if !indexing_check {
@@ -959,7 +975,8 @@ where
                     if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
                         return Err(anyhow!(
                             "[IndexingServiceImpl::input_spent_detail_incremental] Aborting incremental indexing after {} consecutive errors. Last error: {:#}",
-                            MAX_CONSECUTIVE_ERRORS, e
+                            MAX_CONSECUTIVE_ERRORS,
+                            e
                         ));
                     }
                     tokio::time::sleep(Duration::from_secs(2)).await;

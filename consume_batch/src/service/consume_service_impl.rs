@@ -98,10 +98,7 @@ where
             topic, max_messages
         );
 
-        let messages: Vec<Value> = self
-            .kafka_conn
-            .find_messages(topic, max_messages)
-            .await?;
+        let messages: Vec<Value> = self.kafka_conn.find_messages(topic, max_messages).await?;
 
         info!(
             "[ConsumeServiceImpl::find_messages] Consumed {} messages from topic: {}",
@@ -313,10 +310,7 @@ where
             topic, max_messages
         );
 
-        let messages: Vec<Value> = self
-            .kafka_conn
-            .find_messages(topic, max_messages)
-            .await?;
+        let messages: Vec<Value> = self.kafka_conn.find_messages(topic, max_messages).await?;
 
         info!(
             "[ConsumeServiceImpl::find_messages_as] Consumed {} messages from topic: {}, deserializing...",

@@ -282,8 +282,11 @@ pub trait KafkaRepository: Send + Sync {
     ///
     /// Returns `Ok(total)` where `total` is the sum of committed offsets across all partitions.
     /// Partitions with no committed offset (e.g. `OffsetBeginning`) are counted as 0.
-    async fn find_committed_offsets_total(&self, topic: &str, group_suffix: &str)
-    -> anyhow::Result<i64>;
+    async fn find_committed_offsets_total(
+        &self,
+        topic: &str,
+        group_suffix: &str,
+    ) -> anyhow::Result<i64>;
 
     /// Returns committed offsets per partition for a consumer group.
     ///
@@ -445,7 +448,8 @@ impl KafkaRepositoryImpl {
             )
         })?;
 
-        let sasl_enabled: bool = sasl_mechanism.is_some() && sasl_username.is_some() && sasl_password.is_some();
+        let sasl_enabled: bool =
+            sasl_mechanism.is_some() && sasl_username.is_some() && sasl_password.is_some();
         info!(
             "[KafkaRepositoryImpl::new] Kafka repository initialized (brokers: {}, base_group: {}, security_protocol: {}, sasl: {})",
             kafka_brokers,
@@ -787,7 +791,9 @@ impl KafkaRepositoryImpl {
             };
             info!(
                 "[KafkaRepositoryImpl::modify_offsets_internal] Source group '{}' partition {} offset: {}",
-                source_group_id, elem.partition(), offset_str
+                source_group_id,
+                elem.partition(),
+                offset_str
             );
         }
 
@@ -863,7 +869,9 @@ impl KafkaRepositoryImpl {
             };
             info!(
                 "[KafkaRepositoryImpl::modify_offsets_internal] Copied to target group '{}' partition {} offset: {}",
-                target_group_id, elem.partition(), offset_str
+                target_group_id,
+                elem.partition(),
+                offset_str
             );
         }
 
@@ -891,11 +899,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
     /// # Returns
     ///
     /// Returns a vector of JSON values representing the consumed messages.
-    async fn find_messages(
-        &self,
-        topic: &str,
-        max_messages: usize,
-    ) -> anyhow::Result<Vec<Value>> {
+    async fn find_messages(&self, topic: &str, max_messages: usize) -> anyhow::Result<Vec<Value>> {
         // Get or create topic-specific consumer (without group suffix)
         let consumer: Arc<StreamConsumer> = self.find_or_create_consumer(topic, None).await?;
 
@@ -1353,7 +1357,8 @@ impl KafkaRepository for KafkaRepositoryImpl {
         // ──────────────────────────────────────────────────────────────
         // [2단계] target 그룹 비활성화
         // ──────────────────────────────────────────────────────────────
-        self.modify_consumer_group_deactivate(&target_group_id).await?;
+        self.modify_consumer_group_deactivate(&target_group_id)
+            .await?;
 
         info!(
             "[KafkaRepositoryImpl::modify_consumer_group_offsets] Target group '{}' deactivated successfully.",
@@ -1389,7 +1394,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
                 );
             }
         }
-        
+
         copy_result
     }
 

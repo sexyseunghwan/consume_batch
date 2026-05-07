@@ -3,15 +3,18 @@ use crate::{batch_log, common::*};
 
 use crate::app_config::AppConfig;
 
+use crate::dtos::{GroupSeqAggsRangeQuery, ReportDateRange};
+
 use crate::models::{
-    batch_schedule::*, AggResultSet, DocumentWithId, SendEmailAggGroup, SpentDetailIndexing,
-    SpentResultByType
+    AggResultSet, DocumentWithId, SendEmailAggGroup, SpentDetailIndexing, SpentResultByType,
+    batch_schedule::*,
 };
 
 use crate::service_trait::{
-    consume_service::ConsumeService, elastic_service::ElasticService, indexing_service::IndexingService,
-    mysql_service::MysqlService, producer_service::ProducerService,
-    public_data_service::PublicDataService, smtp_service::SmtpService,
+    consume_service::ConsumeService, elastic_service::ElasticService,
+    indexing_service::IndexingService, mysql_service::MysqlService,
+    producer_service::ProducerService, public_data_service::PublicDataService,
+    smtp_service::SmtpService,
 };
 
 use crate::enums::RangeOperator;
@@ -94,7 +97,6 @@ fn format_date(dt: DateTime<Utc>) -> String {
 /// Returns the rendered `<tr>` HTML string. If no spend details exist, returns
 /// a single empty-state row.
 fn build_html_rows(source_list: &[DocumentWithId<SpentDetailIndexing>]) -> String {
-
     if source_list.is_empty() {
         return "<tr><td colspan=\"5\" style=\"padding:8px 12px;text-align:center;color:#888;\">소비 내역이 없습니다.</td></tr>".to_string();
     }
@@ -140,6 +142,33 @@ fn build_html_rows(source_list: &[DocumentWithId<SpentDetailIndexing>]) -> Strin
     html
 }
 
+fn build_category_rows(detail_by_type: &[SpentResultByType]) -> String {
+    if detail_by_type.is_empty() {
+        return "<tr><td colspan=\"3\" style=\"padding:8px 12px;text-align:center;color:#888;\">카테고리 데이터가 없습니다.</td></tr>".to_string();
+    }
+
+    let mut html: String = String::new();
+    for item in detail_by_type {
+        let spent_type: String = if item.spent_type().is_empty() {
+            "-".to_string()
+        } else {
+            escape_html(item.spent_type())
+        };
+        let spent_cost: String = format_money(*item.spent_cost());
+        let spent_per: String = format!("{:.1}%", item.spent_per());
+
+        html.push_str(&format!(
+            "<tr>\
+               <td style=\"padding:8px 12px;border-bottom:1px solid #eee;\">{}</td>\
+               <td style=\"padding:8px 12px;border-bottom:1px solid #eee;text-align:right;\">{} 원</td>\
+               <td style=\"padding:8px 12px;border-bottom:1px solid #eee;text-align:right;\">{}</td>\
+             </tr>",
+            spent_type, spent_cost, spent_per,
+        ));
+    }
+    html
+}
+
 /// Renders a spend report HTML body from the configured template.
 ///
 /// Reads the report template path from [`AppConfig`] and replaces all
@@ -163,19 +192,29 @@ fn build_report_html(
     end_date: DateTime<Utc>,
     rows_html: &str,
     total: i64,
+    category_rows_html: &str,
 ) -> anyhow::Result<String> {
     let app_config: &AppConfig = AppConfig::get_global().inspect_err(|e| {
-        error!("[BatchServiceImpl::build_report_html] AppConfig not initialized: {:#}", e);
+        error!(
+            "[BatchServiceImpl::build_report_html] AppConfig not initialized: {:#}",
+            e
+        );
     })?;
     let template_path: &str = app_config.monthly_report_template();
 
-    let template: String = std::fs::read_to_string(template_path)
-        .map_err(|e| anyhow!("[BatchServiceImpl::build_report_html] Failed to read HTML template '{}': {}", template_path, e))?;
+    let template: String = std::fs::read_to_string(template_path).map_err(|e| {
+        anyhow!(
+            "[BatchServiceImpl::build_report_html] Failed to read HTML template '{}': {}",
+            template_path,
+            e
+        )
+    })?;
 
     let html = template
         .replace("{{REPORT_TITLE}}", report_title)
         .replace("{{START_YEAR}}", &start_date.year().to_string())
         .replace("{{START_MONTH}}", &start_date.month().to_string())
+        .replace("{{CATEGORY_ROWS}}", category_rows_html)
         .replace("{{START_DAY}}", &start_date.day().to_string())
         .replace("{{END_YEAR}}", &end_date.year().to_string())
         .replace("{{END_MONTH}}", &end_date.month().to_string())
@@ -185,7 +224,6 @@ fn build_report_html(
 
     Ok(html)
 }
-
 
 impl<M, E, C, P, D, I, S> BatchServiceImpl<M, E, C, P, D, I, S>
 where
@@ -215,7 +253,9 @@ where
     /// Returns an error if:
     /// - The previous-month date cannot be calculated
     /// - The calculated start time cannot be represented
-    fn find_monthly_report_range(now: DateTime<Utc>) -> anyhow::Result<(DateTime<Utc>, DateTime<Utc>)> {
+    fn find_monthly_report_range(
+        now: DateTime<Utc>,
+    ) -> anyhow::Result<(DateTime<Utc>, DateTime<Utc>)> {
         let start_date_naive: chrono::NaiveDateTime = now
             .date_naive()
             .checked_sub_months(Months::new(1))
@@ -316,38 +356,39 @@ where
     }
 
     fn find_spent_result_by_category(
-        spent_details: &AggResultSet<SpentDetailIndexing>
-    ) -> anyhow::Result<()> {
-
-        let spent_inner_details: &Vec<DocumentWithId<SpentDetailIndexing>> = spent_details.source_list();
+        spent_details: &AggResultSet<SpentDetailIndexing>,
+    ) -> anyhow::Result<Vec<SpentResultByType>> {
+        let spent_inner_details: &Vec<DocumentWithId<SpentDetailIndexing>> =
+            spent_details.source_list();
         let total_cost: f64 = *spent_details.agg_result();
-        
-        let mut cost_map: HashMap<String, i64> = spent_inner_details
-            .iter()
-            .fold(HashMap::new(), |mut acc, spent_detail| {
-                let spent_detail: &SpentDetailIndexing = spent_detail.source();
-                let spent_type: String = spent_detail.consume_keyword_type().to_string();
-                let spent_money: i64 = spent_detail.spent_money;
-                
-                acc.entry(spent_type)
-                    .and_modify(|value| *value += spent_money)
-                    .or_insert(spent_money);
 
-                acc
-            });
-        
+        let mut cost_map: HashMap<String, i64> =
+            spent_inner_details
+                .iter()
+                .fold(HashMap::new(), |mut acc, spent_detail| {
+                    let spent_detail: &SpentDetailIndexing = spent_detail.source();
+                    let spent_type: String = spent_detail.consume_keyword_type().to_string();
+                    let spent_money: i64 = spent_detail.spent_money;
+
+                    acc.entry(spent_type)
+                        .and_modify(|value| *value += spent_money)
+                        .or_insert(spent_money);
+
+                    acc
+                });
+
         cost_map.retain(|_, v| *v > 0);
 
-        let mut spent_result_by_types: Vec<SpentResultByType>  = Self::find_calculate_pie_infos_from_category(total_cost, &cost_map)?;
+        let mut spent_result_by_types: Vec<SpentResultByType> =
+            Self::find_calculate_pie_infos_from_category(total_cost, &cost_map)?;
 
-        spent_result_by_types.sort_by(|a,b| {
+        spent_result_by_types.sort_by(|a, b| {
             b.spent_cost
                 .partial_cmp(&a.spent_cost)
                 .unwrap_or(Ordering::Equal)
         });
 
-
-        Ok(())
+        Ok(spent_result_by_types)
     }
 
     /// Processes and sends the monthly report for one aggregate group.
@@ -363,8 +404,7 @@ where
     /// * `elastic_service` - Elasticsearch service used to query spend details
     /// * `smtp_service` - SMTP service used to send the report email
     /// * `index_name` - Elasticsearch index or alias to query
-    /// * `start_date` - First date included in the report range
-    /// * `end_date` - Last date included in the report range
+    /// * `date_range` - First and last dates included in the report range
     ///
     /// # Returns
     ///
@@ -383,37 +423,52 @@ where
         smtp_service: Arc<S>,
         report_title: String,
         index_name: &str,
-        start_date: DateTime<Utc>,
-        end_date: DateTime<Utc>,
+        date_range: ReportDateRange,
     ) -> anyhow::Result<()> {
         // 소비 정보 디테일 + 집계
         let cur_agg_infos: AggResultSet<SpentDetailIndexing> = elastic_service
-            .find_info_filter_groupseq_orderby_aggs_range(
+            .find_info_filter_groupseq_orderby_aggs_range(GroupSeqAggsRangeQuery {
                 index_name,
-                "spent_at",
-                start_date,
-                end_date,
-                RangeOperator::GreaterThanOrEqual,
-                RangeOperator::LessThanOrEqual,
-                "spent_at",
-                true,
-                "spent_money",
-                agg_group_seq,
-            )
+                range_field: "spent_at",
+                start_date: date_range.start_date,
+                end_date: date_range.end_date,
+                start_op: RangeOperator::GreaterThanOrEqual,
+                end_op: RangeOperator::LessThanOrEqual,
+                order_by_field: "spent_at",
+                asc_yn: true,
+                aggs_field: "spent_money",
+                group_seq: agg_group_seq,
+            })
             .await?;
-        
+
         // 소비 정보 디테일 - 카테고리 별
-        
+        let detail_by_type: Vec<SpentResultByType> = Self::find_spent_result_by_category(&cur_agg_infos)
+            .inspect_err(|e| {
+                error!("[BatchServiceImpl::process_agg_group] Initialisation of the `detail_by_type` data has failed. {:#}", e);
+            })?;
 
         let rows_html: String = build_html_rows(cur_agg_infos.source_list());
+        let category_rows_html: String = build_category_rows(&detail_by_type);
         let total: i64 = cur_agg_infos.agg_result().round() as i64;
 
-        let html: String = build_report_html(&report_title, start_date, end_date, &rows_html, total)?;
+        let html: String =
+            build_report_html(
+                &report_title,
+                date_range.start_date,
+                date_range.end_date,
+                &rows_html,
+                total,
+                &category_rows_html,
+            )?;
         let subject: String = format!(
             "[{}] {}년 {}월 {}일 ~ {}년 {}월 {}일 소비 내역",
             report_title,
-            start_date.year(), start_date.month(), start_date.day(),
-            end_date.year(), end_date.month(), end_date.day(),
+            date_range.start_date.year(),
+            date_range.start_date.month(),
+            date_range.start_date.day(),
+            date_range.end_date.year(),
+            date_range.end_date.month(),
+            date_range.end_date.day(),
         );
 
         for email_id in &email_ids {
@@ -450,9 +505,7 @@ where
     /// # Returns
     ///
     /// Returns `true` when the completed task failed, otherwise `false`.
-    async fn collect_finished_agg_group_task(
-        join_set: &mut JoinSet<anyhow::Result<()>>,
-    ) -> bool {
+    async fn collect_finished_agg_group_task(join_set: &mut JoinSet<anyhow::Result<()>>) -> bool {
         match join_set.join_next().await {
             Some(Ok(Ok(()))) => false,
             Some(Ok(Err(e))) => {
@@ -486,8 +539,7 @@ where
     /// * `elastic_service` - Elasticsearch service shared by report tasks
     /// * `smtp_service` - SMTP service shared by report tasks
     /// * `index_name` - Elasticsearch index or alias to query
-    /// * `start_date` - First date included in the report range
-    /// * `end_date` - Last date included in the report range
+    /// * `date_range` - First and last dates included in the report range
     ///
     /// # Returns
     ///
@@ -498,10 +550,8 @@ where
         smtp_service: &Arc<S>,
         report_title: String,
         index_name: &str,
-        start_date: DateTime<Utc>,
-        end_date: DateTime<Utc>,
+        date_range: ReportDateRange,
     ) -> usize {
-        
         const REPORT_MAX_CONCURRENCY: usize = 10;
 
         let mut join_set: JoinSet<anyhow::Result<()>> = JoinSet::new();
@@ -527,8 +577,7 @@ where
                     smtp_service,
                     report_title,
                     &index_name,
-                    start_date,
-                    end_date,
+                    date_range,
                 )
                 .await
             });
@@ -579,6 +628,10 @@ where
     ) -> anyhow::Result<()> {
         let now: DateTime<Utc> = Utc::now();
         let (start_date, end_date) = Self::find_monthly_report_range(now)?;
+        let date_range: ReportDateRange = ReportDateRange {
+            start_date,
+            end_date,
+        };
 
         batch_log!(
             info,
@@ -606,8 +659,7 @@ where
             smtp_service,
             "월간 소비 리포트".to_string(),
             &index_name,
-            start_date,
-            end_date,
+            date_range,
         )
         .await;
 
@@ -621,8 +673,9 @@ where
         Ok(())
     }
 
-
-    fn find_weekly_report_range(now: DateTime<Utc>) -> anyhow::Result<(DateTime<Utc>, DateTime<Utc>)> {
+    fn find_weekly_report_range(
+        now: DateTime<Utc>,
+    ) -> anyhow::Result<(DateTime<Utc>, DateTime<Utc>)> {
         let seven_days_ago: DateTime<Utc> = now
             .checked_sub_signed(chrono::Duration::days(7))
             .ok_or_else(|| anyhow!("[BatchServiceImpl::find_weekly_report_range] Failed to calculate 7 days ago from {}", now))?;
@@ -645,6 +698,10 @@ where
     ) -> anyhow::Result<()> {
         let now: DateTime<Utc> = Utc::now();
         let (start_date, end_date) = Self::find_weekly_report_range(now)?;
+        let date_range: ReportDateRange = ReportDateRange {
+            start_date,
+            end_date,
+        };
 
         batch_log!(
             info,
@@ -671,11 +728,10 @@ where
             smtp_service,
             "주간 소비 리포트".to_string(),
             &index_name,
-            start_date,
-            end_date,
+            date_range,
         )
         .await;
-        
+
         if failed_count > 0 {
             warn!(
                 "[BatchServiceImpl::send_weekly_spent_report] Completed with {} failed agg group task(s)",

@@ -1,12 +1,13 @@
 //! Bulk re-classify `consume_keyword_type` columns in SPENT_DETAIL and SPENT_DETAIL_INDEXING.
 
-use crate::{batch_log, common::*};
 use crate::models::{ConsumingIndexProdtType, SpentDetail, SpentDetailIndexing, batch_schedule::*};
 use crate::service_trait::{
-    consume_service::ConsumeService, elastic_service::ElasticService, indexing_service::IndexingService,
-    mysql_service::MysqlService, producer_service::ProducerService,
-    public_data_service::PublicDataService, smtp_service::SmtpService,
+    consume_service::ConsumeService, elastic_service::ElasticService,
+    indexing_service::IndexingService, mysql_service::MysqlService,
+    producer_service::ProducerService, public_data_service::PublicDataService,
+    smtp_service::SmtpService,
 };
+use crate::{batch_log, common::*};
 
 use super::BatchServiceImpl;
 
@@ -37,7 +38,8 @@ where
         elastic_service: &Arc<E>,
     ) -> anyhow::Result<()> {
         Self::modify_all_spent_detail_type(schedule_item, mysql_service, elastic_service).await?;
-        Self::modify_all_spent_detail_indexing_type(schedule_item, mysql_service, elastic_service).await?;
+        Self::modify_all_spent_detail_indexing_type(schedule_item, mysql_service, elastic_service)
+            .await?;
         Ok(())
     }
 
@@ -91,13 +93,20 @@ where
 
                 for attempt in 1..=MAX_RETRIES {
                     match mysql_service.find_spent_details(offset, batch_size).await {
-                        Ok(rows) => { result = Some(rows); break; }
+                        Ok(rows) => {
+                            result = Some(rows);
+                            break;
+                        }
                         Err(e) => {
                             let delay_secs: u64 = 2u64.pow(attempt - 1);
                             batch_log!(
                                 error,
                                 "[BatchServiceImpl::modify_all_spent_detail_type] fetch failed (attempt {}/{}, offset={}, retry in {}s): {:#}",
-                                attempt, MAX_RETRIES, offset, delay_secs, e
+                                attempt,
+                                MAX_RETRIES,
+                                offset,
+                                delay_secs,
+                                e
                             );
                             last_err = Some(e);
                             if attempt < MAX_RETRIES {
@@ -113,14 +122,18 @@ where
                         batch_log!(
                             error,
                             "[BatchServiceImpl::modify_all_spent_detail_type] Aborting: all {} retries exhausted at offset={}. Last error: {:#}",
-                            MAX_RETRIES, offset, last_err.unwrap()
+                            MAX_RETRIES,
+                            offset,
+                            last_err.unwrap()
                         );
                         break;
                     }
                 }
             };
 
-            if details.is_empty() { break; }
+            if details.is_empty() {
+                break;
+            }
 
             let batch_count: usize = details.len();
             total_processed += batch_count as u64;
@@ -138,13 +151,17 @@ where
                 .find_consume_type_judgements(&spent_names)
                 .await
                 .inspect_err(|e| {
-                    error!("[BatchServiceImpl::modify_all_spent_detail_type] spent_types: {:#}", e);
+                    error!(
+                        "[BatchServiceImpl::modify_all_spent_detail_type] spent_types: {:#}",
+                        e
+                    );
                 })?;
 
             if spent_types.len() != details.len() {
                 return Err(anyhow!(
                     "[BatchServiceImpl::modify_all_spent_detail_type] spent_types length mismatch. details={}, spent_types={}",
-                    details.len(), spent_types.len()
+                    details.len(),
+                    spent_types.len()
                 ));
             }
 
@@ -158,7 +175,9 @@ where
             let updates: Vec<(i64, i64)> = details
                 .iter()
                 .zip(spent_types.iter())
-                .map(|(detail, spent_type)| (*detail.spent_idx(), *spent_type.consume_keyword_type_id()))
+                .map(|(detail, spent_type)| {
+                    (*detail.spent_idx(), *spent_type.consume_keyword_type_id())
+                })
                 .collect();
 
             if !updates.is_empty() {
@@ -167,7 +186,10 @@ where
                     .modify_spent_detail_type_batch(updates, batch_size as usize)
                     .await
                     .inspect_err(|e| {
-                        error!("[modify_all_spent_detail_type] Failed to update batch: {:#}", e);
+                        error!(
+                            "[modify_all_spent_detail_type] Failed to update batch: {:#}",
+                            e
+                        );
                     })?;
 
                 total_updated += updated;
@@ -175,7 +197,9 @@ where
                 batch_log!(
                     info,
                     "[modify_all_spent_detail_type] Batch offset={}, updated {}/{} records",
-                    offset, update_count, batch_count
+                    offset,
+                    update_count,
+                    batch_count
                 );
             }
 
@@ -185,7 +209,8 @@ where
         batch_log!(
             info,
             "[modify_all_spent_detail_type] Completed. processed={}, updated={}",
-            total_processed, total_updated
+            total_processed,
+            total_updated
         );
 
         Ok(())
@@ -234,14 +259,24 @@ where
                 let mut result: Option<Vec<SpentDetailIndexing>> = None;
 
                 for attempt in 1..=MAX_RETRIES {
-                    match mysql_service.find_spent_detail_indexing_for_index(offset, batch_size).await {
-                        Ok(rows) => { result = Some(rows); break; }
+                    match mysql_service
+                        .find_spent_detail_indexing_for_index(offset, batch_size)
+                        .await
+                    {
+                        Ok(rows) => {
+                            result = Some(rows);
+                            break;
+                        }
                         Err(e) => {
                             let delay_secs: u64 = 2u64.pow(attempt - 1);
                             batch_log!(
                                 error,
                                 "[BatchServiceImpl::modify_all_spent_detail_indexing_type] fetch failed (attempt {}/{}, offset={}, retry in {}s): {:#}",
-                                attempt, MAX_RETRIES, offset, delay_secs, e
+                                attempt,
+                                MAX_RETRIES,
+                                offset,
+                                delay_secs,
+                                e
                             );
                             last_err = Some(e);
                             if attempt < MAX_RETRIES {
@@ -257,14 +292,18 @@ where
                         batch_log!(
                             error,
                             "[BatchServiceImpl::modify_all_spent_detail_indexing_type] Aborting: all {} retries exhausted at offset={}. Last error: {:#}",
-                            MAX_RETRIES, offset, last_err.unwrap()
+                            MAX_RETRIES,
+                            offset,
+                            last_err.unwrap()
                         );
                         break;
                     }
                 }
             };
 
-            if details.is_empty() { break; }
+            if details.is_empty() {
+                break;
+            }
 
             let batch_count: usize = details.len();
             total_processed += batch_count as u64;
@@ -281,18 +320,21 @@ where
             if spent_types.len() != details.len() {
                 return Err(anyhow!(
                     "[BatchServiceImpl::modify_all_spent_detail_indexing_type] spent_types length mismatch. details={}, spent_types={}",
-                    details.len(), spent_types.len()
+                    details.len(),
+                    spent_types.len()
                 ));
             }
 
             let updates: Vec<(i64, i64, String)> = details
                 .iter()
                 .zip(spent_types.iter())
-                .map(|(detail, spent_type)| (
-                    *detail.spent_idx(),
-                    *spent_type.consume_keyword_type_id(),
-                    spent_type.consume_keyword_type().clone(),
-                ))
+                .map(|(detail, spent_type)| {
+                    (
+                        *detail.spent_idx(),
+                        *spent_type.consume_keyword_type_id(),
+                        spent_type.consume_keyword_type().clone(),
+                    )
+                })
                 .collect();
 
             if !updates.is_empty() {
@@ -301,7 +343,10 @@ where
                     .modify_spent_detail_indexing_type_batch(updates, batch_size as usize)
                     .await
                     .inspect_err(|e| {
-                        error!("[modify_all_spent_detail_indexing_type] Failed to update batch: {:#}", e);
+                        error!(
+                            "[modify_all_spent_detail_indexing_type] Failed to update batch: {:#}",
+                            e
+                        );
                     })?;
 
                 total_updated += updated;
@@ -309,7 +354,9 @@ where
                 batch_log!(
                     info,
                     "[modify_all_spent_detail_indexing_type] Batch offset={}, updated {}/{} records",
-                    offset, update_count, batch_count
+                    offset,
+                    update_count,
+                    batch_count
                 );
             }
 
@@ -319,7 +366,8 @@ where
         batch_log!(
             info,
             "[modify_all_spent_detail_indexing_type] Completed. processed={}, updated={}",
-            total_processed, total_updated
+            total_processed,
+            total_updated
         );
 
         Ok(())

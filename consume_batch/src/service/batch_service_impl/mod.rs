@@ -43,19 +43,19 @@
 //! | `report.rs`       | Monthly spend report via SMTP                       |
 //! | `dimension.rs`    | Populate `DIM_CALENDAR` date dimension table        |
 
-mod scheduler;
-mod dispatcher;
-mod type_update;
-mod report;
 mod dimension;
+mod dispatcher;
+mod report;
+mod scheduler;
+mod type_update;
 
-use crate::{app_config::*, batch_log, common::*};
 use crate::models::batch_schedule::*;
 use crate::service_trait::{
     batch_service::*, consume_service::ConsumeService, elastic_service::*, indexing_service::*,
     mysql_service::*, producer_service::ProducerService, public_data_service::PublicDataService,
     smtp_service::SmtpService,
 };
+use crate::{app_config::*, batch_log, common::*};
 
 /// Concrete implementation of the batch processing service.
 ///

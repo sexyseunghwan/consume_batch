@@ -1,7 +1,6 @@
 #[derive(Debug, Clone, Copy)]
 pub enum RangeOperator {
     GreaterThanOrEqual,
-    LessThan,
     LessThanOrEqual,
 }
 
@@ -13,11 +12,10 @@ impl RangeOperator {
     ///
     /// # Returns
     ///
-    /// Returns `gte`, `lt`, or `lte` for the corresponding range operator.
+    /// Returns `gte` or `lte` for the corresponding range operator.
     pub fn to_str(self) -> &'static str {
         match self {
             RangeOperator::GreaterThanOrEqual => "gte",
-            RangeOperator::LessThan => "lt",
             RangeOperator::LessThanOrEqual => "lte",
         }
     }

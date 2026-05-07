@@ -28,7 +28,8 @@ use crate::common::*;
 pub static SPENT_DETAIL_INDEXING: once_lazy<RwLock<bool>> = once_lazy::new(|| RwLock::new(true));
 
 #[allow(dead_code)]
-pub static SPENT_DETAIL_INDEXING_CATCHUP: once_lazy<RwLock<bool>> = once_lazy::new(|| RwLock::new(true));
+pub static SPENT_DETAIL_INDEXING_CATCHUP: once_lazy<RwLock<bool>> =
+    once_lazy::new(|| RwLock::new(true));
 
 /// Returns the current value of [`SPENT_DETAIL_INDEXING`].
 pub async fn get_spent_detail_indexing() -> bool {

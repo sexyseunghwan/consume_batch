@@ -8,8 +8,6 @@
 
 use crate::common::*;
 
-
-
 /// Internal structure for FromQueryResult that stores indexing_type as String
 #[derive(Debug, Clone, FromQueryResult)]
 pub struct SpentDetailWithRelationsRaw {

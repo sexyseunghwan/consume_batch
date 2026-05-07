@@ -116,9 +116,9 @@ impl AppConfig {
     /// # Ok::<(), anyhow::Error>(())
     /// ```
     pub fn get_global() -> anyhow::Result<&'static AppConfig> {
-        APP_CONFIG
-            .get()
-            .ok_or_else(|| anyhow!("AppConfig not initialized. Call AppConfig::initialize() first."))
+        APP_CONFIG.get().ok_or_else(|| {
+            anyhow!("AppConfig not initialized. Call AppConfig::initialize() first.")
+        })
     }
 
     /// Try to get a reference to the global configuration

@@ -1,9 +1,8 @@
 #![allow(dead_code)]
 use crate::common::*;
 
-use crate::models::{ConsumingIndexProdtType, DocumentWithId, AggResultSet};
-
-use crate::enums::{RangeOperator};
+use crate::dtos::GroupSeqAggsRangeQuery;
+use crate::models::{AggResultSet, ConsumingIndexProdtType, DocumentWithId};
 
 #[async_trait]
 pub trait ElasticService {
@@ -271,16 +270,7 @@ pub trait ElasticService {
     ///
     /// # Arguments
     ///
-    /// * `index_name` - Elasticsearch index or alias to query
-    /// * `range_field` - Date or numeric field used in the range filter
-    /// * `start_date` - Lower bound value for the range filter
-    /// * `end_date` - Upper bound value for the range filter
-    /// * `start_op` - Elasticsearch range operator for `start_date`
-    /// * `end_op` - Elasticsearch range operator for `end_date`
-    /// * `order_by_field` - Field used to sort matched documents
-    /// * `asc_yn` - Whether to sort ascending
-    /// * `aggs_field` - Numeric field to sum in the aggregation
-    /// * `group_seq` - Aggregate group sequence used in the term filter
+    /// * `query` - Query options containing index, range, sort, aggregation, and group filters
     ///
     /// # Returns
     ///
@@ -295,16 +285,6 @@ pub trait ElasticService {
     /// - Hit documents cannot be deserialized into `T`
     async fn find_info_filter_groupseq_orderby_aggs_range<T: Send + Sync + DeserializeOwned>(
         &self,
-        index_name: &str,
-        range_field: &str,
-        start_date: DateTime<Utc>,
-        end_date: DateTime<Utc>,
-        start_op: RangeOperator,
-        end_op: RangeOperator,
-        order_by_field: &str,
-        asc_yn: bool,
-        aggs_field: &str,
-        group_seq: i64,
+        query: GroupSeqAggsRangeQuery<'_>,
     ) -> Result<AggResultSet<T>, anyhow::Error>;
-
 }

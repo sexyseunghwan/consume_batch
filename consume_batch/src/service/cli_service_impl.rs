@@ -215,15 +215,23 @@ where
     async fn initialize_socket_server(&self) -> anyhow::Result<()> {
         let socket_path: &str = AppConfig::get_global()
             .inspect_err(|e| {
-                error!("[CliServiceImpl::initialize_socket_server] app_config: {:#}", e);
+                error!(
+                    "[CliServiceImpl::initialize_socket_server] app_config: {:#}",
+                    e
+                );
             })?
             .socket_path();
 
         // [1] Remove existing socket file to handle unclean shutdowns
         match std::fs::remove_file(socket_path) {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => return Err(anyhow!("[CliServiceImpl::initialize_socket_server] {:#}", e))
+            Err(e) => {
+                return Err(anyhow!(
+                    "[CliServiceImpl::initialize_socket_server] {:#}",
+                    e
+                ));
+            }
         }
 
         // [2] Create the socket file and bind the listner

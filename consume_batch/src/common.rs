@@ -73,4 +73,3 @@ pub use lettre::{
     message::{MultiPart, SinglePart},
     transport::smtp::authentication::Credentials,
 };
-

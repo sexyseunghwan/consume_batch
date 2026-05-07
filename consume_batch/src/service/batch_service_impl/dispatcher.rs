@@ -1,12 +1,13 @@
 //! Routes each `batch_name` to its concrete handler.
 
-use crate::{batch_log, common::*};
 use crate::models::batch_schedule::*;
 use crate::service_trait::{
-    consume_service::ConsumeService, elastic_service::ElasticService, indexing_service::IndexingService,
-    mysql_service::MysqlService, producer_service::ProducerService,
-    public_data_service::PublicDataService, smtp_service::SmtpService,
+    consume_service::ConsumeService, elastic_service::ElasticService,
+    indexing_service::IndexingService, mysql_service::MysqlService,
+    producer_service::ProducerService, public_data_service::PublicDataService,
+    smtp_service::SmtpService,
 };
+use crate::{batch_log, common::*};
 
 use super::BatchServiceImpl;
 
@@ -66,7 +67,10 @@ where
                     .input_spent_detail_full(schedule_item)
                     .await
                     .inspect_err(|e| {
-                        error!("[BatchServiceImpl::input_batch_by_schedule] spent_detail_full: {:#}", e);
+                        error!(
+                            "[BatchServiceImpl::input_batch_by_schedule] spent_detail_full: {:#}",
+                            e
+                        );
                     })?;
             }
             "spent_detail_incremental" => {
@@ -82,7 +86,10 @@ where
                     .input_spent_type_full(schedule_item)
                     .await
                     .inspect_err(|e| {
-                        error!("[BatchServiceImpl::input_batch_by_schedule] spent_type: {:#}", e);
+                        error!(
+                            "[BatchServiceImpl::input_batch_by_schedule] spent_type: {:#}",
+                            e
+                        );
                     })?;
             }
             "all_change_spent_detail_type" => {
@@ -100,18 +107,34 @@ where
                     })?;
             }
             "monthly_spent_report" => {
-                Self::send_monthly_spent_report(schedule_item, elastic_service, mysql_service, smtp_service)
-                    .await
-                    .inspect_err(|e| {
-                        error!("[BatchServiceImpl::input_batch_by_schedule] monthly_spent_report: {:#}", e);
-                    })?;
+                Self::send_monthly_spent_report(
+                    schedule_item,
+                    elastic_service,
+                    mysql_service,
+                    smtp_service,
+                )
+                .await
+                .inspect_err(|e| {
+                    error!(
+                        "[BatchServiceImpl::input_batch_by_schedule] monthly_spent_report: {:#}",
+                        e
+                    );
+                })?;
             }
             "weekly_spent_report" => {
-                Self::send_weekly_spent_report(schedule_item, elastic_service, mysql_service, smtp_service)
-                    .await
-                    .inspect_err(|e| {
-                        error!("[BatchServiceImpl::input_batch_by_schedule] monthly_spent_report: {:#}", e);
-                    })?;
+                Self::send_weekly_spent_report(
+                    schedule_item,
+                    elastic_service,
+                    mysql_service,
+                    smtp_service,
+                )
+                .await
+                .inspect_err(|e| {
+                    error!(
+                        "[BatchServiceImpl::input_batch_by_schedule] monthly_spent_report: {:#}",
+                        e
+                    );
+                })?;
             }
             _ => {
                 batch_log!(

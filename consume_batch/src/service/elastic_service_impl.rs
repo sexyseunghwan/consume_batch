@@ -1,14 +1,13 @@
 use crate::common::*;
 
+use crate::dtos::GroupSeqAggsRangeQuery;
 use crate::service_trait::elastic_service::*;
 
 use crate::repository::es_repository::*;
 
 use crate::app_config::AppConfig;
 
-use crate::models::{ConsumingIndexProdtType, DocumentWithId, score_manager::*, AggResultSet};
-
-use crate::enums::{RangeOperator};
+use crate::models::{AggResultSet, ConsumingIndexProdtType, DocumentWithId, score_manager::*};
 
 #[derive(Debug, Getters, Clone, new)]
 pub struct ElasticServiceImpl<R: EsRepository> {
@@ -337,7 +336,10 @@ where
         prodt_name: &str,
     ) -> Result<ConsumingIndexProdtType, anyhow::Error> {
         let app_config: &AppConfig = AppConfig::get_global().inspect_err(|e| {
-            error!("[ElasticServiceImpl::find_consume_type_judgement] app_config: {:#}", e);
+            error!(
+                "[ElasticServiceImpl::find_consume_type_judgement] app_config: {:#}",
+                e
+            );
         })?;
         let es_spent_type: &str = app_config.es_spent_type().as_str();
 
@@ -378,16 +380,18 @@ where
         &self,
         prodt_names: &[String],
     ) -> Result<Vec<ConsumingIndexProdtType>, anyhow::Error> {
-        
         if prodt_names.is_empty() {
             return Ok(Vec::new());
         }
 
         let app_config: &AppConfig = AppConfig::get_global().inspect_err(|e| {
-            error!("[ElasticServiceImpl::find_consume_type_judgements] app_config: {:#}", e);
+            error!(
+                "[ElasticServiceImpl::find_consume_type_judgements] app_config: {:#}",
+                e
+            );
         })?;
         let es_spent_type_index: &str = app_config.es_spent_type().as_str(); // Name of Elasticsearch index.
-        
+
         let es_queries: Vec<Value> = prodt_names
             .iter()
             .map(|prodt_name| {
@@ -411,11 +415,11 @@ where
                     e
                 )
             })?;
-        
+
         let mut consume_types: Vec<ConsumingIndexProdtType> =
             Vec::with_capacity(response_bodies.len());
-        
-        /* 
+
+        /*
             prodt_names = ["네이버페이", "쿠팡", "카카오"]
             response_bodies = [
                 {
@@ -503,15 +507,15 @@ where
                         }
                         ]
                     }
-                },  => A1: Reesult of "네이버페이" 
-                ... => A2: Reesult of "쿠팡" 
+                },  => A1: Reesult of "네이버페이"
+                ... => A2: Reesult of "쿠팡"
                 ... => A3: Reesult of "카카오"
             ]
-            
+
             "네이버페이", "쿠팡", "카카오"
 
             prodt_names.iter().zip(response_bodies.iter())
-            => 
+            =>
             [
                 ("네이버페이", A1),
                 ("쿠팡", A2),
@@ -557,7 +561,6 @@ where
         Ok(consume_types)
     }
 
-
     /// Finds documents by group sequence, date range, sort order, and sum aggregation.
     ///
     /// Builds an Elasticsearch query with a range filter and `agg_group_seq`
@@ -570,16 +573,7 @@ where
     ///
     /// # Arguments
     ///
-    /// * `index_name` - Elasticsearch index or alias to query
-    /// * `range_field` - Date or numeric field used in the range filter
-    /// * `start_date` - Lower bound value for the range filter
-    /// * `end_date` - Upper bound value for the range filter
-    /// * `start_op` - Elasticsearch range operator for `start_date`
-    /// * `end_op` - Elasticsearch range operator for `end_date`
-    /// * `order_by_field` - Field used to sort matched documents
-    /// * `asc_yn` - Whether to sort ascending
-    /// * `aggs_field` - Numeric field to sum in the aggregation
-    /// * `group_seq` - Aggregate group sequence used in the term filter
+    /// * `query` - Query options containing index, range, sort, aggregation, and group filters
     ///
     /// # Returns
     ///
@@ -594,19 +588,9 @@ where
     /// - Hit documents cannot be deserialized into `T`
     async fn find_info_filter_groupseq_orderby_aggs_range<T: Send + Sync + DeserializeOwned>(
         &self,
-        index_name: &str,
-        range_field: &str,
-        start_date: DateTime<Utc>,
-        end_date: DateTime<Utc>,
-        start_op: RangeOperator,
-        end_op: RangeOperator,
-        order_by_field: &str,
-        asc_yn: bool,
-        aggs_field: &str,
-        group_seq: i64,
+        query_options: GroupSeqAggsRangeQuery<'_>,
     ) -> Result<AggResultSet<T>, anyhow::Error> {
-
-        let order_by_asc: &str = if asc_yn { "asc" } else { "desc" };
+        let order_by_asc: &str = if query_options.asc_yn { "asc" } else { "desc" };
 
         let query: Value = json!({
             "size": 10000,
@@ -615,15 +599,15 @@ where
                     "filter": [
                         {
                             "range": {
-                                range_field: {
-                                    start_op.to_str(): start_date.to_rfc3339(),
-                                    end_op.to_str(): end_date.to_rfc3339()
+                                query_options.range_field: {
+                                    query_options.start_op.to_str(): query_options.start_date.to_rfc3339(),
+                                    query_options.end_op.to_str(): query_options.end_date.to_rfc3339()
                                 }
                             }
                         },
                         {
                             "term": {
-                                "agg_group_seq": group_seq
+                                "agg_group_seq": query_options.group_seq
                             }
                         }
                     ]
@@ -632,12 +616,12 @@ where
             "aggs": {
                 "aggs_result": {
                     "sum": {
-                        "field": aggs_field
+                        "field": query_options.aggs_field
                     }
                 }
             },
             "sort": {
-                order_by_field: { "order": order_by_asc }
+                query_options.order_by_field: { "order": order_by_asc }
             }
         });
 
@@ -645,7 +629,7 @@ where
 
         let response_body: Value = self
             .elastic_conn
-            .find_by_query(&query, index_name)
+            .find_by_query(&query, query_options.index_name)
             .await?;
 
         let agg_result: f64 = match &response_body["aggregations"]["aggs_result"]["value"].as_f64()
@@ -654,7 +638,7 @@ where
             None => {
                 return Err(anyhow!(
                     "[Error][find_info_filter_groupseq_orderby_aggs_range()] 'agg_result' error"
-                ))
+                ));
             }
         };
 
@@ -662,7 +646,5 @@ where
             self.find_query_result_vec(&response_body).await?;
 
         Ok(AggResultSet::new(agg_result, consume_list))
-
-
     }
 }

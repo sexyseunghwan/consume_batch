@@ -228,7 +228,7 @@ async fn main() -> anyhow::Result<()> {
             panic!("[main] batch_service: {:#}", e);
         }
     };
-    
+
     // Create CLI service: shares the batch service via Arc for on-demand execution
     let cli_service: CliSvc = CliServiceImpl::new(
         Arc::new(batch_service.clone()),

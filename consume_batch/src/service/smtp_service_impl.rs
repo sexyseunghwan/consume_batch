@@ -15,7 +15,11 @@ pub struct SmtpServiceImpl {
 
 impl SmtpServiceImpl {
     /// Creates a new `SmtpServiceImpl` from explicit credentials.
-    pub fn new(smtp_host: impl Into<String>, smtp_id: impl Into<String>, smtp_pw: impl Into<String>) -> Self {
+    pub fn new(
+        smtp_host: impl Into<String>,
+        smtp_id: impl Into<String>,
+        smtp_pw: impl Into<String>,
+    ) -> Self {
         Self {
             smtp_host: smtp_host.into(),
             smtp_id: smtp_id.into(),
@@ -51,7 +55,13 @@ impl SmtpService for SmtpServiceImpl {
 
         let mailer: AsyncSmtpTransport<Tokio1Executor> =
             AsyncSmtpTransport::<Tokio1Executor>::relay(&self.smtp_host)
-                .map_err(|e| anyhow!("Failed to connect to SMTP relay '{}': {}", self.smtp_host, e))?
+                .map_err(|e| {
+                    anyhow!(
+                        "Failed to connect to SMTP relay '{}': {}",
+                        self.smtp_host,
+                        e
+                    )
+                })?
                 .credentials(creds)
                 .build();
 

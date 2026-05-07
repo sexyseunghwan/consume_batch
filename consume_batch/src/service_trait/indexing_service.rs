@@ -4,7 +4,10 @@ use crate::models::batch_schedule::BatchScheduleItem;
 #[async_trait]
 pub trait IndexingService: Send + Sync {
     /// 전체 색인 (migration → static → dynamic → alias swap)
-    async fn input_spent_detail_full(&self, schedule_item: &BatchScheduleItem) -> anyhow::Result<()>;
+    async fn input_spent_detail_full(
+        &self,
+        schedule_item: &BatchScheduleItem,
+    ) -> anyhow::Result<()>;
     /// 증분 색인 (무한 루프, write alias 기준)
     async fn input_spent_detail_incremental(
         &self,

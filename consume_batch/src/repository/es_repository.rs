@@ -109,7 +109,8 @@ pub trait EsRepository {
     /// Returns an error if:
     /// - The network request fails
     /// - The document cannot be indexed (e.g., mapping conflict)
-    async fn input_document(&self, document: &Value, index_name: &str) -> Result<(), anyhow::Error>;
+    async fn input_document(&self, document: &Value, index_name: &str)
+    -> Result<(), anyhow::Error>;
 
     /// Deletes a document from an Elasticsearch index.
     ///
@@ -238,8 +239,11 @@ pub trait EsRepository {
     /// # Returns
     ///
     /// Returns `Ok(())` on successful alias swap.
-    async fn modify_alias(&self, alias_name: &str, new_index_name: &str)
-    -> Result<(), anyhow::Error>;
+    async fn modify_alias(
+        &self,
+        alias_name: &str,
+        new_index_name: &str,
+    ) -> Result<(), anyhow::Error>;
 
     /// Returns the list of index names currently pointed to by the given alias.
     ///
@@ -554,7 +558,10 @@ impl EsRepository for EsRepositoryImpl {
 
         // Verify successful indexing
         if response.status_code().is_success() {
-            info!("[EsRepositoryImpl::input_document] index_name: {}", index_name);
+            info!(
+                "[EsRepositoryImpl::input_document] index_name: {}",
+                index_name
+            );
             Ok(())
         } else {
             let error_message = format!(

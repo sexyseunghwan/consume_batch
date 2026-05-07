@@ -1,12 +1,13 @@
 //! Cron scheduler setup and immediate-job spawning.
 
-use crate::{batch_log, common::*};
 use crate::models::batch_schedule::*;
 use crate::service_trait::{
-    consume_service::ConsumeService, elastic_service::ElasticService, indexing_service::IndexingService,
-    mysql_service::MysqlService, producer_service::ProducerService,
-    public_data_service::PublicDataService, smtp_service::SmtpService,
+    consume_service::ConsumeService, elastic_service::ElasticService,
+    indexing_service::IndexingService, mysql_service::MysqlService,
+    producer_service::ProducerService, public_data_service::PublicDataService,
+    smtp_service::SmtpService,
 };
+use crate::{batch_log, common::*};
 
 use super::BatchServiceImpl;
 
@@ -30,11 +31,12 @@ where
     /// - Any cron expression is invalid
     /// - Jobs cannot be added to the scheduler
     pub(super) async fn initialize_cron_scheduler(&self) -> anyhow::Result<JobScheduler> {
-        let scheduler: JobScheduler = JobScheduler::new()
-            .await
-            .inspect_err(|e| {
-                error!("[BatchServiceImpl::initialize_cron_scheduler] Failed to create JobScheduler: {:#}", e);
-            })?;
+        let scheduler: JobScheduler = JobScheduler::new().await.inspect_err(|e| {
+            error!(
+                "[BatchServiceImpl::initialize_cron_scheduler] Failed to create JobScheduler: {:#}",
+                e
+            );
+        })?;
 
         let cron_schedules: Vec<&BatchScheduleItem> = self
             .find_enabled_schedules()
@@ -110,9 +112,22 @@ where
             immediate_jobs.spawn(async move {
                 batch_log!(info, "[{}] Immediate job started", item.index_name());
 
-                match Self::input_batch_by_schedule(&item, &mysql, &elastic, &public_data, &indexing, &smtp).await {
+                match Self::input_batch_by_schedule(
+                    &item,
+                    &mysql,
+                    &elastic,
+                    &public_data,
+                    &indexing,
+                    &smtp,
+                )
+                .await
+                {
                     Ok(()) => {
-                        batch_log!(info, "[{}] Immediate job completed successfully", item.index_name());
+                        batch_log!(
+                            info,
+                            "[{}] Immediate job completed successfully",
+                            item.index_name()
+                        );
                     }
                     Err(e) => {
                         batch_log!(error, "[{}] Immediate job failed: {}", item.index_name(), e);
@@ -172,14 +187,30 @@ where
             Box::pin(async move {
                 batch_log!(info, "[{}] Cron job triggered", schedule_item.index_name());
 
-                match Self::input_batch_by_schedule(&schedule_item, &mysql, &elastic, &public_data, &indexing, &smtp)
-                    .await
+                match Self::input_batch_by_schedule(
+                    &schedule_item,
+                    &mysql,
+                    &elastic,
+                    &public_data,
+                    &indexing,
+                    &smtp,
+                )
+                .await
                 {
                     Ok(()) => {
-                        batch_log!(info, "[{}] Cron job completed successfully", schedule_item.index_name());
+                        batch_log!(
+                            info,
+                            "[{}] Cron job completed successfully",
+                            schedule_item.index_name()
+                        );
                     }
                     Err(e) => {
-                        batch_log!(error, "[{}] Batch processing failed: {}", schedule_item.index_name(), e);
+                        batch_log!(
+                            error,
+                            "[{}] Batch processing failed: {}",
+                            schedule_item.index_name(),
+                            e
+                        );
                     }
                 }
             })

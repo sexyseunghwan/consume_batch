@@ -8,10 +8,8 @@ use crate::entity::{
     users,
 };
 use crate::models::{
-    SpentDetail, SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, 
-    SendEmailAggGroup
+    SendEmailAggGroup, SpentDetail, SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword,
 };
-
 
 use sea_orm::{
     ColumnTrait, JoinType, QueryFilter, QuerySelect, RelationTrait,
@@ -162,7 +160,7 @@ where
             .inspect_err(|e| {
                 error!("[MysqlServiceImpl::find_spent_details_for_indexing] Failed to execute query: {:#}", e);
             })?;
-            
+
         Ok(results)
     }
 
@@ -425,7 +423,7 @@ where
     async fn modify_spent_detail_type_batch(
         &self,
         updates: Vec<(i64, i64)>,
-        batch_size: usize
+        batch_size: usize,
     ) -> anyhow::Result<u64> {
         let db: &DatabaseConnection = self.db_conn.get_connection();
 
@@ -843,7 +841,6 @@ where
         &self,
         upsert_list: Vec<SpentDetailWithRelations>,
     ) -> anyhow::Result<()> {
-
         if upsert_list.is_empty() {
             return Ok(());
         }
@@ -853,7 +850,7 @@ where
 
         // 실패 시 어떤 idx가 문제인지 식별할 수 있도록 미리 추출
         let spent_idxs: Vec<i64> = upsert_list.iter().map(|r| r.spent_idx).collect();
-        
+
         let active_models: Vec<spent_detail_indexing::ActiveModel> = upsert_list
             .into_iter()
             .map(|row| spent_detail_indexing::ActiveModel {
@@ -870,10 +867,10 @@ where
                 card_alias: Set(row.card_alias),
                 updated_at: Set(Some(now.naive_utc())),
                 updated_by: Set(Some("batch".to_string())),
-                agg_group_seq: Set(row.agg_group_seq.unwrap_or(0))
+                agg_group_seq: Set(row.agg_group_seq.unwrap_or(0)),
             })
             .collect();
-        
+
         let txn: DatabaseTransaction = db.begin().await.inspect_err(|e| {
             error!(
                 "[MysqlServiceImpl::modify_spent_detail_indexing] Failed to begin transaction: {:#}",
@@ -881,31 +878,31 @@ where
             );
         })?;
 
-        let result: std::result::Result<u64, DbErr> = spent_detail_indexing::Entity::insert_many(active_models)
-            .on_conflict(
-                OnConflict::column(spent_detail_indexing::Column::SpentIdx)
-                    .update_columns([
-                        spent_detail_indexing::Column::SpentName,
-                        spent_detail_indexing::Column::SpentMoney,
-                        spent_detail_indexing::Column::SpentAt,
-                        spent_detail_indexing::Column::CreatedAt,
-                        spent_detail_indexing::Column::UserSeq,
-                        spent_detail_indexing::Column::ConsumeKeywordTypeId,
-                        spent_detail_indexing::Column::ConsumeKeywordType,
-                        spent_detail_indexing::Column::RoomSeq,
-                        spent_detail_indexing::Column::UserId,
-                        spent_detail_indexing::Column::CardAlias,
-                        spent_detail_indexing::Column::UpdatedAt,
-                        spent_detail_indexing::Column::UpdatedBy,
-                        spent_detail_indexing::Column::AggGroupSeq
-                    ])
-                    .to_owned(),
-            )
-            .exec_without_returning(&txn)
-            .await;
-        
+        let result: std::result::Result<u64, DbErr> =
+            spent_detail_indexing::Entity::insert_many(active_models)
+                .on_conflict(
+                    OnConflict::column(spent_detail_indexing::Column::SpentIdx)
+                        .update_columns([
+                            spent_detail_indexing::Column::SpentName,
+                            spent_detail_indexing::Column::SpentMoney,
+                            spent_detail_indexing::Column::SpentAt,
+                            spent_detail_indexing::Column::CreatedAt,
+                            spent_detail_indexing::Column::UserSeq,
+                            spent_detail_indexing::Column::ConsumeKeywordTypeId,
+                            spent_detail_indexing::Column::ConsumeKeywordType,
+                            spent_detail_indexing::Column::RoomSeq,
+                            spent_detail_indexing::Column::UserId,
+                            spent_detail_indexing::Column::CardAlias,
+                            spent_detail_indexing::Column::UpdatedAt,
+                            spent_detail_indexing::Column::UpdatedBy,
+                            spent_detail_indexing::Column::AggGroupSeq,
+                        ])
+                        .to_owned(),
+                )
+                .exec_without_returning(&txn)
+                .await;
+
         if let Err(e) = result {
-            
             error!(
                 "[MysqlServiceImpl::modify_spent_detail_indexing] Upsert failed (spent_idxs={:?}): {:#}",
                 spent_idxs, e
@@ -1065,4 +1062,3 @@ where
         Ok(results)
     }
 }
-

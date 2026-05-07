@@ -2,8 +2,7 @@
 use crate::common::*;
 use crate::entity::dim_calendar;
 use crate::models::{
-    SpentDetail, SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword,
-    SendEmailAggGroup
+    SendEmailAggGroup, SpentDetail, SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword,
 };
 
 #[async_trait]
@@ -97,11 +96,8 @@ pub trait MysqlService {
     ) -> anyhow::Result<Vec<SpentDetailIndexing>>;
 
     /// Fetches raw spent-detail rows without joining related tables.
-    async fn find_spent_details(
-        &self,
-        offset: u64,
-        limit: u64,
-    ) -> anyhow::Result<Vec<SpentDetail>>;
+    async fn find_spent_details(&self, offset: u64, limit: u64)
+    -> anyhow::Result<Vec<SpentDetail>>;
 
     /// Updates consume_keyword_type_id for multiple spent_detail records.
     ///
@@ -112,8 +108,11 @@ pub trait MysqlService {
     /// # Returns
     ///
     /// Returns the number of updated rows.
-    async fn modify_spent_detail_type_batch(&self, updates: Vec<(i64, i64)>, batch_size: usize)
-    -> anyhow::Result<u64>;
+    async fn modify_spent_detail_type_batch(
+        &self,
+        updates: Vec<(i64, i64)>,
+        batch_size: usize,
+    ) -> anyhow::Result<u64>;
 
     /// Updates consume_keyword_type_id and consume_keyword_type for multiple spent_detail_indexing records.
     ///
