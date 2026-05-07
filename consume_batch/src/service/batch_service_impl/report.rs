@@ -142,6 +142,20 @@ fn build_html_rows(source_list: &[DocumentWithId<SpentDetailIndexing>]) -> Strin
     html
 }
 
+/// Builds HTML table rows for spend totals grouped by category.
+///
+/// Converts calculated category summary values into table rows for the report
+/// email. Empty category names are rendered as `-`, and category names are HTML
+/// escaped before insertion.
+///
+/// # Arguments
+///
+/// * `detail_by_type` - Category-level spend summaries to render
+///
+/// # Returns
+///
+/// Returns the rendered `<tr>` HTML string. If no category summaries exist,
+/// returns a single empty-state row.
 fn build_category_rows(detail_by_type: &[SpentResultByType]) -> String {
     if detail_by_type.is_empty() {
         return "<tr><td colspan=\"3\" style=\"padding:8px 12px;text-align:center;color:#888;\">카테고리 데이터가 없습니다.</td></tr>".to_string();
@@ -334,6 +348,25 @@ where
         Ok((agg_group_map, total_processed))
     }
 
+    /// Calculates report pie-chart/category summary values from category totals.
+    ///
+    /// Converts a map of category name to total spend amount into
+    /// `SpentResultByType` values, calculating each category's percentage of the
+    /// total report cost and rounding it to one decimal place.
+    ///
+    /// # Arguments
+    ///
+    /// * `total_cost` - Total spend amount across all categories
+    /// * `type_map` - Map of category name to category spend amount
+    ///
+    /// # Returns
+    ///
+    /// Returns category spend summary values used by the report template.
+    ///
+    /// # Errors
+    ///
+    /// This function currently does not create errors directly, but returns
+    /// `anyhow::Result` to match the surrounding report helper pipeline.
     fn find_calculate_pie_infos_from_category(
         total_cost: f64,
         type_map: &HashMap<String, i64>,
@@ -355,6 +388,23 @@ where
         Ok(spent_result_by_types)
     }
 
+    /// Builds sorted category summaries from spend detail search results.
+    ///
+    /// Groups Elasticsearch spend detail results by `consume_keyword_type`, sums
+    /// spend amounts for each category, calculates category percentages, and
+    /// sorts the result by spend amount in descending order.
+    ///
+    /// # Arguments
+    ///
+    /// * `spent_details` - Aggregated spend details returned from Elasticsearch
+    ///
+    /// # Returns
+    ///
+    /// Returns category spend summaries sorted from highest spend to lowest.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if category percentage calculation fails.
     fn find_spent_result_by_category(
         spent_details: &AggResultSet<SpentDetailIndexing>,
     ) -> anyhow::Result<Vec<SpentResultByType>> {
@@ -673,6 +723,24 @@ where
         Ok(())
     }
 
+    /// Calculates the weekly report date range.
+    ///
+    /// Builds an inclusive range starting at 09:00:00 UTC seven days before
+    /// `now` and ending at the provided `now` value.
+    ///
+    /// # Arguments
+    ///
+    /// * `now` - The current UTC date and time used as the report end date
+    ///
+    /// # Returns
+    ///
+    /// Returns `(start_date, end_date)` for the weekly report query range.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Seven days before `now` cannot be calculated
+    /// - The calculated start time cannot be represented
     fn find_weekly_report_range(
         now: DateTime<Utc>,
     ) -> anyhow::Result<(DateTime<Utc>, DateTime<Utc>)> {
@@ -690,6 +758,28 @@ where
         Ok((start_date, now))
     }
 
+    /// Sends weekly spend reports to configured recipients.
+    ///
+    /// Calculates the weekly report range, loads recipient aggregate groups from
+    /// MySQL, queries Elasticsearch for each group's spend details, and sends the
+    /// rendered HTML report through SMTP.
+    ///
+    /// # Arguments
+    ///
+    /// * `schedule_item` - Batch schedule configuration containing batch size and index name
+    /// * `elastic_service` - Elasticsearch service used to query spend details
+    /// * `mysql_service` - MySQL service used to load report recipients
+    /// * `smtp_service` - SMTP service used to send report emails
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` after all aggregate groups have been processed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - The report date range cannot be calculated
+    /// - Recipient aggregate groups cannot be loaded from MySQL
     pub(super) async fn send_weekly_spent_report(
         schedule_item: &BatchScheduleItem,
         elastic_service: &Arc<E>,
