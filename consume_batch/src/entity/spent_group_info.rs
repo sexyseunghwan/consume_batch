@@ -23,6 +23,12 @@ pub enum Relation {
 }
 
 impl Related<super::spent_detail::Entity> for Entity {
+    /// Returns the relation definition to `SPENT_DETAIL`.
+    ///
+    /// # Returns
+    ///
+    /// Returns the SeaORM relation definition for spent details belonging to
+    /// this spent group.
     fn to() -> RelationDef {
         Relation::SpentDetail.def()
     }

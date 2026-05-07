@@ -55,6 +55,12 @@ impl Related<super::user_payment_methods::Entity> for Entity {
 }
 
 impl Related<super::users_email::Entity> for Entity {
+    /// Returns the relation definition to `USERS_EMAIL`.
+    ///
+    /// # Returns
+    ///
+    /// Returns the SeaORM relation definition for email addresses owned by this
+    /// user.
     fn to() -> RelationDef {
         Relation::UsersEmail.def()
     }

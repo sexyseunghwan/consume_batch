@@ -259,6 +259,40 @@ pub trait ElasticService {
         response_body: &Value,
     ) -> Result<Vec<DocumentWithId<T>>, anyhow::Error>;
 
+    /// Finds documents by group sequence, date range, sort order, and sum aggregation.
+    ///
+    /// Queries an Elasticsearch index for documents matching an aggregate group
+    /// and range condition, sorts the result list, and returns both the matched
+    /// documents and the summed aggregation value.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - Document source type to deserialize from Elasticsearch hits
+    ///
+    /// # Arguments
+    ///
+    /// * `index_name` - Elasticsearch index or alias to query
+    /// * `range_field` - Date or numeric field used in the range filter
+    /// * `start_date` - Lower bound value for the range filter
+    /// * `end_date` - Upper bound value for the range filter
+    /// * `start_op` - Elasticsearch range operator for `start_date`
+    /// * `end_op` - Elasticsearch range operator for `end_date`
+    /// * `order_by_field` - Field used to sort matched documents
+    /// * `asc_yn` - Whether to sort ascending
+    /// * `aggs_field` - Numeric field to sum in the aggregation
+    /// * `group_seq` - Aggregate group sequence used in the term filter
+    ///
+    /// # Returns
+    ///
+    /// Returns an `AggResultSet<T>` containing the aggregation result and matched
+    /// documents.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Elasticsearch query execution fails
+    /// - Aggregation value is missing or cannot be parsed
+    /// - Hit documents cannot be deserialized into `T`
     async fn find_info_filter_groupseq_orderby_aggs_range<T: Send + Sync + DeserializeOwned>(
         &self,
         index_name: &str,

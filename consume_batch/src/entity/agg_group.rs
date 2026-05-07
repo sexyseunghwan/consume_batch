@@ -24,12 +24,24 @@ pub enum Relation {
 }
 
 impl Related<super::telegram_room::Entity> for Entity {
+    /// Returns the relation definition to `TELEGRAM_ROOM`.
+    ///
+    /// # Returns
+    ///
+    /// Returns the SeaORM relation definition for the aggregate group's
+    /// telegram rooms.
     fn to() -> RelationDef {
         Relation::TelegramRoom.def()
     }
 }
 
 impl Related<super::send_email_agg_group::Entity> for Entity {
+    /// Returns the relation definition to `SEND_EMAIL_AGG_GROUP`.
+    ///
+    /// # Returns
+    ///
+    /// Returns the SeaORM relation definition for the aggregate group's
+    /// email recipient mappings.
     fn to() -> RelationDef {
         Relation::SendEmailAggGroup.def()
     }

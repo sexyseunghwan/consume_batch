@@ -16,6 +16,27 @@ pub struct ElasticServiceImpl<R: EsRepository> {
 }
 
 impl<R: EsRepository> ElasticServiceImpl<R> {
+    /// Selects the best consume type from Elasticsearch search results.
+    ///
+    /// Combines Elasticsearch score, keyword weight, and Levenshtein distance
+    /// to choose the most relevant consume keyword type for the provided product
+    /// name. If no search results are available, the function falls back to the
+    /// `etc` consume type.
+    ///
+    /// # Arguments
+    ///
+    /// * `prodt_name` - Product or spend name to classify
+    /// * `results` - Candidate consume types returned from Elasticsearch
+    ///
+    /// # Returns
+    ///
+    /// Returns the selected `ConsumingIndexProdtType`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Levenshtein distance cannot be converted into the scoring type
+    /// - No candidate can be selected after scoring
     fn find_consume_type(
         prodt_name: &str,
         results: Vec<DocumentWithId<ConsumingIndexProdtType>>,
@@ -537,7 +558,41 @@ where
     }
 
 
-     async fn find_info_filter_groupseq_orderby_aggs_range<T: Send + Sync + DeserializeOwned>(
+    /// Finds documents by group sequence, date range, sort order, and sum aggregation.
+    ///
+    /// Builds an Elasticsearch query with a range filter and `agg_group_seq`
+    /// term filter, then parses both the matched document list and the summed
+    /// aggregation value from the response.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - Document source type to deserialize from Elasticsearch hits
+    ///
+    /// # Arguments
+    ///
+    /// * `index_name` - Elasticsearch index or alias to query
+    /// * `range_field` - Date or numeric field used in the range filter
+    /// * `start_date` - Lower bound value for the range filter
+    /// * `end_date` - Upper bound value for the range filter
+    /// * `start_op` - Elasticsearch range operator for `start_date`
+    /// * `end_op` - Elasticsearch range operator for `end_date`
+    /// * `order_by_field` - Field used to sort matched documents
+    /// * `asc_yn` - Whether to sort ascending
+    /// * `aggs_field` - Numeric field to sum in the aggregation
+    /// * `group_seq` - Aggregate group sequence used in the term filter
+    ///
+    /// # Returns
+    ///
+    /// Returns an `AggResultSet<T>` containing the aggregation result and matched
+    /// documents.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Elasticsearch query execution fails
+    /// - Aggregation value is missing or cannot be parsed
+    /// - Hit documents cannot be deserialized into `T`
+    async fn find_info_filter_groupseq_orderby_aggs_range<T: Send + Sync + DeserializeOwned>(
         &self,
         index_name: &str,
         range_field: &str,

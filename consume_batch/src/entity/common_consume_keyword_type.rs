@@ -24,12 +24,24 @@ pub enum Relation {
 }
 
 impl Related<super::common_consume_prodt_keyword::Entity> for Entity {
+    /// Returns the relation definition to `COMMON_CONSUME_PRODT_KEYWORD`.
+    ///
+    /// # Returns
+    ///
+    /// Returns the SeaORM relation definition for product keywords belonging to
+    /// this consume keyword type.
     fn to() -> RelationDef {
         Relation::CommonConsumeProdtKeyword.def()
     }
 }
 
 impl Related<super::spent_detail::Entity> for Entity {
+    /// Returns the relation definition to `SPENT_DETAIL`.
+    ///
+    /// # Returns
+    ///
+    /// Returns the SeaORM relation definition for spent details classified by
+    /// this consume keyword type.
     fn to() -> RelationDef {
         Relation::SpentDetail.def()
     }

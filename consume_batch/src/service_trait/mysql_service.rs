@@ -40,11 +40,48 @@ pub trait MysqlService {
     //     limit: u64,
     // ) -> anyhow::Result<Vec<SpentDetailWithRelations>>;
 
+    /// Fetches spent details with related data for selected spent IDs.
+    ///
+    /// Retrieves denormalized spend detail rows used to update
+    /// `SPENT_DETAIL_INDEXING` during incremental indexing.
+    ///
+    /// # Arguments
+    ///
+    /// * `spent_idxs` - Spend detail primary keys to fetch
+    ///
+    /// # Returns
+    ///
+    /// Returns the matching `SpentDetailWithRelations` rows.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Database query execution fails
+    /// - Query results cannot be mapped to the model
     async fn find_spent_details_for_indexing(
         &self,
         spent_idxs: &[i64],
     ) -> anyhow::Result<Vec<SpentDetailWithRelations>>;
 
+    /// Fetches all spent detail indexing rows in batches.
+    ///
+    /// Reads `SPENT_DETAIL_INDEXING` records using offset-based pagination for
+    /// full-indexing jobs.
+    ///
+    /// # Arguments
+    ///
+    /// * `offset` - Starting row offset for pagination
+    /// * `limit` - Maximum number of rows to fetch
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of `SpentDetailIndexing` rows.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Database query execution fails
+    /// - Query results cannot be mapped to the model
     async fn find_spent_detail_indexing_for_index(
         &self,
         offset: u64,
@@ -106,13 +143,68 @@ pub trait MysqlService {
         rows: Vec<dim_calendar::ActiveModel>,
     ) -> anyhow::Result<()>;
 
+    /// Upserts denormalized spent detail indexing rows.
+    ///
+    /// Inserts or updates `SPENT_DETAIL_INDEXING` rows from the provided related
+    /// spent detail data.
+    ///
+    /// # Arguments
+    ///
+    /// * `upsert_list` - Denormalized spent detail rows to insert or update
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` after all rows are written.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Database transaction creation fails
+    /// - Bulk upsert execution fails
+    /// - Transaction commit fails
     async fn modify_spent_detail_indexing(
         &self,
         upsert_list: Vec<SpentDetailWithRelations>,
     ) -> anyhow::Result<()>;
 
+    /// Deletes denormalized spent detail indexing rows by spent ID.
+    ///
+    /// Removes rows from `SPENT_DETAIL_INDEXING` that match the provided
+    /// `spent_idx` values.
+    ///
+    /// # Arguments
+    ///
+    /// * `delete_list` - Spend detail primary keys to delete
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` after the delete operation completes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Database delete execution fails
     async fn delete_spent_detail_indexing(&self, delete_list: &[i64]) -> anyhow::Result<()>;
 
+    /// Fetches active email recipients grouped by aggregate group.
+    ///
+    /// Reads recipient rows used by the monthly spend report job, with
+    /// offset-based pagination.
+    ///
+    /// # Arguments
+    ///
+    /// * `offset` - Starting row offset for pagination
+    /// * `limit` - Maximum number of rows to fetch
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of `SendEmailAggGroup` recipient mappings.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Database query execution fails
+    /// - Query results cannot be mapped to the model
     async fn find_send_email_agg_group(
         &self,
         offset: u64,

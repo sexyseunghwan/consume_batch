@@ -37,18 +37,36 @@ pub enum Relation {
 }
 
 impl Related<super::spent_detail::Entity> for Entity {
+    /// Returns the relation definition to `SPENT_DETAIL`.
+    ///
+    /// # Returns
+    ///
+    /// Returns the SeaORM relation definition for spent details associated with
+    /// this telegram room.
     fn to() -> RelationDef {
         Relation::SpentDetail.def()
     }
 }
 
 impl Related<super::users::Entity> for Entity {
+    /// Returns the relation definition to `USERS`.
+    ///
+    /// # Returns
+    ///
+    /// Returns the SeaORM relation definition for the user that owns this
+    /// telegram room.
     fn to() -> RelationDef {
         Relation::Users.def()
     }
 }
 
 impl Related<super::agg_group::Entity> for Entity {
+    /// Returns the relation definition to `AGG_GROUP`.
+    ///
+    /// # Returns
+    ///
+    /// Returns the SeaORM relation definition for the aggregate group assigned
+    /// to this telegram room.
     fn to() -> RelationDef {
         Relation::AggGroup.def()
     }

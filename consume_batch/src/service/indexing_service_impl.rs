@@ -908,7 +908,6 @@ where
     /// # Errors
     ///
     /// Individual processing errors are logged and skipped; the loop continues running.
-    // 이쪽이 증분색인 !!!
     async fn input_spent_detail_incremental(
         &self,
         schedule_item: &BatchScheduleItem,
