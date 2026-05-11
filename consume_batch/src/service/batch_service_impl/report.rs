@@ -183,6 +183,23 @@ fn build_category_rows(detail_by_type: &[SpentResultByType]) -> String {
     html
 }
 
+/// Builds an HTML table comparing current and previous period spend totals.
+///
+/// Renders a single-row summary table with three columns — current total,
+/// previous total, and the change expressed as a percentage and absolute
+/// amount.  The change cell is colour-coded: red when spending increased,
+/// green when it decreased, and grey when it is unchanged or there is no
+/// previous data.
+///
+/// # Arguments
+///
+/// * `cur_total` - Total spend amount for the current report period
+/// * `prev_total` - Total spend amount for the comparison period; pass `0`
+///   when no previous data is available
+///
+/// # Returns
+///
+/// Returns a complete `<table>` HTML string ready for template injection.
 fn build_period_summary_html(cur_total: i64, prev_total: i64) -> String {
     let cur_str: String = format!("{} 원", format_money(cur_total));
     let prev_str: String = if prev_total == 0 {
@@ -233,16 +250,30 @@ fn build_period_summary_html(cur_total: i64, prev_total: i64) -> String {
 
 /// Renders a spend report HTML body from the configured template.
 ///
-/// Reads the report template path from [`AppConfig`] and replaces all
-/// placeholders with the supplied report values.
+/// Reads the report template path from [`AppConfig`] and substitutes all
+/// placeholders with the supplied values.  Placeholder mapping:
+///
+/// | Placeholder         | Value                                     |
+/// |---------------------|-------------------------------------------|
+/// | `{{REPORT_TITLE}}`  | `report_title`                            |
+/// | `{{START_*}}`       | Year / month / day of `start_date`        |
+/// | `{{END_*}}`         | Year / month / day of `end_date`          |
+/// | `{{COMPARISON}}`    | Inline comparison text (`comparison_html`) |
+/// | `{{PERIOD_SUMMARY}}`| Period-vs-period summary table            |
+/// | `{{ROWS}}`          | Spend detail table rows                   |
+/// | `{{CATEGORY_ROWS}}` | Category summary table rows               |
+/// | `{{TOTAL}}`         | Grand total formatted with commas         |
 ///
 /// # Arguments
 ///
-/// * `report_title` - Title injected into `{{REPORT_TITLE}}` (e.g. "월간 소비 리포트")
-/// * `start_date` - The first date included in the report range
-/// * `end_date` - The last date included in the report range
-/// * `rows_html` - Pre-rendered HTML table rows for spend details
-/// * `total` - Total spend amount for the report range
+/// * `report_title` - Label injected into `{{REPORT_TITLE}}` (e.g. "월간 소비 리포트")
+/// * `start_date` - First date included in the report range
+/// * `end_date` - Last date included in the report range
+/// * `rows_html` - Pre-rendered `<tr>` rows for the spend detail table
+/// * `total` - Grand total spend amount for the current period
+/// * `category_rows_html` - Pre-rendered `<tr>` rows for the category summary table
+/// * `comparison_html` - Inline HTML fragment showing the period-over-period change
+/// * `period_summary_html` - HTML table comparing current and previous period totals
 ///
 /// # Errors
 ///
@@ -491,30 +522,35 @@ where
         Ok(spent_result_by_types)
     }
 
-    /// Processes and sends the monthly report for one aggregate group.
+    /// Processes and sends a spend report for one aggregate group.
     ///
-    /// Queries Elasticsearch for the group's spend details, renders the monthly
-    /// report HTML, and sends the same report to each email address associated
-    /// with the aggregate group.
+    /// Queries Elasticsearch twice — once for the current period and once for
+    /// the comparison period — then builds the full HTML report (spend detail
+    /// rows, category summary, period-vs-period comparison) and delivers it to
+    /// every email address associated with the aggregate group.
     ///
     /// # Arguments
     ///
-    /// * `agg_group_seq` - Aggregate group sequence used to filter report data
+    /// * `agg_group_seq` - Aggregate group sequence used to filter Elasticsearch data
     /// * `email_ids` - Email addresses that should receive the rendered report
     /// * `elastic_service` - Elasticsearch service used to query spend details
-    /// * `smtp_service` - SMTP service used to send the report email
+    /// * `smtp_service` - SMTP service used to deliver the report email
+    /// * `report_title` - Report label shown in the email subject and HTML header
+    ///   (e.g. "월간 소비 리포트" or "주간 소비 리포트")
     /// * `index_name` - Elasticsearch index or alias to query
-    /// * `date_range` - First and last dates included in the report range
+    /// * `date_range` - Date range for the current report period
+    /// * `prev_date_range` - Date range for the comparison (previous) period;
+    ///   used to calculate the period-over-period change shown in the report
     ///
     /// # Returns
     ///
-    /// Returns `Ok(())` after the report is sent to every recipient.
+    /// Returns `Ok(())` after the report is delivered to every recipient.
     ///
     /// # Errors
     ///
     /// Returns an error if:
-    /// - Elasticsearch report data query fails
-    /// - Monthly report HTML template cannot be rendered
+    /// - Either Elasticsearch query fails
+    /// - The HTML report cannot be rendered (config not initialized or template unreadable)
     /// - SMTP delivery fails for any recipient
     async fn process_agg_group(
         agg_group_seq: i64,
@@ -653,16 +689,22 @@ where
 
     /// Processes aggregate-group reports with bounded concurrency.
     ///
-    /// Spawns one task per aggregate group and limits the number of in-flight
-    /// report sends with `MONTHLY_REPORT_MAX_CONCURRENCY`.
+    /// Spawns one task per aggregate group and caps simultaneous in-flight
+    /// sends at `REPORT_MAX_CONCURRENCY`.  Each task calls
+    /// [`Self::process_agg_group`], which queries both the current and
+    /// comparison periods, renders the full HTML report, and delivers it via
+    /// SMTP.
     ///
     /// # Arguments
     ///
     /// * `agg_group_map` - Map of aggregate group sequence to recipient email addresses
-    /// * `elastic_service` - Elasticsearch service shared by report tasks
-    /// * `smtp_service` - SMTP service shared by report tasks
+    /// * `elastic_service` - Elasticsearch service shared across all report tasks
+    /// * `smtp_service` - SMTP service shared across all report tasks
+    /// * `report_title` - Label forwarded to each task (e.g. "월간 소비 리포트")
     /// * `index_name` - Elasticsearch index or alias to query
-    /// * `date_range` - First and last dates included in the report range
+    /// * `date_range` - Date range for the current report period
+    /// * `prev_date_range` - Date range for the comparison period, forwarded to
+    ///   each task for period-over-period calculations
     ///
     /// # Returns
     ///
@@ -839,16 +881,18 @@ where
 
     /// Sends weekly spend reports to configured recipients.
     ///
-    /// Calculates the weekly report range, loads recipient aggregate groups from
-    /// MySQL, queries Elasticsearch for each group's spend details, and sends the
-    /// rendered HTML report through SMTP.
+    /// Calculates two consecutive weekly date ranges — the current week
+    /// (`date_range`) and the preceding week (`prev_date_range`) — then loads
+    /// recipient aggregate groups from MySQL and dispatches one HTML report per
+    /// group via SMTP.  Each report includes spend details, a category summary,
+    /// and a period-over-period comparison between the two weeks.
     ///
     /// # Arguments
     ///
-    /// * `schedule_item` - Batch schedule configuration containing batch size and index name
+    /// * `schedule_item` - Batch schedule configuration (batch size, index name)
     /// * `elastic_service` - Elasticsearch service used to query spend details
     /// * `mysql_service` - MySQL service used to load report recipients
-    /// * `smtp_service` - SMTP service used to send report emails
+    /// * `smtp_service` - SMTP service used to deliver report emails
     ///
     /// # Returns
     ///
@@ -857,7 +901,7 @@ where
     /// # Errors
     ///
     /// Returns an error if:
-    /// - The report date range cannot be calculated
+    /// - Either weekly date range cannot be calculated
     /// - Recipient aggregate groups cannot be loaded from MySQL
     pub(super) async fn send_weekly_spent_report(
         schedule_item: &BatchScheduleItem,

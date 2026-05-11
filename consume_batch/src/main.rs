@@ -29,13 +29,20 @@ History     :   2025-01-01 Seunghwan Shin       # [v.1.0.0] first create.
                                                             - is         : boolean return functions (needs_upsert -> is_upsert_required)
                                                             - to         : type conversion functions (convert_* -> to_*)
                                                             - By         : preposition for "do A based on B" (process_batch -> input_batch_by_schedule)
+                2026-04-29 Seunghwan Shin       # [v.3.2.0] 1) Add modify_all_spent_detail_indexing_type to update consume_keyword_type_id and consume_keyword_type in SPENT_DETAIL_INDEXING.
+                                                            2) Add modify_spent_detail_indexing_type_batch to MysqlService trait and impl.
+                                                            3) Wrap both spent_detail type update calls into modify_all_spent_detail_types.
                 2026-05-04 Seunghwan Shin       # [v.3.3.0] 1) Add SmtpService trait and SmtpServiceImpl using lettre crate.
                                                             2) Add monthly_spent_report batch job: sends per-user HTML spend summary on the 1st of each month.
                                                             3) Add find_users_monthly_spent_summary to MysqlService (GROUP BY on SPENT_DETAIL_INDEXING).
                                                             4) Add SMTP_HOST / SMTP_ID / SMTP_PW env vars to AppConfig.
-                2026-04-29 Seunghwan Shin       # [v.3.2.0] 1) Add modify_all_spent_detail_indexing_type to update consume_keyword_type_id and consume_keyword_type in SPENT_DETAIL_INDEXING.
-                                                            2) Add modify_spent_detail_indexing_type_batch to MysqlService trait and impl.
-                                                            3) Wrap both spent_detail type update calls into modify_all_spent_detail_types.
+                2026-05-11 Seunghwan Shin       # [v.3.4.0] 1) Implement process_agg_group: HTML report generation and SMTP delivery per agg_group_seq.
+                                                            2) Add send_weekly_spent_report: weekly spend report with 7-day rolling date range.
+                                                            3) Add category summary table (spend by consume_keyword_type with percentage share).
+                                                            4) Add period-over-period comparison: current vs previous period total, change amount and rate.
+                                                            5) Add build_period_summary_html: two-period comparison table with colour-coded change column.
+                                                            6) Add prev_date_range to both monthly and weekly report flows for comparison queries.
+                                                            7) Generalise build_report_html with {{REPORT_TITLE}}, {{COMPARISON}}, {{PERIOD_SUMMARY}} placeholders.
 */
 
 mod common;
