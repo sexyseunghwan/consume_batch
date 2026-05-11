@@ -26,4 +26,6 @@ pub struct GroupSeqAggsRangeQuery<'a> {
     pub aggs_field: &'a str,
     /// Aggregate group sequence used in the term filter.
     pub group_seq: i64,
+    
+    pub query_size: i64
 }

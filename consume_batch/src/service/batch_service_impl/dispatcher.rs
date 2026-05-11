@@ -131,7 +131,7 @@ where
                 .await
                 .inspect_err(|e| {
                     error!(
-                        "[BatchServiceImpl::input_batch_by_schedule] monthly_spent_report: {:#}",
+                        "[BatchServiceImpl::input_batch_by_schedule] weekly_spent_report: {:#}",
                         e
                     );
                 })?;

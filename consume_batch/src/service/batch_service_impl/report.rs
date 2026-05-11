@@ -183,6 +183,54 @@ fn build_category_rows(detail_by_type: &[SpentResultByType]) -> String {
     html
 }
 
+fn build_period_summary_html(cur_total: i64, prev_total: i64) -> String {
+    let cur_str: String = format!("{} 원", format_money(cur_total));
+    let prev_str: String = if prev_total == 0 {
+        "-".to_string()
+    } else {
+        format!("{} 원", format_money(prev_total))
+    };
+
+    let (color, change_str) = if prev_total == 0 {
+        ("#888888", "-".to_string())
+    } else {
+        let diff: i64 = cur_total - prev_total;
+        let diff_pct: f64 = ((diff as f64 / prev_total as f64) * 1000.0).round() / 10.0;
+        if diff > 0 {
+            (
+                "#e53935",
+                format!("▲ +{:.1}% (+{} 원)", diff_pct, format_money(diff)),
+            )
+        } else if diff < 0 {
+            (
+                "#43a047",
+                format!("▼ {:.1}% (-{} 원)", diff_pct, format_money(-diff)),
+            )
+        } else {
+            ("#888888", "━ 0.0% (0 원)".to_string())
+        }
+    };
+
+    format!(
+        "<table style=\"width:100%;border-collapse:collapse;margin-top:16px;\">\
+           <thead>\
+             <tr style=\"background:#f0f4ff;\">\
+               <th style=\"padding:8px 12px;text-align:right;color:#555;font-weight:600;\">이번 기간 총소비</th>\
+               <th style=\"padding:8px 12px;text-align:right;color:#555;font-weight:600;\">지난 기간 총소비</th>\
+               <th style=\"padding:8px 12px;text-align:right;color:#555;font-weight:600;\">등락</th>\
+             </tr>\
+           </thead>\
+           <tbody>\
+             <tr>\
+               <td style=\"padding:8px 12px;text-align:right;\">{cur_str}</td>\
+               <td style=\"padding:8px 12px;text-align:right;\">{prev_str}</td>\
+               <td style=\"padding:8px 12px;text-align:right;color:{color};font-weight:bold;\">{change_str}</td>\
+             </tr>\
+           </tbody>\
+         </table>"
+    )
+}
+
 /// Renders a spend report HTML body from the configured template.
 ///
 /// Reads the report template path from [`AppConfig`] and replaces all
@@ -207,6 +255,7 @@ fn build_report_html(
     rows_html: &str,
     total: i64,
     category_rows_html: &str,
+    period_summary_html: &str,
 ) -> anyhow::Result<String> {
     let app_config: &AppConfig = AppConfig::get_global().inspect_err(|e| {
         error!(
@@ -224,16 +273,17 @@ fn build_report_html(
         )
     })?;
 
-    let html = template
+    let html: String = template
         .replace("{{REPORT_TITLE}}", report_title)
         .replace("{{START_YEAR}}", &start_date.year().to_string())
         .replace("{{START_MONTH}}", &start_date.month().to_string())
-        .replace("{{CATEGORY_ROWS}}", category_rows_html)
         .replace("{{START_DAY}}", &start_date.day().to_string())
         .replace("{{END_YEAR}}", &end_date.year().to_string())
         .replace("{{END_MONTH}}", &end_date.month().to_string())
         .replace("{{END_DAY}}", &end_date.day().to_string())
+        .replace("{{PERIOD_SUMMARY}}", period_summary_html)
         .replace("{{ROWS}}", rows_html)
+        .replace("{{CATEGORY_ROWS}}", category_rows_html)
         .replace("{{TOTAL}}", &format_money(total));
 
     Ok(html)
@@ -474,6 +524,7 @@ where
         report_title: String,
         index_name: &str,
         date_range: ReportDateRange,
+        prev_date_range: ReportDateRange
     ) -> anyhow::Result<()> {
         // 소비 정보 디테일 + 집계
         let cur_agg_infos: AggResultSet<SpentDetailIndexing> = elastic_service
@@ -488,9 +539,28 @@ where
                 asc_yn: true,
                 aggs_field: "spent_money",
                 group_seq: agg_group_seq,
+                query_size: 10000
             })
             .await?;
+        
 
+        // 비교 기간 집계
+        let versus_agg_infos: AggResultSet<SpentDetailIndexing> = elastic_service
+            .find_info_filter_groupseq_orderby_aggs_range(GroupSeqAggsRangeQuery {
+                index_name,
+                range_field: "spent_at",
+                start_date: prev_date_range.start_date,
+                end_date: prev_date_range.end_date,
+                start_op: RangeOperator::GreaterThanOrEqual,
+                end_op: RangeOperator::LessThanOrEqual,
+                order_by_field: "spent_at",
+                asc_yn: true,
+                aggs_field: "spent_money",
+                group_seq: agg_group_seq,
+                query_size: 0
+            })
+            .await?;
+        
         // 소비 정보 디테일 - 카테고리 별
         let detail_by_type: Vec<SpentResultByType> = Self::find_spent_result_by_category(&cur_agg_infos)
             .inspect_err(|e| {
@@ -500,6 +570,8 @@ where
         let rows_html: String = build_html_rows(cur_agg_infos.source_list());
         let category_rows_html: String = build_category_rows(&detail_by_type);
         let total: i64 = cur_agg_infos.agg_result().round() as i64;
+        let prev_total: i64 = versus_agg_infos.agg_result().round() as i64;
+        let period_summary_html: String = build_period_summary_html(total, prev_total);
 
         let html: String =
             build_report_html(
@@ -509,6 +581,7 @@ where
                 &rows_html,
                 total,
                 &category_rows_html,
+                &period_summary_html,
             )?;
         let subject: String = format!(
             "[{}] {}년 {}월 {}일 ~ {}년 {}월 {}일 소비 내역",
@@ -601,6 +674,7 @@ where
         report_title: String,
         index_name: &str,
         date_range: ReportDateRange,
+        prev_date_range: ReportDateRange
     ) -> usize {
         const REPORT_MAX_CONCURRENCY: usize = 10;
 
@@ -628,6 +702,7 @@ where
                     report_title,
                     &index_name,
                     date_range,
+                    prev_date_range
                 )
                 .await
             });
@@ -678,9 +753,12 @@ where
     ) -> anyhow::Result<()> {
         let now: DateTime<Utc> = Utc::now();
         let (start_date, end_date) = Self::find_monthly_report_range(now)?;
-        let date_range: ReportDateRange = ReportDateRange {
-            start_date,
-            end_date,
+        let date_range: ReportDateRange = ReportDateRange { start_date, end_date };
+
+        let (prev_start_date, prev_end_date) = Self::find_monthly_report_range(start_date)?;
+        let prev_date_range: ReportDateRange = ReportDateRange {
+            start_date: prev_start_date,
+            end_date: prev_end_date,
         };
 
         batch_log!(
@@ -710,6 +788,7 @@ where
             "월간 소비 리포트".to_string(),
             &index_name,
             date_range,
+            prev_date_range
         )
         .await;
 
@@ -788,9 +867,12 @@ where
     ) -> anyhow::Result<()> {
         let now: DateTime<Utc> = Utc::now();
         let (start_date, end_date) = Self::find_weekly_report_range(now)?;
-        let date_range: ReportDateRange = ReportDateRange {
-            start_date,
-            end_date,
+        let date_range: ReportDateRange = ReportDateRange { start_date, end_date };
+
+        let (prev_start_date, prev_end_date) = Self::find_weekly_report_range(start_date)?;
+        let prev_date_range: ReportDateRange = ReportDateRange {
+            start_date: prev_start_date,
+            end_date: prev_end_date,
         };
 
         batch_log!(
@@ -819,6 +901,7 @@ where
             "주간 소비 리포트".to_string(),
             &index_name,
             date_range,
+            prev_date_range
         )
         .await;
 

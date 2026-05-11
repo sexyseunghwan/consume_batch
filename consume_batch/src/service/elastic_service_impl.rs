@@ -593,7 +593,7 @@ where
         let order_by_asc: &str = if query_options.asc_yn { "asc" } else { "desc" };
 
         let query: Value = json!({
-            "size": 10000,
+            "size": query_options.query_size,
             "query": {
                 "bool": {
                     "filter": [
@@ -624,8 +624,6 @@ where
                 query_options.order_by_field: { "order": order_by_asc }
             }
         });
-
-        println!("{}", query);
 
         let response_body: Value = self
             .elastic_conn
