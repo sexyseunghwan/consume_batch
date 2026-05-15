@@ -4,7 +4,7 @@ use rust_decimal::Decimal;
 use crate::common::*;
 use crate::entity::dim_calendar;
 use crate::models::{
-    CurrencyExchangeRateSnapshot, SendEmailAggGroup, SpentDetail, SpentDetailIndexing,
+    Crypto, CurrencyExchangeRateSnapshot, SendEmailAggGroup, SpentDetail, SpentDetailIndexing,
     SpentDetailWithRelations, SpentTypeKeyword, Stock,
 };
 
@@ -229,6 +229,17 @@ pub trait MysqlService {
     ) -> anyhow::Result<Vec<Stock>>;
 
     async fn modify_stock_price_bulk(
+        &self,
+        price_map: &HashMap<i64, Decimal>,
+    ) -> anyhow::Result<()>;
+
+    async fn find_crypto_batch(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> anyhow::Result<Vec<Crypto>>;
+
+    async fn modify_crypto_price_bulk(
         &self,
         price_map: &HashMap<i64, Decimal>,
     ) -> anyhow::Result<()>;

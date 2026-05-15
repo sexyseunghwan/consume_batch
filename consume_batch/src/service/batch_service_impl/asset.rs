@@ -1,8 +1,8 @@
-//! Populate the `DIM_CALENDAR` date dimension table.
+//! Asset price sync batch jobs.
 
 use rust_decimal::Decimal;
 
-use crate::models::{CurrencyExchangeRateSnapshot, batch_schedule::*, Stock};
+use crate::models::{Crypto, CurrencyExchangeRateSnapshot, Stock, batch_schedule::*};
 use crate::service_trait::{
     consume_service::ConsumeService, elastic_service::ElasticService,
     indexing_service::IndexingService, mysql_service::MysqlService,
@@ -15,6 +15,94 @@ use crate::api::twelve_data_api::*;
 
 use super::BatchServiceImpl;
 
+/// Shared batch-loop logic for asset price sync jobs.
+///
+/// Iterates over the asset table in `batch_size` steps, calls
+/// [`fetch_stock_price`] for each `api_symbol`, and bulk-updates the results.
+/// Individual API failures are logged and skipped; DB errors abort the function.
+///
+/// # Arguments
+///
+/// * `batch_size`  - Rows per iteration
+/// * `label`       - Job name used in log messages (e.g. `"sync_stock_price"`)
+/// * `fetch_fn`    - Returns the next page as `(seq, api_symbol)` pairs
+/// * `update_fn`   - Persists the collected `price_map` to the DB
+async fn sync_asset_price<F, G>(
+    batch_size: u64,
+    label: &str,
+    fetch_fn: F,
+    update_fn: G,
+) -> anyhow::Result<()>
+where
+    F: AsyncFn(u64, u64) -> anyhow::Result<Vec<(i64, String)>>,
+    G: AsyncFn(HashMap<i64, Decimal>) -> anyhow::Result<()>,
+{
+    let mut offset: u64 = 0;
+    let mut total_count: usize = 0;
+    let mut success_count: usize = 0;
+    let mut fail_count: usize = 0;
+
+    info!(
+        "[BatchServiceImpl::{}] Starting price sync (batch_size={}).",
+        label, batch_size
+    );
+
+    loop {
+        let items: Vec<(i64, String)> = fetch_fn(offset, batch_size)
+            .await
+            .inspect_err(|e| {
+                error!(
+                    "[BatchServiceImpl::{}] Failed to fetch batch (offset={}): {:#}",
+                    label, offset, e
+                );
+            })?;
+
+        if items.is_empty() {
+            break;
+        }
+        
+        total_count += items.len();
+        let mut price_map: HashMap<i64, Decimal> = HashMap::new();
+
+        for (seq, symbol) in &items {
+            match fetch_stock_price(symbol).await {
+                Ok(price) => {
+                    price_map.insert(*seq, price);
+                }
+                Err(e) => {
+                    error!(
+                        "[BatchServiceImpl::{}] Failed to fetch price for {} (seq={}): {:#}",
+                        label, symbol, seq, e
+                    );
+                    fail_count += 1;
+                }
+            }
+        }
+
+        if !price_map.is_empty() {
+            let batch_success: usize = price_map.len();
+            update_fn(price_map)
+                .await
+                .inspect_err(|e| {
+                    error!(
+                        "[BatchServiceImpl::{}] Bulk update failed (offset={}): {:#}",
+                        label, offset, e
+                    );
+                })?;
+            success_count += batch_success;
+        }
+
+        offset += batch_size;
+    }
+
+    info!(
+        "[BatchServiceImpl::{}] Completed: total={}, success={}, failed={}.",
+        label, total_count, success_count, fail_count
+    );
+
+    Ok(())
+}
+
 impl<M, E, C, P, D, I, S> BatchServiceImpl<M, E, C, P, D, I, S>
 where
     M: MysqlService + Send + Sync + 'static,
@@ -25,27 +113,28 @@ where
     I: IndexingService + Send + Sync + 'static,
     S: SmtpService + Send + Sync + 'static,
 {
-    
     pub(super) async fn sync_currency_exchange_rates(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
     ) -> anyhow::Result<()> {
-        
         batch_log!(
             info,
             "[BatchServiceImpl::sync_currency_exchange_rates] Starting currency price sync."
         );
-        
+
         let currency_snapshots: Vec<CurrencyExchangeRateSnapshot> = mysql_service
             .find_currency_exchange_rate_snapshot()
             .await
             .inspect_err(|e| {
-                error!("[BatchServiceImpl::sync_currency_exchange_rates] Error at `target_currency_infos`: {:#}",e);
+                error!(
+                    "[BatchServiceImpl::sync_currency_exchange_rates] Error at `target_currency_infos`: {:#}",
+                    e
+                );
             })?;
-        
+
         if currency_snapshots.is_empty() {
             info!("[BatchServiceImpl::sync_currency_exchange_rates] No snapshot rows found, skipping.");
-            return Ok(())
+            return Ok(());
         }
 
         let mut snapshot_map: HashMap<i64, f64> = HashMap::new();
@@ -58,11 +147,14 @@ where
             let exchange_rate: f64 = match fetch_exchange_rate(base, target).await {
                 Ok(r) => r,
                 Err(e) => {
-                    error!("[BatchServiceImpl::sync_currency_exchange_rates] Error at `exchange_rate`: {:#}", e);
+                    error!(
+                        "[BatchServiceImpl::sync_currency_exchange_rates] Error at `exchange_rate`: {:#}",
+                        e
+                    );
                     continue;
                 }
             };
-            
+
             snapshot_map.insert(seq, exchange_rate);
         }
 
@@ -90,82 +182,49 @@ where
         Ok(())
     }
 
-
     pub(super) async fn sync_stock_price(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
     ) -> anyhow::Result<()> {
         let batch_size: u64 = *schedule_item.batch_size() as u64;
-        let mut offset: u64 = 0;
-        let mut total_count: usize = 0;
-        let mut success_count: usize = 0;
-        let mut fail_count: usize = 0;
+        let ms1: Arc<M> = Arc::clone(mysql_service);
+        let ms2: Arc<M> = Arc::clone(mysql_service);
+        
+        sync_asset_price(
+            batch_size,
+            "sync_stock_price",
+            async move |offset, limit| {
+                ms1.find_stock_batch(offset, limit).await.map(|v| {
+                    v.into_iter()
+                        .map(|s| (*s.stock_seq(), s.api_symbol().clone()))
+                        .collect()
+                })
+            },
+            async move |price_map| ms2.modify_stock_price_bulk(&price_map).await,
+        )
+        .await
+    }
 
-        batch_log!(
-            info,
-            "[BatchServiceImpl::sync_stock_price] Starting stock price sync (batch_size={}).",
-            batch_size
-        );
+    pub(super) async fn sync_crypto_price(
+        schedule_item: &BatchScheduleItem,
+        mysql_service: &Arc<M>,
+    ) -> anyhow::Result<()> {
+        let batch_size: u64 = *schedule_item.batch_size() as u64;
+        let ms1: Arc<M> = Arc::clone(mysql_service);
+        let ms2: Arc<M> = Arc::clone(mysql_service);
 
-        loop {
-            let stocks: Vec<Stock> = mysql_service
-                .find_stock_batch(offset, batch_size)
-                .await
-                .inspect_err(|e| {
-                    error!(
-                        "[BatchServiceImpl::sync_stock_price] Failed to fetch stock batch (offset={}): {:#}",
-                        offset, e
-                    );
-                })?;
-
-            if stocks.is_empty() {
-                break;
-            }
-            
-            total_count += stocks.len();
-            let mut price_map: HashMap<i64, Decimal> = HashMap::new();
-
-            for stock in &stocks {
-                let seq: i64 = *stock.stock_seq();
-                let symbol: &str = stock.api_symbol();
-
-                match fetch_stock_price(symbol).await {
-                    Ok(price) => {
-                        price_map.insert(seq, price);
-                    }
-                    Err(e) => {
-                        error!(
-                            "[BatchServiceImpl::sync_stock_price] Failed to fetch price for {} (seq={}): {:#}",
-                            symbol, seq, e
-                        );
-                        fail_count += 1;
-                    }
-                }
-            }
-
-            if !price_map.is_empty() {
-                let batch_success: usize = price_map.len();
-                mysql_service
-                    .modify_stock_price_bulk(&price_map)
-                    .await
-                    .inspect_err(|e| {
-                        error!(
-                            "[BatchServiceImpl::sync_stock_price] Bulk update failed (offset={}): {:#}",
-                            offset, e
-                        );
-                    })?;
-                success_count += batch_success;
-            }
-
-            offset += batch_size;
-        }
-
-        batch_log!(
-            info,
-            "[BatchServiceImpl::sync_stock_price] Completed: total={}, success={}, failed={}.",
-            total_count, success_count, fail_count
-        );
-
-        Ok(())
+        sync_asset_price(
+            batch_size,
+            "sync_crypto_price",
+            async move |offset, limit| {
+                ms1.find_crypto_batch(offset, limit).await.map(|v| {
+                    v.into_iter()
+                        .map(|c| (*c.crypto_seq(), c.api_symbol().clone()))
+                        .collect()
+                })
+            },
+            async move |price_map| ms2.modify_crypto_price_bulk(&price_map).await,
+        )
+        .await
     }
 }

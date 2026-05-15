@@ -162,6 +162,19 @@ where
                     );
                 })?
             }
+            "sync_crypto_price" => {
+                Self::sync_crypto_price(
+                    schedule_item, 
+                    mysql_service
+                )
+                .await
+                .inspect_err(|e| {
+                    error!(
+                        "[BatchServiceImpl::input_batch_by_schedule] sync_crypto_price: {:#}",
+                        e
+                    );
+                })?
+            }
             _ => {
                 batch_log!(
                     warn,

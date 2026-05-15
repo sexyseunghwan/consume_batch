@@ -49,6 +49,9 @@ pub use currency_exchange_rate_snapshot::*;
 pub mod currency_code;
 pub use currency_code::*;
 
+pub mod crypto;
+pub use crypto::*;
+
 pub mod stock_type;
 pub use stock_type::*;
 

@@ -4,6 +4,7 @@ pub mod prelude;
 
 pub mod agg_group;
 pub mod common_consume_keyword_type;
+pub mod crypto;
 pub mod currency_code;
 pub mod stock;
 pub mod stock_type;
