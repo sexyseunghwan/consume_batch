@@ -34,6 +34,8 @@ pub struct AppConfig {
     pub smtp_id: Option<String>,
     pub smtp_pw: Option<String>,
     pub monthly_report_template: String,
+    pub twelve_data_api: String,
+    pub twelve_data_api_key: String,
 }
 
 /// Global static instance of AppConfig
@@ -94,6 +96,10 @@ impl AppConfig {
             smtp_pw: env::var("SMTP_PW").ok(),
             monthly_report_template: env::var("MONTHLY_REPORT_TEMPLATE")
                 .unwrap_or_else(|_| "./datas/scripts/monthly_report.html".to_string()),
+            twelve_data_api: env::var("TWELVE_DATA_API")
+                .map_err(|_| "TWELVE_DATA_API not found in environment".to_string())?,
+            twelve_data_api_key: env::var("TWELVE_DATA_API_KEY")
+                .map_err(|_| "TWELVE_DATA_API_KEY not found in environment".to_string())?,
         };
 
         APP_CONFIG

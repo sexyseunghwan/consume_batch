@@ -1,14 +1,17 @@
+use rust_decimal::Decimal;
+
 use crate::common::*;
 
 use crate::service_trait::mysql_service::*;
 
 use crate::entity::{
-    agg_group, common_consume_keyword_type, common_consume_prodt_keyword, dim_calendar,
-    send_email_agg_group, spent_detail, spent_detail_indexing, telegram_room, user_payment_methods,
-    users,
+    agg_group, common_consume_keyword_type, common_consume_prodt_keyword,
+    currency_exchange_rate_snapshot, dim_calendar, send_email_agg_group, spent_detail,
+    spent_detail_indexing, stock, telegram_room, user_payment_methods, users,
 };
 use crate::models::{
-    SendEmailAggGroup, SpentDetail, SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword,
+    CurrencyExchangeRateSnapshot, SendEmailAggGroup, SpentDetail, SpentDetailIndexing,
+    SpentDetailWithRelations, SpentTypeKeyword, Stock,
 };
 
 use sea_orm::{
@@ -1060,5 +1063,239 @@ where
             })?;
 
         Ok(results)
+    }
+
+    /// Fetches all active rows from `CURRENCY_EXCHANGE_RATE_SNAPSHOT`.
+    ///
+    /// ```sql
+    /// SELECT exchange_rate_snapshot_seq, base_currency_code, target_currency_code,
+    ///        base_amount, exchange_rate, is_active,
+    ///        created_at, updated_at, created_by, updated_by
+    /// FROM CURRENCY_EXCHANGE_RATE_SNAPSHOT
+    /// WHERE is_active = true
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// Returns a vector of [`CurrencyExchangeRateSnapshot`] for all active
+    /// currency pairs on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails.
+    async fn find_currency_exchange_rate_snapshot(
+        &self,
+    ) -> anyhow::Result<Vec<CurrencyExchangeRateSnapshot>> {
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+
+        let result: Vec<CurrencyExchangeRateSnapshot> = currency_exchange_rate_snapshot::Entity::find()
+            .select_only()
+            .column(currency_exchange_rate_snapshot::Column::ExchangeRateSnapshotSeq)
+            .column(currency_exchange_rate_snapshot::Column::BaseCurrencyCode)
+            .column(currency_exchange_rate_snapshot::Column::TargetCurrencyCode)
+            .column(currency_exchange_rate_snapshot::Column::BaseAmount)
+            .column(currency_exchange_rate_snapshot::Column::ExchangeRate)
+            .column(currency_exchange_rate_snapshot::Column::IsActive)
+            .column(currency_exchange_rate_snapshot::Column::CreatedAt)
+            .column(currency_exchange_rate_snapshot::Column::UpdatedAt)
+            .column(currency_exchange_rate_snapshot::Column::CreatedBy)
+            .column(currency_exchange_rate_snapshot::Column::UpdatedBy)
+            .filter(currency_exchange_rate_snapshot::Column::IsActive.eq(true))
+            .into_model::<CurrencyExchangeRateSnapshot>()
+            .all(db)
+            .await
+            .inspect_err(|e| {
+                error!(
+                    "[MysqlServiceImpl::find_currency_exchange_rate_snapshot] Failed to execute query: {:#}",
+                    e
+                );
+            })?;
+
+        Ok(result)
+    }
+
+    /// Bulk-updates `exchange_rate`, `updated_at`, and `updated_by` for every
+    /// entry in `snapshot_map` within a single transaction.
+    ///
+    /// ```sql
+    /// -- executed once per entry in snapshot_map
+    /// UPDATE CURRENCY_EXCHANGE_RATE_SNAPSHOT
+    /// SET exchange_rate = ?, updated_at = ?, updated_by = 'batch'
+    /// WHERE exchange_rate_snapshot_seq = ?
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `snapshot_map` - Map of `exchange_rate_snapshot_seq` → new `exchange_rate`
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the transaction cannot be opened/committed or any
+    /// individual UPDATE fails; the transaction is rolled back on failure.
+    async fn modify_currency_exchange_rate_snapshot_bulk(
+        &self,
+        snapshot_map: &HashMap<i64, f64>,
+    ) -> anyhow::Result<()> {
+        if snapshot_map.is_empty() {
+            return Ok(());
+        }
+
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+        let now: chrono::NaiveDateTime = Utc::now().naive_utc();
+
+        let txn: DatabaseTransaction = db.begin().await.inspect_err(|e| {
+            error!(
+                "[MysqlServiceImpl::modify_currency_exchange_rate_snapshot_bulk] Failed to begin transaction: {:#}",
+                e
+            );
+        })?;
+
+        for (seq, rate) in snapshot_map {
+            let decimal_rate = rust_decimal::Decimal::from_f64_retain(*rate)
+                .ok_or_else(|| anyhow!("Failed to convert f64 rate {} to Decimal for seq={}", rate, seq))?;
+
+            currency_exchange_rate_snapshot::Entity::update_many()
+                .col_expr(
+                    currency_exchange_rate_snapshot::Column::ExchangeRate,
+                    Expr::value(decimal_rate),
+                )
+                .col_expr(
+                    currency_exchange_rate_snapshot::Column::UpdatedAt,
+                    Expr::value(now),
+                )
+                .col_expr(
+                    currency_exchange_rate_snapshot::Column::UpdatedBy,
+                    Expr::value("batch"),
+                )
+                .filter(
+                    currency_exchange_rate_snapshot::Column::ExchangeRateSnapshotSeq.eq(*seq),
+                )
+                .exec(&txn)
+                .await
+                .inspect_err(|e| {
+                    error!(
+                        "[MysqlServiceImpl::modify_currency_exchange_rate_snapshot_bulk] UPDATE failed for seq={}: {:#}",
+                        seq, e
+                    );
+                })?;
+        }
+
+        txn.commit().await.inspect_err(|e| {
+            error!(
+                "[MysqlServiceImpl::modify_currency_exchange_rate_snapshot_bulk] Failed to commit transaction: {:#}",
+                e
+            );
+        })?;
+
+        Ok(())
+    }
+
+    /// Fetches a paginated batch of rows from `STOCK` ordered by `stock_seq`.
+    ///
+    /// ```sql
+    /// SELECT stock_seq, market_seq, stock_name, api_symbol, stock_price,
+    ///        created_at, updated_at, created_by, updated_by
+    /// FROM STOCK
+    /// ORDER BY stock_seq ASC
+    /// LIMIT {limit} OFFSET {offset}
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database query fails.
+    async fn find_stock_batch(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> anyhow::Result<Vec<Stock>> {
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+
+        let results: Vec<Stock> = stock::Entity::find()
+            .select_only()
+            .column(stock::Column::StockSeq)
+            .column(stock::Column::MarketSeq)
+            .column(stock::Column::StockName)
+            .column(stock::Column::ApiSymbol)
+            .column(stock::Column::StockPrice)
+            .column(stock::Column::CreatedAt)
+            .column(stock::Column::UpdatedAt)
+            .column(stock::Column::CreatedBy)
+            .column(stock::Column::UpdatedBy)
+            .order_by_asc(stock::Column::StockSeq)
+            .offset(offset)
+            .limit(limit)
+            .into_model::<Stock>()
+            .all(db)
+            .await
+            .inspect_err(|e| {
+                error!(
+                    "[MysqlServiceImpl::find_stock_batch] Failed to execute query (offset={}, limit={}): {:#}",
+                    offset, limit, e
+                );
+            })?;
+
+        Ok(results)
+    }
+
+    /// Bulk-updates `stock_price`, `updated_at`, and `updated_by` for every
+    /// entry in `price_map` within a single transaction.
+    ///
+    /// ```sql
+    /// -- executed once per entry in price_map
+    /// UPDATE STOCK
+    /// SET stock_price = ?, updated_at = ?, updated_by = 'batch'
+    /// WHERE stock_seq = ?
+    /// ```
+    ///
+    /// # Arguments
+    ///
+    /// * `price_map` - Map of `stock_seq` → new `stock_price`
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the transaction cannot be opened/committed or any
+    /// individual UPDATE fails.
+    async fn modify_stock_price_bulk(
+        &self,
+        price_map: &HashMap<i64, Decimal>,
+    ) -> anyhow::Result<()> {
+        if price_map.is_empty() {
+            return Ok(());
+        }
+
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+        let now: chrono::NaiveDateTime = Utc::now().naive_utc();
+
+        let txn: DatabaseTransaction = db.begin().await.inspect_err(|e| {
+            error!(
+                "[MysqlServiceImpl::modify_stock_price_bulk] Failed to begin transaction: {:#}",
+                e
+            );
+        })?;
+
+        for (seq, price) in price_map {
+            stock::Entity::update_many()
+                .col_expr(stock::Column::StockPrice, Expr::value(*price))
+                .col_expr(stock::Column::UpdatedAt, Expr::value(now))
+                .col_expr(stock::Column::UpdatedBy, Expr::value("batch"))
+                .filter(stock::Column::StockSeq.eq(*seq))
+                .exec(&txn)
+                .await
+                .inspect_err(|e| {
+                    error!(
+                        "[MysqlServiceImpl::modify_stock_price_bulk] UPDATE failed for seq={}: {:#}",
+                        seq, e
+                    );
+                })?;
+        }
+        
+        txn.commit().await.inspect_err(|e| {
+            error!(
+                "[MysqlServiceImpl::modify_stock_price_bulk] Failed to commit transaction: {:#}",
+                e
+            );
+        })?;
+
+        Ok(())
     }
 }

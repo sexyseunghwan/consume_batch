@@ -1,8 +1,11 @@
 #![allow(dead_code)]
+use rust_decimal::Decimal;
+
 use crate::common::*;
 use crate::entity::dim_calendar;
 use crate::models::{
-    SendEmailAggGroup, SpentDetail, SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword,
+    CurrencyExchangeRateSnapshot, SendEmailAggGroup, SpentDetail, SpentDetailIndexing,
+    SpentDetailWithRelations, SpentTypeKeyword, Stock,
 };
 
 #[async_trait]
@@ -209,4 +212,24 @@ pub trait MysqlService {
         offset: u64,
         limit: u64,
     ) -> anyhow::Result<Vec<SendEmailAggGroup>>;
+
+    async fn find_currency_exchange_rate_snapshot(
+        &self,
+    ) -> anyhow::Result<Vec<CurrencyExchangeRateSnapshot>>;
+
+    async fn modify_currency_exchange_rate_snapshot_bulk(
+        &self,
+        snapshot_map: &HashMap<i64, f64>,
+    ) -> anyhow::Result<()>;
+
+    async fn find_stock_batch(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> anyhow::Result<Vec<Stock>>;
+
+    async fn modify_stock_price_bulk(
+        &self,
+        price_map: &HashMap<i64, Decimal>,
+    ) -> anyhow::Result<()>;
 }

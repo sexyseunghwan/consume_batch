@@ -4,7 +4,11 @@ pub mod prelude;
 
 pub mod agg_group;
 pub mod common_consume_keyword_type;
+pub mod currency_code;
+pub mod stock;
+pub mod stock_type;
 pub mod common_consume_prodt_keyword;
+pub mod currency_exchange_rate_snapshot;
 pub mod dim_calendar;
 pub mod send_email_agg_group;
 pub mod spent_detail;

@@ -136,6 +136,32 @@ where
                     );
                 })?;
             }
+            "sync_currency_exchange_rates" => {
+                Self::sync_currency_exchange_rates(
+                    schedule_item, 
+                    mysql_service
+                )
+                .await
+                .inspect_err(|e| {
+                    error!(
+                        "[BatchServiceImpl::input_batch_by_schedule] sync_currency_exchange_rates: {:#}",
+                        e
+                    );
+                })?
+            }
+            "sync_stock_price" => {
+                Self::sync_stock_price(
+                    schedule_item, 
+                    mysql_service
+                )
+                .await
+                .inspect_err(|e| {
+                    error!(
+                        "[BatchServiceImpl::input_batch_by_schedule] sync_stock_price: {:#}",
+                        e
+                    );
+                })?
+            }
             _ => {
                 batch_log!(
                     warn,

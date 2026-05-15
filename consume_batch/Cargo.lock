@@ -446,6 +446,7 @@ dependencies = [
  "rdkafka",
  "regex",
  "reqwest 0.11.27",
+ "rust_decimal",
  "sea-orm",
  "serde",
  "serde_json",

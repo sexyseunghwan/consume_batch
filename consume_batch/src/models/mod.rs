@@ -42,3 +42,15 @@ pub use agg_result_set::*;
 
 pub mod spent_result_by_type;
 pub use spent_result_by_type::*;
+
+pub mod currency_exchange_rate_snapshot;
+pub use currency_exchange_rate_snapshot::*;
+
+pub mod currency_code;
+pub use currency_code::*;
+
+pub mod stock_type;
+pub use stock_type::*;
+
+pub mod stock;
+pub use stock::*;

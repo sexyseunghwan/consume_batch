@@ -43,6 +43,7 @@
 //! | `report.rs`       | Monthly spend report via SMTP                       |
 //! | `dimension.rs`    | Populate `DIM_CALENDAR` date dimension table        |
 
+mod asset;
 mod dimension;
 mod dispatcher;
 mod report;

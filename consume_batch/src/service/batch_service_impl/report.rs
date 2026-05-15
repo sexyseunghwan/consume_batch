@@ -560,7 +560,7 @@ where
         report_title: String,
         index_name: &str,
         date_range: ReportDateRange,
-        prev_date_range: ReportDateRange
+        prev_date_range: ReportDateRange,
     ) -> anyhow::Result<()> {
         // 소비 정보 디테일 + 집계
         let cur_agg_infos: AggResultSet<SpentDetailIndexing> = elastic_service
@@ -575,10 +575,9 @@ where
                 asc_yn: true,
                 aggs_field: "spent_money",
                 group_seq: agg_group_seq,
-                query_size: 10000
+                query_size: 10000,
             })
             .await?;
-        
 
         // 비교 기간 집계
         let versus_agg_infos: AggResultSet<SpentDetailIndexing> = elastic_service
@@ -593,10 +592,10 @@ where
                 asc_yn: true,
                 aggs_field: "spent_money",
                 group_seq: agg_group_seq,
-                query_size: 0
+                query_size: 0,
             })
             .await?;
-        
+
         // 소비 정보 디테일 - 카테고리 별
         let detail_by_type: Vec<SpentResultByType> = Self::find_spent_result_by_category(&cur_agg_infos)
             .inspect_err(|e| {
@@ -609,16 +608,15 @@ where
         let prev_total: i64 = versus_agg_infos.agg_result().round() as i64;
         let period_summary_html: String = build_period_summary_html(total, prev_total);
 
-        let html: String =
-            build_report_html(
-                &report_title,
-                date_range.start_date,
-                date_range.end_date,
-                &rows_html,
-                total,
-                &category_rows_html,
-                &period_summary_html,
-            )?;
+        let html: String = build_report_html(
+            &report_title,
+            date_range.start_date,
+            date_range.end_date,
+            &rows_html,
+            total,
+            &category_rows_html,
+            &period_summary_html,
+        )?;
         let subject: String = format!(
             "[{}] {}년 {}월 {}일 ~ {}년 {}월 {}일 소비 내역",
             report_title,
@@ -716,7 +714,7 @@ where
         report_title: String,
         index_name: &str,
         date_range: ReportDateRange,
-        prev_date_range: ReportDateRange
+        prev_date_range: ReportDateRange,
     ) -> usize {
         const REPORT_MAX_CONCURRENCY: usize = 10;
 
@@ -744,7 +742,7 @@ where
                     report_title,
                     &index_name,
                     date_range,
-                    prev_date_range
+                    prev_date_range,
                 )
                 .await
             });
@@ -795,7 +793,10 @@ where
     ) -> anyhow::Result<()> {
         let now: DateTime<Utc> = Utc::now();
         let (start_date, end_date) = Self::find_monthly_report_range(now)?;
-        let date_range: ReportDateRange = ReportDateRange { start_date, end_date };
+        let date_range: ReportDateRange = ReportDateRange {
+            start_date,
+            end_date,
+        };
 
         let (prev_start_date, prev_end_date) = Self::find_monthly_report_range(start_date)?;
         let prev_date_range: ReportDateRange = ReportDateRange {
@@ -830,7 +831,7 @@ where
             "월간 소비 리포트".to_string(),
             &index_name,
             date_range,
-            prev_date_range
+            prev_date_range,
         )
         .await;
 
@@ -911,7 +912,10 @@ where
     ) -> anyhow::Result<()> {
         let now: DateTime<Utc> = Utc::now();
         let (start_date, end_date) = Self::find_weekly_report_range(now)?;
-        let date_range: ReportDateRange = ReportDateRange { start_date, end_date };
+        let date_range: ReportDateRange = ReportDateRange {
+            start_date,
+            end_date,
+        };
 
         let (prev_start_date, prev_end_date) = Self::find_weekly_report_range(start_date)?;
         let prev_date_range: ReportDateRange = ReportDateRange {
@@ -945,7 +949,7 @@ where
             "주간 소비 리포트".to_string(),
             &index_name,
             date_range,
-            prev_date_range
+            prev_date_range,
         )
         .await;
 
