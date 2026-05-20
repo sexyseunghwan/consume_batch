@@ -26,11 +26,19 @@ pub enum Relation {
         to = "super::currency_code::Column::CurrencyCode"
     )]
     CurrencyCode,
+    #[sea_orm(has_many = "super::crypto_asset::Entity")]
+    CryptoAsset,
 }
 
 impl Related<super::currency_code::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::CurrencyCode.def()
+    }
+}
+
+impl Related<super::crypto_asset::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::CryptoAsset.def()
     }
 }
 

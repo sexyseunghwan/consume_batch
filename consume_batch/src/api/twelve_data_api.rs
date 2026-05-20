@@ -1,5 +1,5 @@
-use rust_decimal::Decimal;
 use reqwest::Client;
+use rust_decimal::Decimal;
 
 use crate::app_config::AppConfig;
 use crate::common::*;
@@ -59,7 +59,7 @@ enum TwelveDataPriceResponse {
 /// deserialized, or the API returns an error payload.
 pub async fn fetch_exchange_rate(base: &str, target: &str) -> anyhow::Result<f64> {
     let app_config: &AppConfig = AppConfig::get_global()?;
-    
+
     let url: String = format!(
         "{}/exchange_rate?symbol={}/{}&apikey={}",
         app_config.twelve_data_api(),
@@ -149,13 +149,17 @@ pub async fn fetch_stock_price(symbol: &str) -> anyhow::Result<Decimal> {
             payload.price.trim().parse::<Decimal>().map_err(|e| {
                 anyhow!(
                     "[fetch_stock_price] Failed to parse price '{}' for {}: {}",
-                    payload.price, symbol, e
+                    payload.price,
+                    symbol,
+                    e
                 )
             })
         }
         TwelveDataPriceResponse::Error(err) => Err(anyhow!(
             "Twelve Data API error (code={}) for {}: {}",
-            err.code, symbol, err.message,
+            err.code,
+            symbol,
+            err.message,
         )),
     }
 }

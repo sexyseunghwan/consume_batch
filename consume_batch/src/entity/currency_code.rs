@@ -22,6 +22,8 @@ pub enum Relation {
     StockType,
     #[sea_orm(has_many = "super::crypto::Entity")]
     Crypto,
+    #[sea_orm(has_many = "super::user_current_asset_snapshot::Entity")]
+    UserCurrentAssetSnapshot,
 }
 
 impl Related<super::stock_type::Entity> for Entity {
@@ -33,6 +35,12 @@ impl Related<super::stock_type::Entity> for Entity {
 impl Related<super::crypto::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::Crypto.def()
+    }
+}
+
+impl Related<super::user_current_asset_snapshot::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::UserCurrentAssetSnapshot.def()
     }
 }
 

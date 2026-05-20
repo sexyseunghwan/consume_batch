@@ -4,14 +4,14 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tokio = { version = "1.0", features = ["full"] } 
-reqwest = { version = "0.11", features = ["json"] }
+tokio = { version = "1.52", features = ["full"] } 
+reqwest = { version = "0.13", features = ["json"] }
 dotenv = "0.15.0"
-flexi_logger = "0.27.4"
-log = "0.4.20"
-chrono = "0.4.31"
-chrono-tz = "0.9.0"
-anyhow = "1.0.79"
+flexi_logger = "0.31"
+log = "0.4"
+chrono = "0.4"
+chrono-tz = "0.10"
+anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rand = "0.8.5"
@@ -29,7 +29,7 @@ async-trait = "0.1.83"
 mysql_async = "0.34.1"
 strsim = "0.11.1"
 rayon = "1.10.0"
-sea-orm = { version = "1.1.9", features = ["sqlx-mysql", "runtime-tokio-rustls", "with-rust_decimal"] }
+sea-orm = { version = "1.1", features = ["sqlx-mysql", "runtime-tokio-rustls", "with-rust_decimal"] }
 rust_decimal = { version = "1", features = ["serde-with-float"] }
 rdkafka = "0.38.0"
 toml = "0.8"

@@ -2,14 +2,15 @@ use crate::common::*;
 use crate::entity::{
     agg_group, common_consume_keyword_type, common_consume_prodt_keyword, crypto,
     currency_exchange_rate_snapshot, send_email_agg_group, spent_detail, spent_detail_indexing,
-    stock, telegram_room, user_payment_methods, users,
+    stock, stock_asset, stock_type, telegram_room, user_payment_methods, users,
 };
 use crate::models::{
     Crypto, CurrencyExchangeRateSnapshot, SendEmailAggGroup, SpentDetail, SpentDetailIndexing,
-    SpentDetailWithRelations, SpentTypeKeyword, Stock,
+    SpentDetailWithRelations, SpentTypeKeyword, Stock, StockAssetAmount, StockType,
 };
 use crate::repository::mysql_repository::MysqlRepository;
-use sea_orm::{JoinType, QuerySelect, RelationTrait};
+use sea_orm::sea_query::{Expr, Func, SimpleExpr};
+use sea_orm::{EntityOrSelect, JoinType, PaginatorTrait, QuerySelect, RelationTrait};
 
 use super::MysqlServiceImpl;
 
@@ -333,6 +334,109 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
                 error!(
                     "[MysqlServiceImpl::find_crypto_batch] Failed to execute query (offset={}, limit={}): {:#}",
                     offset, limit, e
+                );
+            })?;
+
+        Ok(results)
+    }
+
+    pub(super) async fn find_stock_types(&self) -> anyhow::Result<Vec<StockType>> {
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+
+        let result: Vec<StockType> = stock_type::Entity::find()
+            .select()
+            .into_model::<StockType>()
+            .all(db)
+            .await
+            .inspect_err(|e| {
+                error!(
+                    "[MysqlServiceImpl::find_stock_types] Failed to execute query: {:#}",
+                    e
+                );
+            })?;
+
+        Ok(result)
+    }
+
+    pub(super) async fn find_users_size(&self) -> anyhow::Result<u64> {
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+
+        let count: u64 = users::Entity::find().count(db).await.inspect_err(|e| {
+            error!(
+                "[MysqlServiceImpl::find_users_size] Failed to execute query: {:#}",
+                e
+            );
+        })?;
+
+        Ok(count)
+    }
+
+    pub(super) async fn find_user_seq_batch(
+        &self,
+        offset: u64,
+        limit: u64,
+    ) -> anyhow::Result<Vec<i64>> {
+        #[derive(FromQueryResult)]
+        struct UserSeqRow {
+            user_seq: i64,
+        }
+
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+
+        let rows: Vec<UserSeqRow> = users::Entity::find()
+            .select_only()
+            .column(users::Column::UserSeq)
+            .order_by_asc(users::Column::UserSeq)
+            .offset(offset)
+            .limit(limit)
+            .into_model::<UserSeqRow>()
+            .all(db)
+            .await
+            .inspect_err(|e| {
+                error!(
+                    "[MysqlServiceImpl::find_user_seq_batch] Failed to execute query \
+                     (offset={}, limit={}): {:#}",
+                    offset, limit, e
+                );
+            })?;
+
+        Ok(rows.into_iter().map(|r| r.user_seq).collect())
+    }
+
+    pub(super) async fn find_stock_asset_amount_batch(
+        &self,
+        currency_code: &str,
+        user_seqs: &[i64],
+    ) -> anyhow::Result<Vec<StockAssetAmount>> {
+        if user_seqs.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+
+        let results: Vec<StockAssetAmount> = stock_asset::Entity::find()
+            .join(JoinType::InnerJoin, stock_asset::Relation::Stock.def())
+            .join(JoinType::InnerJoin, stock::Relation::StockType.def())
+            .select_only()
+            .column(stock_asset::Column::UserSeq)
+            .column_as(
+                SimpleExpr::from(Func::sum(
+                    Expr::col(stock_asset::Column::StockCnt)
+                        .mul(Expr::col(stock::Column::StockPrice)),
+                )),
+                "stock_sum",
+            )
+            .filter(stock_type::Column::CurrencyCode.eq(currency_code))
+            .filter(stock_asset::Column::UserSeq.is_in(user_seqs.to_vec()))
+            .group_by(stock_asset::Column::UserSeq)
+            .into_model::<StockAssetAmount>()
+            .all(db)
+            .await
+            .inspect_err(|e| {
+                error!(
+                    "[MysqlServiceImpl::find_stock_asset_amount_batch] Failed to execute query \
+                     (currency_code={}): {:#}",
+                    currency_code, e
                 );
             })?;
 

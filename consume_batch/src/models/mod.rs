@@ -57,3 +57,15 @@ pub use stock_type::*;
 
 pub mod stock;
 pub use stock::*;
+
+pub mod stock_asset;
+pub use stock_asset::*;
+
+pub mod user_current_asset_snapshot;
+pub use user_current_asset_snapshot::*;
+
+pub mod stock_asset_amount;
+pub use stock_asset_amount::*;
+
+pub mod crypto_asset;
+pub use crypto_asset::*;

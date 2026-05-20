@@ -31,6 +31,12 @@ pub enum Relation {
     UserPaymentMethods,
     #[sea_orm(has_many = "super::users_email::Entity")]
     UsersEmail,
+    #[sea_orm(has_many = "super::stock_asset::Entity")]
+    StockAsset,
+    #[sea_orm(has_many = "super::user_current_asset_snapshot::Entity")]
+    UserCurrentAssetSnapshot,
+    #[sea_orm(has_many = "super::crypto_asset::Entity")]
+    CryptoAsset,
 }
 
 impl Related<super::spent_detail::Entity> for Entity {
@@ -63,6 +69,24 @@ impl Related<super::users_email::Entity> for Entity {
     /// user.
     fn to() -> RelationDef {
         Relation::UsersEmail.def()
+    }
+}
+
+impl Related<super::stock_asset::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::StockAsset.def()
+    }
+}
+
+impl Related<super::user_current_asset_snapshot::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::UserCurrentAssetSnapshot.def()
+    }
+}
+
+impl Related<super::crypto_asset::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::CryptoAsset.def()
     }
 }
 

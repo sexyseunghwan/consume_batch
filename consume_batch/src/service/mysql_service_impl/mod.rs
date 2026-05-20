@@ -21,7 +21,7 @@ use crate::common::*;
 use crate::entity::dim_calendar;
 use crate::models::{
     Crypto, CurrencyExchangeRateSnapshot, SendEmailAggGroup, SpentDetail, SpentDetailIndexing,
-    SpentDetailWithRelations, SpentTypeKeyword, Stock,
+    SpentDetailWithRelations, SpentTypeKeyword, Stock, StockAssetAmount, StockType,
 };
 use crate::repository::mysql_repository::MysqlRepository;
 use crate::service_trait::mysql_service::MysqlService;
@@ -63,7 +63,8 @@ where
         offset: u64,
         limit: u64,
     ) -> anyhow::Result<Vec<SpentDetailIndexing>> {
-        self.find_spent_detail_indexing_for_index(offset, limit).await
+        self.find_spent_detail_indexing_for_index(offset, limit)
+            .await
     }
 
     async fn find_spent_details(
@@ -79,7 +80,8 @@ where
         updates: Vec<(i64, i64)>,
         batch_size: usize,
     ) -> anyhow::Result<u64> {
-        self.modify_spent_detail_type_batch(updates, batch_size).await
+        self.modify_spent_detail_type_batch(updates, batch_size)
+            .await
     }
 
     async fn modify_spent_detail_indexing_type_batch(
@@ -87,7 +89,8 @@ where
         updates: Vec<(i64, i64, String)>,
         batch_size: usize,
     ) -> anyhow::Result<u64> {
-        self.modify_spent_detail_indexing_type_batch(updates, batch_size).await
+        self.modify_spent_detail_indexing_type_batch(updates, batch_size)
+            .await
     }
 
     async fn modify_spent_detail_type_one_by_one(
@@ -133,7 +136,8 @@ where
         &self,
         snapshot_map: &HashMap<i64, f64>,
     ) -> anyhow::Result<()> {
-        self.modify_currency_exchange_rate_snapshot_bulk(snapshot_map).await
+        self.modify_currency_exchange_rate_snapshot_bulk(snapshot_map)
+            .await
     }
 
     async fn find_stock_batch(&self, offset: u64, limit: u64) -> anyhow::Result<Vec<Stock>> {
@@ -156,5 +160,26 @@ where
         price_map: &HashMap<i64, Decimal>,
     ) -> anyhow::Result<()> {
         self.modify_crypto_price_bulk(price_map).await
+    }
+
+    async fn find_stock_types(&self) -> anyhow::Result<Vec<StockType>> {
+        self.find_stock_types().await
+    }
+
+    async fn find_stock_asset_amount_batch(
+        &self,
+        currency_code: &str,
+        user_seqs: &[i64],
+    ) -> anyhow::Result<Vec<StockAssetAmount>> {
+        self.find_stock_asset_amount_batch(currency_code, user_seqs)
+            .await
+    }
+
+    async fn find_user_seq_batch(&self, offset: u64, limit: u64) -> anyhow::Result<Vec<i64>> {
+        self.find_user_seq_batch(offset, limit).await
+    }
+
+    async fn find_users_size(&self) -> anyhow::Result<u64> {
+        self.find_users_size().await
     }
 }

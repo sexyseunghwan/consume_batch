@@ -26,11 +26,19 @@ pub enum Relation {
         to = "super::stock_type::Column::MarketSeq"
     )]
     StockType,
+    #[sea_orm(has_many = "super::stock_asset::Entity")]
+    StockAsset,
 }
 
 impl Related<super::stock_type::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::StockType.def()
+    }
+}
+
+impl Related<super::stock_asset::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::StockAsset.def()
     }
 }
 
