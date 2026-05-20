@@ -5,18 +5,18 @@ use crate::common::*;
 use crate::entity::dim_calendar;
 use crate::models::{
     Crypto, CurrencyExchangeRateSnapshot, SendEmailAggGroup, SpentDetail, SpentDetailIndexing,
-    SpentDetailWithRelations, SpentTypeKeyword, Stock, StockAssetAmount, StockType,
+    SpentDetailWithRelations, SpentTypeKeyword, Stock, AssetAmount, StockType,
 };
 
-/// MySQL 접근 계층에서 사용하는 데이터 조회/변경 계약.
+/// Data access contract for MySQL reads and writes.
 ///
-/// 각 함수의 `요청 쿼리`는 실제 구현(`mysql_service_impl`)의 SeaORM 빌더를
-/// 사람이 읽기 쉬운 SQL 형태로 요약한 것이다.
+/// Each `Requested query` section summarizes the SeaORM query builder used by
+/// the actual implementation in `mysql_service_impl` as human-readable SQL.
 #[async_trait]
 pub trait MysqlService {
-    /// 소비 키워드와 소비 유형을 배치 단위로 조회한다.
+    /// Fetches consume keywords and their consume types in batches.
     ///
-    /// 요청 쿼리:
+    /// Requested query:
     /// ```sql
     /// SELECT
     ///   cckt.consume_keyword_type_id,
@@ -34,17 +34,17 @@ pub trait MysqlService {
         limit: u64,
     ) -> anyhow::Result<Vec<SpentTypeKeyword>>;
 
-    // Deprecated: 기존 offset/limit 기반 spent detail 색인 조회 함수.
-    // 현재는 spent_idx 목록을 받는 find_spent_details_for_indexing 함수로 대체됨.
+    // Deprecated: old offset/limit-based spent detail indexing query.
+    // Replaced by find_spent_details_for_indexing, which accepts spent_idx values.
     // async fn find_spent_details_for_indexing(
     //     &self,
     //     offset: u64,
     //     limit: u64,
     // ) -> anyhow::Result<Vec<SpentDetailWithRelations>>;
 
-    /// 지정한 지출 ID 목록에 대해 색인용 역정규화 데이터를 조회한다.
+    /// Fetches denormalized indexing data for the provided spent IDs.
     ///
-    /// 요청 쿼리:
+    /// Requested query:
     /// ```sql
     /// SELECT
     ///   sd.spent_idx,
@@ -76,15 +76,15 @@ pub trait MysqlService {
     ///   AND ag.is_active = TRUE;
     /// ```
     ///
-    /// `spent_idxs`가 비어 있으면 DB 요청 없이 빈 벡터를 반환한다.
+    /// Returns an empty vector without querying the database when `spent_idxs` is empty.
     async fn find_spent_details_for_indexing(
         &self,
         spent_idxs: &[i64],
     ) -> anyhow::Result<Vec<SpentDetailWithRelations>>;
 
-    /// 전체 색인용으로 `SPENT_DETAIL_INDEXING` 행을 배치 조회한다.
+    /// Fetches `SPENT_DETAIL_INDEXING` rows in batches for full indexing.
     ///
-    /// 요청 쿼리:
+    /// Requested query:
     /// ```sql
     /// SELECT
     ///   spent_idx,
@@ -111,9 +111,9 @@ pub trait MysqlService {
         limit: u64,
     ) -> anyhow::Result<Vec<SpentDetailIndexing>>;
 
-    /// 지정한 지출 ID 목록에 해당하는 `SPENT_DETAIL_INDEXING` 행을 조회한다.
+    /// Fetches `SPENT_DETAIL_INDEXING` rows matching the provided spent IDs.
     ///
-    /// 요청 쿼리:
+    /// Requested query:
     /// ```sql
     /// SELECT
     ///   spent_idx,
@@ -134,15 +134,15 @@ pub trait MysqlService {
     /// WHERE spent_idx IN (:ids);
     /// ```
     ///
-    /// `ids`가 비어 있으면 DB 요청 없이 빈 벡터를 반환한다.
+    /// Returns an empty vector without querying the database when `ids` is empty.
     async fn find_spent_detail_indexing_by_ids(
         &self,
         ids: &[i64],
     ) -> anyhow::Result<Vec<SpentDetailIndexing>>;
 
-    /// 관련 테이블 조인 없이 원본 지출 상세 행을 배치 조회한다.
+    /// Fetches raw spent-detail rows in batches without joining related tables.
     ///
-    /// 요청 쿼리:
+    /// Requested query:
     /// ```sql
     /// SELECT
     ///   spent_idx,
@@ -162,9 +162,9 @@ pub trait MysqlService {
     async fn find_spent_details(&self, offset: u64, limit: u64)
     -> anyhow::Result<Vec<SpentDetail>>;
 
-    /// 지출 상세의 소비 유형 ID를 배치 업데이트한다.
+    /// Updates consume type IDs for spent-detail rows in batches.
     ///
-    /// 요청 쿼리:
+    /// Requested query:
     /// ```sql
     /// UPDATE SPENT_DETAIL
     /// SET consume_keyword_type_id = CASE
@@ -174,16 +174,16 @@ pub trait MysqlService {
     /// WHERE spent_idx IN (:spent_idxs);
     /// ```
     ///
-    /// `updates`를 `batch_size` 단위로 나눠 트랜잭션 안에서 반복 실행한다.
+    /// Splits `updates` into `batch_size` chunks and executes each chunk in a transaction.
     async fn modify_spent_detail_type_batch(
         &self,
         updates: Vec<(i64, i64)>,
         batch_size: usize,
     ) -> anyhow::Result<u64>;
 
-    /// 색인 테이블의 소비 유형 ID와 소비 유형명을 배치 업데이트한다.
+    /// Updates consume type IDs and names for indexing rows in batches.
     ///
-    /// 요청 쿼리:
+    /// Requested query:
     /// ```sql
     /// UPDATE SPENT_DETAIL_INDEXING
     /// SET
@@ -198,31 +198,31 @@ pub trait MysqlService {
     /// WHERE spent_idx IN (:spent_idxs);
     /// ```
     ///
-    /// `updates`를 `batch_size` 단위로 나눠 트랜잭션 안에서 반복 실행한다.
+    /// Splits `updates` into `batch_size` chunks and executes each chunk in a transaction.
     async fn modify_spent_detail_indexing_type_batch(
         &self,
         updates: Vec<(i64, i64, String)>,
         batch_size: usize,
     ) -> anyhow::Result<u64>;
 
-    /// 지출 상세의 소비 유형 ID를 한 행씩 업데이트한다.
+    /// Updates consume type IDs for spent-detail rows one row at a time.
     ///
-    /// 요청 쿼리:
+    /// Requested query:
     /// ```sql
     /// UPDATE SPENT_DETAIL
     /// SET consume_keyword_type_id = :consume_keyword_type_id
     /// WHERE spent_idx = :spent_idx;
     /// ```
     ///
-    /// `updates`의 각 항목마다 트랜잭션 안에서 반복 실행한다.
+    /// Executes one update per item in `updates` within a transaction.
     async fn modify_spent_detail_type_one_by_one(
         &self,
         updates: Vec<(i64, i64)>,
     ) -> anyhow::Result<u64>;
 
-    /// `DIM_CALENDAR` 행을 벌크 업서트한다.
+    /// Bulk-upserts `DIM_CALENDAR` rows.
     ///
-    /// 요청 쿼리:
+    /// Requested query:
     /// ```sql
     /// INSERT INTO DIM_CALENDAR (
     ///   dt,
@@ -271,15 +271,15 @@ pub trait MysqlService {
     ///   updated_by = 'batch';
     /// ```
     ///
-    /// 중복 기준은 기본키 `dt`다.
+    /// Duplicate detection uses the primary key `dt`.
     async fn input_dim_calendar_bulk(
         &self,
         rows: Vec<dim_calendar::ActiveModel>,
     ) -> anyhow::Result<()>;
 
-    /// 색인용 지출 상세 역정규화 행을 업서트한다.
+    /// Upserts denormalized spent-detail rows for indexing.
     ///
-    /// 요청 쿼리:
+    /// Requested query:
     /// ```sql
     /// INSERT INTO SPENT_DETAIL_INDEXING (
     ///   spent_idx,
@@ -314,26 +314,26 @@ pub trait MysqlService {
     ///   agg_group_seq = VALUES(agg_group_seq);
     /// ```
     ///
-    /// 중복 기준은 기본키 `spent_idx`다.
+    /// Duplicate detection uses the primary key `spent_idx`.
     async fn modify_spent_detail_indexing(
         &self,
         upsert_list: Vec<SpentDetailWithRelations>,
     ) -> anyhow::Result<()>;
 
-    /// 지정한 지출 ID 목록에 해당하는 색인 행을 삭제한다.
+    /// Deletes indexing rows matching the provided spent IDs.
     ///
-    /// 요청 쿼리:
+    /// Requested query:
     /// ```sql
     /// DELETE FROM SPENT_DETAIL_INDEXING
     /// WHERE spent_idx IN (:spent_idxs);
     /// ```
     ///
-    /// `delete_list`가 비어 있으면 DB 요청 없이 종료한다.
+    /// Returns without querying the database when `delete_list` is empty.
     async fn delete_spent_detail_indexing(&self, delete_list: &[i64]) -> anyhow::Result<()>;
 
-    /// 활성화된 이메일 발송 대상 그룹을 배치 조회한다.
+    /// Fetches active email recipient groups in batches.
     ///
-    /// 요청 쿼리:
+    /// Requested query:
     /// ```sql
     /// SELECT
     ///   agg_group_seq,
@@ -354,9 +354,9 @@ pub trait MysqlService {
         limit: u64,
     ) -> anyhow::Result<Vec<SendEmailAggGroup>>;
 
-    /// 활성화된 환율 스냅샷을 조회한다.
+    /// Fetches active currency exchange rate snapshots.
     ///
-    /// 요청 쿼리:
+    /// Requested query:
     /// ```sql
     /// SELECT
     ///   exchange_rate_snapshot_seq,
@@ -376,9 +376,9 @@ pub trait MysqlService {
         &self,
     ) -> anyhow::Result<Vec<CurrencyExchangeRateSnapshot>>;
 
-    /// 환율 스냅샷의 환율 값을 벌크 업데이트한다.
+    /// Bulk-updates exchange rate values for currency exchange rate snapshots.
     ///
-    /// 요청 쿼리:
+    /// Requested query:
     /// ```sql
     /// UPDATE CURRENCY_EXCHANGE_RATE_SNAPSHOT
     /// SET
@@ -388,15 +388,15 @@ pub trait MysqlService {
     /// WHERE exchange_rate_snapshot_seq = :exchange_rate_snapshot_seq;
     /// ```
     ///
-    /// `snapshot_map`의 각 항목마다 트랜잭션 안에서 반복 실행한다.
+    /// Executes one update per item in `snapshot_map` within a transaction.
     async fn modify_currency_exchange_rate_snapshot_bulk(
         &self,
         snapshot_map: &HashMap<i64, f64>,
     ) -> anyhow::Result<()>;
 
-    /// 주식 마스터 정보를 배치 조회한다.
+    /// Fetches stock master data in batches.
     ///
-    /// 요청 쿼리:
+    /// Requested query:
     /// ```sql
     /// SELECT
     ///   stock_seq,
@@ -414,9 +414,9 @@ pub trait MysqlService {
     /// ```
     async fn find_stock_batch(&self, offset: u64, limit: u64) -> anyhow::Result<Vec<Stock>>;
 
-    /// 주식 현재가를 벌크 업데이트한다.
+    /// Bulk-updates current stock prices.
     ///
-    /// 요청 쿼리:
+    /// Requested query:
     /// ```sql
     /// UPDATE STOCK
     /// SET
@@ -426,15 +426,15 @@ pub trait MysqlService {
     /// WHERE stock_seq = :stock_seq;
     /// ```
     ///
-    /// `price_map`의 각 항목마다 트랜잭션 안에서 반복 실행한다.
+    /// Executes one update per item in `price_map` within a transaction.
     async fn modify_stock_price_bulk(
         &self,
         price_map: &HashMap<i64, Decimal>,
     ) -> anyhow::Result<()>;
 
-    /// 암호화폐 마스터 정보를 배치 조회한다.
+    /// Fetches crypto master data in batches.
     ///
-    /// 요청 쿼리:
+    /// Requested query:
     /// ```sql
     /// SELECT
     ///   crypto_seq,
@@ -452,9 +452,9 @@ pub trait MysqlService {
     /// ```
     async fn find_crypto_batch(&self, offset: u64, limit: u64) -> anyhow::Result<Vec<Crypto>>;
 
-    /// 암호화폐 현재가를 벌크 업데이트한다.
+    /// Bulk-updates current crypto prices.
     ///
-    /// 요청 쿼리:
+    /// Requested query:
     /// ```sql
     /// UPDATE CRYPTO
     /// SET
@@ -464,48 +464,48 @@ pub trait MysqlService {
     /// WHERE crypto_seq = :crypto_seq;
     /// ```
     ///
-    /// `price_map`의 각 항목마다 트랜잭션 안에서 반복 실행한다.
+    /// Executes one update per item in `price_map` within a transaction.
     async fn modify_crypto_price_bulk(
         &self,
         price_map: &HashMap<i64, Decimal>,
     ) -> anyhow::Result<()>;
 
-    /// 주식 시장/통화 유형 목록을 전체 조회한다.
+    /// Fetches the full stock market and currency type list.
     ///
-    /// 요청 쿼리:
+    /// Requested query:
     /// ```sql
     /// SELECT *
     /// FROM STOCK_TYPE;
     /// ```
     async fn find_stock_types(&self) -> anyhow::Result<Vec<StockType>>;
 
-    /// 지정한 통화와 사용자 목록에 대해 사용자별 주식 평가 금액 합계를 조회한다.
+    /// Fetches per-user total stock valuation for the provided currency and user list.
     ///
-    /// 요청 쿼리:
+    /// Requested query:
     /// ```sql
-    /// SELECT
-    ///   sa.user_seq,
-    ///   SUM(sa.stock_cnt * s.stock_price) AS stock_sum
-    /// FROM STOCK_ASSET sa
-    /// INNER JOIN STOCK s
-    ///   ON sa.stock_seq = s.stock_seq
-    /// INNER JOIN STOCK_TYPE st
-    ///   ON s.market_seq = st.market_seq
-    /// WHERE st.currency_code = :currency_code
-    ///   AND sa.user_seq IN (:user_seqs)
-    /// GROUP BY sa.user_seq;
+    //  SELECT
+    //    sa.user_seq,
+    //    SUM(sa.stock_cnt * s.stock_price) AS asset_sum
+    //  FROM STOCK_ASSET sa
+    //  INNER JOIN STOCK s
+    //    ON sa.stock_seq = s.stock_seq
+    //  INNER JOIN STOCK_TYPE st
+    //    ON s.market_seq = st.market_seq
+    //  WHERE st.currency_code = :currency_code
+    //    AND sa.user_seq IN (:user_seqs)
+    //  GROUP BY sa.user_seq;
     /// ```
     ///
-    /// `user_seqs`가 비어 있으면 DB 요청 없이 빈 벡터를 반환한다.
+    /// Returns an empty vector without querying the database when `user_seqs` is empty.
     async fn find_stock_asset_amount_batch(
         &self,
         currency_code: &str,
         user_seqs: &[i64],
-    ) -> anyhow::Result<Vec<StockAssetAmount>>;
+    ) -> anyhow::Result<Vec<AssetAmount>>;
 
-    /// 사용자 기본키를 오름차순으로 배치 조회한다.
+    /// Fetches user primary keys in ascending order by batch.
     ///
-    /// 요청 쿼리:
+    /// Requested query:
     /// ```sql
     /// SELECT user_seq
     /// FROM USERS
@@ -514,12 +514,44 @@ pub trait MysqlService {
     /// ```
     async fn find_user_seq_batch(&self, offset: u64, limit: u64) -> anyhow::Result<Vec<i64>>;
 
-    /// 전체 사용자 수를 조회한다.
+    /// Fetches per-user total crypto valuation for the provided currency and user list.
+    /// 
+    /// Requested query:
+    // select
+    //     ca.user_seq,
+    //     sum(c.crypto_price*ca.crypto_cnt) as asset_sum
+    // from CRYPTO_ASSET ca
+    // inner join CRYPTO c on ca.crypto_seq = c.crypto_seq
+    // inner join CURRENCY_CODE cc on cc.currency_code = c.currency_code
+    // group by ca.user_seq;
+    async fn find_crypto_asset_amount_batch(
+        &self,
+        currency_code: &str,
+        user_seqs: &[i64],
+    ) -> anyhow::Result<Vec<AssetAmount>>;
+
+    /// Bulk-inserts `USER_CURRENT_ASSET_SNAPSHOT` rows.
     ///
-    /// 요청 쿼리:
-    /// ```sql
-    /// SELECT COUNT(*)
-    /// FROM USERS;
-    /// ```
-    async fn find_users_size(&self) -> anyhow::Result<u64>;
+    /// Each call persists one snapshot per user for the current aggregation run.
+    /// Rows are inserted as new historical records (no upsert).
+    async fn input_user_current_asset_snapshot_bulk(
+        &self,
+        rows: Vec<crate::entity::user_current_asset_snapshot::ActiveModel>,
+    ) -> anyhow::Result<()>;
+
+    /// Fetches per-user total cash valuation for the provided currency and user list.
+    /// 
+    /// Requested query:
+    // select
+    //     ca.user_seq,
+    //     sum(ca.cash) as asset_sum
+    // from CASH_ASSET ca
+    // inner join CURRENCY_CODE cc on cc.currency_code = ca.currency_code
+    // where ca.currency_code = 'USD'
+    // group by ca.user_seq;
+    async fn find_cash_asset_amount_batch(
+        &self,
+        currency_code: &str,
+        user_seqs: &[i64],
+    ) -> anyhow::Result<Vec<AssetAmount>>;
 }

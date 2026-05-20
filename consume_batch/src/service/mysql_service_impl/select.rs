@@ -1,12 +1,12 @@
 use crate::common::*;
 use crate::entity::{
-    agg_group, common_consume_keyword_type, common_consume_prodt_keyword, crypto,
+    agg_group, common_consume_keyword_type, common_consume_prodt_keyword, crypto, crypto_asset,
     currency_exchange_rate_snapshot, send_email_agg_group, spent_detail, spent_detail_indexing,
-    stock, stock_asset, stock_type, telegram_room, user_payment_methods, users,
+    stock, stock_asset, stock_type, telegram_room, user_payment_methods, users, cash_asset, currency_code
 };
 use crate::models::{
-    Crypto, CurrencyExchangeRateSnapshot, SendEmailAggGroup, SpentDetail, SpentDetailIndexing,
-    SpentDetailWithRelations, SpentTypeKeyword, Stock, StockAssetAmount, StockType,
+    AssetAmount, Crypto, CurrencyExchangeRateSnapshot, SendEmailAggGroup, SpentDetail,
+    SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, StockType, CashAsset
 };
 use crate::repository::mysql_repository::MysqlRepository;
 use sea_orm::sea_query::{Expr, Func, SimpleExpr};
@@ -27,11 +27,8 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
                 JoinType::InnerJoin,
                 common_consume_prodt_keyword::Relation::CommonConsumeKeywordType.def(),
             )
-            .select_only()
-            .column(common_consume_keyword_type::Column::ConsumeKeywordTypeId)
-            .column(common_consume_prodt_keyword::Column::ConsumeKeyword)
+            .select()
             .column(common_consume_keyword_type::Column::ConsumeKeywordType)
-            .column(common_consume_prodt_keyword::Column::KeywordWeight)
             .offset(offset)
             .limit(limit)
             .into_model::<SpentTypeKeyword>()
@@ -63,16 +60,8 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
             .join(JoinType::InnerJoin, spent_detail::Relation::TelegramRoom.def())
             .join(JoinType::InnerJoin, spent_detail::Relation::UserPaymentMethods.def())
             .join(JoinType::InnerJoin, telegram_room::Relation::AggGroup.def())
-            .select_only()
-            .column(spent_detail::Column::SpentIdx)
-            .column(spent_detail::Column::SpentName)
-            .column(spent_detail::Column::SpentMoney)
-            .column(spent_detail::Column::SpentAt)
-            .column(spent_detail::Column::CreatedAt)
-            .column(spent_detail::Column::UserSeq)
-            .column(common_consume_keyword_type::Column::ConsumeKeywordTypeId)
+            .select()
             .column(common_consume_keyword_type::Column::ConsumeKeywordType)
-            .column(spent_detail::Column::RoomSeq)
             .column(users::Column::UserId)
             .column(user_payment_methods::Column::CardAlias)
             .column(agg_group::Column::AggGroupSeq)
@@ -104,21 +93,7 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
         let db: &DatabaseConnection = self.db_conn.get_connection();
 
         let results: Vec<SpentDetailIndexing> = spent_detail_indexing::Entity::find()
-            .select_only()
-            .column(spent_detail_indexing::Column::SpentIdx)
-            .column(spent_detail_indexing::Column::SpentName)
-            .column(spent_detail_indexing::Column::SpentMoney)
-            .column(spent_detail_indexing::Column::SpentAt)
-            .column(spent_detail_indexing::Column::CreatedAt)
-            .column(spent_detail_indexing::Column::UserSeq)
-            .column(spent_detail_indexing::Column::ConsumeKeywordTypeId)
-            .column(spent_detail_indexing::Column::ConsumeKeywordType)
-            .column(spent_detail_indexing::Column::RoomSeq)
-            .column(spent_detail_indexing::Column::UserId)
-            .column(spent_detail_indexing::Column::CardAlias)
-            .column(spent_detail_indexing::Column::UpdatedAt)
-            .column(spent_detail_indexing::Column::UpdatedBy)
-            .column(spent_detail_indexing::Column::AggGroupSeq)
+            .select()
             .filter(spent_detail_indexing::Column::SpentIdx.is_in(ids.to_vec()))
             .into_model::<SpentDetailIndexing>()
             .all(db)
@@ -141,21 +116,7 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
         let db: &DatabaseConnection = self.db_conn.get_connection();
 
         let results: Vec<SpentDetailIndexing> = spent_detail_indexing::Entity::find()
-            .select_only()
-            .column(spent_detail_indexing::Column::SpentIdx)
-            .column(spent_detail_indexing::Column::SpentName)
-            .column(spent_detail_indexing::Column::SpentMoney)
-            .column(spent_detail_indexing::Column::SpentAt)
-            .column(spent_detail_indexing::Column::CreatedAt)
-            .column(spent_detail_indexing::Column::UserSeq)
-            .column(spent_detail_indexing::Column::ConsumeKeywordTypeId)
-            .column(spent_detail_indexing::Column::ConsumeKeywordType)
-            .column(spent_detail_indexing::Column::RoomSeq)
-            .column(spent_detail_indexing::Column::UserId)
-            .column(spent_detail_indexing::Column::CardAlias)
-            .column(spent_detail_indexing::Column::UpdatedAt)
-            .column(spent_detail_indexing::Column::UpdatedBy)
-            .column(spent_detail_indexing::Column::AggGroupSeq)
+            .select()
             .offset(offset)
             .limit(limit)
             .order_by_asc(spent_detail_indexing::Column::SpentIdx)
@@ -180,17 +141,7 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
         let db: &DatabaseConnection = self.db_conn.get_connection();
 
         let results: Vec<SpentDetail> = spent_detail::Entity::find()
-            .select_only()
-            .column(spent_detail::Column::SpentIdx)
-            .column(spent_detail::Column::SpentName)
-            .column(spent_detail::Column::SpentMoney)
-            .column(spent_detail::Column::SpentAt)
-            .column(spent_detail::Column::ShouldIndex)
-            .column(spent_detail::Column::UserSeq)
-            .column(spent_detail::Column::SpentGroupId)
-            .column(spent_detail::Column::ConsumeKeywordTypeId)
-            .column(spent_detail::Column::RoomSeq)
-            .column(spent_detail::Column::PaymentMethodId)
+            .select()
             .offset(offset)
             .limit(limit)
             .order_by_asc(spent_detail::Column::SpentIdx)
@@ -215,14 +166,7 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
         let db: &DatabaseConnection = self.db_conn.get_connection();
 
         let results: Vec<SendEmailAggGroup> = send_email_agg_group::Entity::find()
-            .select_only()
-            .column(send_email_agg_group::Column::AggGroupSeq)
-            .column(send_email_agg_group::Column::EmailId)
-            .column(send_email_agg_group::Column::IsActive)
-            .column(send_email_agg_group::Column::CreatedAt)
-            .column(send_email_agg_group::Column::UpdatedAt)
-            .column(send_email_agg_group::Column::CreatedBy)
-            .column(send_email_agg_group::Column::UpdatedBy)
+            .select()
             .filter(send_email_agg_group::Column::IsActive.eq(true))
             .offset(offset)
             .limit(limit)
@@ -247,17 +191,7 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
 
         let result: Vec<CurrencyExchangeRateSnapshot> =
             currency_exchange_rate_snapshot::Entity::find()
-                .select_only()
-                .column(currency_exchange_rate_snapshot::Column::ExchangeRateSnapshotSeq)
-                .column(currency_exchange_rate_snapshot::Column::BaseCurrencyCode)
-                .column(currency_exchange_rate_snapshot::Column::TargetCurrencyCode)
-                .column(currency_exchange_rate_snapshot::Column::BaseAmount)
-                .column(currency_exchange_rate_snapshot::Column::ExchangeRate)
-                .column(currency_exchange_rate_snapshot::Column::IsActive)
-                .column(currency_exchange_rate_snapshot::Column::CreatedAt)
-                .column(currency_exchange_rate_snapshot::Column::UpdatedAt)
-                .column(currency_exchange_rate_snapshot::Column::CreatedBy)
-                .column(currency_exchange_rate_snapshot::Column::UpdatedBy)
+                .select()
                 .filter(currency_exchange_rate_snapshot::Column::IsActive.eq(true))
                 .into_model::<CurrencyExchangeRateSnapshot>()
                 .all(db)
@@ -280,16 +214,7 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
         let db: &DatabaseConnection = self.db_conn.get_connection();
 
         let results: Vec<Stock> = stock::Entity::find()
-            .select_only()
-            .column(stock::Column::StockSeq)
-            .column(stock::Column::MarketSeq)
-            .column(stock::Column::StockName)
-            .column(stock::Column::ApiSymbol)
-            .column(stock::Column::StockPrice)
-            .column(stock::Column::CreatedAt)
-            .column(stock::Column::UpdatedAt)
-            .column(stock::Column::CreatedBy)
-            .column(stock::Column::UpdatedBy)
+            .select()
             .order_by_asc(stock::Column::StockSeq)
             .offset(offset)
             .limit(limit)
@@ -314,16 +239,7 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
         let db: &DatabaseConnection = self.db_conn.get_connection();
 
         let results: Vec<Crypto> = crypto::Entity::find()
-            .select_only()
-            .column(crypto::Column::CryptoSeq)
-            .column(crypto::Column::CryptoName)
-            .column(crypto::Column::CryptoPrice)
-            .column(crypto::Column::ApiSymbol)
-            .column(crypto::Column::CurrencyCode)
-            .column(crypto::Column::CreatedAt)
-            .column(crypto::Column::UpdatedAt)
-            .column(crypto::Column::CreatedBy)
-            .column(crypto::Column::UpdatedBy)
+            .select()
             .order_by_asc(crypto::Column::CryptoSeq)
             .offset(offset)
             .limit(limit)
@@ -356,19 +272,6 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
             })?;
 
         Ok(result)
-    }
-
-    pub(super) async fn find_users_size(&self) -> anyhow::Result<u64> {
-        let db: &DatabaseConnection = self.db_conn.get_connection();
-
-        let count: u64 = users::Entity::find().count(db).await.inspect_err(|e| {
-            error!(
-                "[MysqlServiceImpl::find_users_size] Failed to execute query: {:#}",
-                e
-            );
-        })?;
-
-        Ok(count)
     }
 
     pub(super) async fn find_user_seq_batch(
@@ -407,14 +310,14 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
         &self,
         currency_code: &str,
         user_seqs: &[i64],
-    ) -> anyhow::Result<Vec<StockAssetAmount>> {
+    ) -> anyhow::Result<Vec<AssetAmount>> {
         if user_seqs.is_empty() {
             return Ok(Vec::new());
         }
 
         let db: &DatabaseConnection = self.db_conn.get_connection();
 
-        let results: Vec<StockAssetAmount> = stock_asset::Entity::find()
+        let results: Vec<AssetAmount> = stock_asset::Entity::find()
             .join(JoinType::InnerJoin, stock_asset::Relation::Stock.def())
             .join(JoinType::InnerJoin, stock::Relation::StockType.def())
             .select_only()
@@ -424,12 +327,12 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
                     Expr::col(stock_asset::Column::StockCnt)
                         .mul(Expr::col(stock::Column::StockPrice)),
                 )),
-                "stock_sum",
+                "asset_sum",
             )
             .filter(stock_type::Column::CurrencyCode.eq(currency_code))
             .filter(stock_asset::Column::UserSeq.is_in(user_seqs.to_vec()))
             .group_by(stock_asset::Column::UserSeq)
-            .into_model::<StockAssetAmount>()
+            .into_model::<AssetAmount>()
             .all(db)
             .await
             .inspect_err(|e| {
@@ -441,5 +344,82 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
             })?;
 
         Ok(results)
+    }
+
+    pub(super) async fn find_crypto_asset_amount_batch(
+        &self,
+        currency_code: &str,
+        user_seqs: &[i64],
+    ) -> anyhow::Result<Vec<AssetAmount>> {
+        if user_seqs.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+
+        let results: Vec<AssetAmount> = crypto_asset::Entity::find()
+            .join(JoinType::InnerJoin, crypto_asset::Relation::Crypto.def())
+            .join(JoinType::InnerJoin, crypto::Relation::CurrencyCode.def())
+            .select_only()
+            .column(crypto_asset::Column::UserSeq)
+            .column_as(
+                SimpleExpr::from(Func::sum(
+                    Expr::col(crypto_asset::Column::CryptoCnt)
+                        .mul(Expr::col(crypto::Column::CryptoPrice)),
+                )),
+                "asset_sum",
+            )
+            .filter(crypto::Column::CurrencyCode.eq(currency_code))
+            .filter(crypto_asset::Column::UserSeq.is_in(user_seqs.to_vec()))
+            .group_by(crypto_asset::Column::UserSeq)
+            .into_model::<AssetAmount>()
+            .all(db)
+            .await
+            .inspect_err(|e| {
+                error!(
+                    "[MysqlServiceImpl::find_crypto_asset_amount_batch] Failed to execute query \
+                     (currency_code={}): {:#}",
+                    currency_code, e
+                );
+            })?;
+
+        Ok(results)
+    }
+
+    pub(super) async fn find_cash_asset_amount_batch(
+        &self,
+        currency_code: &str,
+        user_seqs: &[i64],
+    ) -> anyhow::Result<Vec<AssetAmount>> {
+        if user_seqs.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+
+        let result: Vec<AssetAmount> = cash_asset::Entity::find()
+            .join(JoinType::InnerJoin, cash_asset::Relation::CurrencyCode.def())
+            .select_only()
+            .column(cash_asset::Column::UserSeq)
+            .column_as(
+                SimpleExpr::from(Func::sum(
+                    Expr::col(cash_asset::Column::Cash))),
+                "asset_sum",
+            )
+            .filter(cash_asset::Column::CurrencyCode.eq(currency_code))
+            .filter(cash_asset::Column::UserSeq.is_in(user_seqs.to_vec()))
+            .group_by(cash_asset::Column::UserSeq)
+            .into_model::<AssetAmount>()
+            .all(db)
+            .await
+            .inspect_err(|e| {
+                error!(
+                    "[MysqlServiceImpl::find_cash_asset_amount_batch] Failed to execute query \
+                     (currency_code={}): {:#}",
+                    currency_code, e
+                );
+            })?;
+        
+        Ok(result)
     }
 }

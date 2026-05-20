@@ -6,6 +6,7 @@ pub mod agg_group;
 pub mod common_consume_keyword_type;
 pub mod common_consume_prodt_keyword;
 pub mod crypto;
+pub mod cash_asset;
 pub mod crypto_asset;
 pub mod currency_code;
 pub mod currency_exchange_rate_snapshot;

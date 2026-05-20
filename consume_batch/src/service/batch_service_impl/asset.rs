@@ -1,11 +1,12 @@
 //! Asset price sync batch jobs.
 
 use rust_decimal::Decimal;
-use sea_orm::sea_query::extension::mysql;
+use sea_orm::ActiveValue;
 
+use crate::entity::user_current_asset_snapshot;
 use crate::models::{
-    Crypto, CurrencyExchangeRateSnapshot, Stock, StockAssetAmount, StockType,
-    UserCurrentAssetSnapshot, batch_schedule::*,
+    AssetAmount, Crypto, CurrencyExchangeRateSnapshot, Stock, StockType,
+    batch_schedule::*,
 };
 use crate::service_trait::{
     consume_service::ConsumeService, elastic_service::ElasticService,
@@ -18,6 +19,18 @@ use crate::{batch_log, common::*};
 use crate::api::twelve_data_api::*;
 
 use super::BatchServiceImpl;
+
+/// Converts a flat `Vec<AssetAmount>` into a per-user lookup map.
+///
+/// Users whose `asset_sum` is NULL (no matching rows in the join) are excluded
+/// from the map. Callers should use `.get(&uid).copied().unwrap_or(Decimal::ZERO)`
+/// so missing users default to zero rather than being silently dropped.
+fn to_amount_map(amounts: Vec<AssetAmount>) -> HashMap<i64, Decimal> {
+    amounts
+        .into_iter()
+        .filter_map(|a| a.asset_sum.map(|sum| (a.user_seq, sum)))
+        .collect()
+}
 
 /// Shared batch-loop logic for asset price sync jobs.
 ///
@@ -243,14 +256,11 @@ where
         for s_type in stock_types {
             let currency: &str = s_type.currency_code();
             let mut offset: u64 = 0;
-            //let snapshots: HashMap<i64, UserCurrentAssetSnapshot> = HashMap::new();
 
             loop {
-                /*
-                    Fetch all users in pages.
-                    Since each aggregation step uses these user_seqs as an IN filter,
-                    users who do not own a spcific asset type are still included in the process.
-                */
+                // Fetch all users in pages.
+                // Each asset step uses IN filter on these user_seqs, so users
+                // without a specific asset type are still processed (defaulting to 0).
                 let user_seqs: Vec<i64> = mysql_service
                     .find_user_seq_batch(offset, batch_size)
                     .await
@@ -267,7 +277,7 @@ where
                 }
 
                 // 1. Get stock asset
-                let stock_assets: Vec<StockAssetAmount> = mysql_service
+                let stock_map: HashMap<i64, Decimal> = mysql_service
                     .find_stock_asset_amount_batch(currency, &user_seqs)
                     .await
                     .inspect_err(|e| {
@@ -277,20 +287,76 @@ where
                              (currency={}, offset={}): {:#}",
                             currency, offset, e
                         );
-                    })?;
-
-                // let stock_amount_map: HashMap<i64, Decimal> = stock_assets
-                //     .iter()
-                //     .filter_map(|sa| sa.stock_sum().map(|sum| (*sa.user_seq(), sum)))
-                //     .collect();
+                    })
+                    .map(to_amount_map)?;
 
                 // 2. Get crypto asset
+                let crypto_map: HashMap<i64, Decimal> = mysql_service
+                    .find_crypto_asset_amount_batch(currency, &user_seqs)
+                    .await
+                    .inspect_err(|e| {
+                        error!(
+                            "[BatchServiceImpl::sync_current_asset_total] \
+                             find_crypto_asset_amount_batch failed \
+                             (currency={}, offset={}): {:#}",
+                            currency, offset, e
+                        );
+                    })
+                    .map(to_amount_map)?;
 
                 // 3. Get cash asset
+                let cash_map: HashMap<i64, Decimal> = mysql_service
+                    .find_cash_asset_amount_batch(currency, &user_seqs)
+                    .await
+                    .inspect_err(|e| {
+                        error!(
+                            "[BatchServiceImpl::find_cash_asset_amount_batch] \
+                             find_crypto_asset_amount_batch failed \
+                             (currency={}, offset={}): {:#}",
+                            currency, offset, e
+                        );
+                    })
+                    .map(to_amount_map)?;
+                
+                // 4. Get deposit asset (TODO)
+                
 
-                // 4. Get deposit asset
+                // 5. Get saving asset  (TODO)
 
-                // 5. Get saving asset
+                // Single pass over user_seqs: O(1) HashMap lookups per user,
+                // no nested iteration across asset types.
+                let now: sea_orm::prelude::DateTime = Utc::now().naive_utc();
+                let zero: Decimal = Decimal::ZERO;
+
+                let batch_snapshots: Vec<user_current_asset_snapshot::ActiveModel> = user_seqs
+                    .iter()
+                    .map(|&uid| user_current_asset_snapshot::ActiveModel {
+                        summary_seq:    ActiveValue::NotSet,
+                        user_seq:       ActiveValue::Set(uid),
+                        currency_code:  ActiveValue::Set(currency.to_owned()),
+                        aggregated_at:  ActiveValue::Set(now),
+                        stock_amount:   ActiveValue::Set(stock_map.get(&uid).copied().unwrap_or(zero)),
+                        crypto_amount:  ActiveValue::Set(crypto_map.get(&uid).copied().unwrap_or(zero)),
+                        cash_amount:    ActiveValue::Set(cash_map.get(&uid).copied().unwrap_or(zero)),   // TODO: step 3
+                        deposit_amount: ActiveValue::Set(zero),   // TODO: step 4
+                        saving_amount:  ActiveValue::Set(zero),   // TODO: step 5
+                        created_at:     ActiveValue::Set(now),
+                        updated_at:     ActiveValue::NotSet,
+                        created_by:     ActiveValue::Set("SYSTEM".to_owned()),
+                        updated_by:     ActiveValue::NotSet,
+                    })
+                    .collect();
+
+                mysql_service
+                    .input_user_current_asset_snapshot_bulk(batch_snapshots)
+                    .await
+                    .inspect_err(|e| {
+                        error!(
+                            "[BatchServiceImpl::sync_current_asset_total] \
+                             input_user_current_asset_snapshot_bulk failed (offset={}): {:#}",
+                            offset, e
+                        );
+                    })?;
 
                 offset += batch_size;
             }

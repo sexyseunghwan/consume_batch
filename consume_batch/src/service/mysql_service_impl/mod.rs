@@ -21,7 +21,7 @@ use crate::common::*;
 use crate::entity::dim_calendar;
 use crate::models::{
     Crypto, CurrencyExchangeRateSnapshot, SendEmailAggGroup, SpentDetail, SpentDetailIndexing,
-    SpentDetailWithRelations, SpentTypeKeyword, Stock, StockAssetAmount, StockType,
+    SpentDetailWithRelations, SpentTypeKeyword, Stock, AssetAmount, StockType,
 };
 use crate::repository::mysql_repository::MysqlRepository;
 use crate::service_trait::mysql_service::MysqlService;
@@ -170,7 +170,7 @@ where
         &self,
         currency_code: &str,
         user_seqs: &[i64],
-    ) -> anyhow::Result<Vec<StockAssetAmount>> {
+    ) -> anyhow::Result<Vec<AssetAmount>> {
         self.find_stock_asset_amount_batch(currency_code, user_seqs)
             .await
     }
@@ -179,7 +179,26 @@ where
         self.find_user_seq_batch(offset, limit).await
     }
 
-    async fn find_users_size(&self) -> anyhow::Result<u64> {
-        self.find_users_size().await
+    async fn find_crypto_asset_amount_batch(
+        &self,
+        currency_code: &str,
+        user_seqs: &[i64],
+    ) -> anyhow::Result<Vec<AssetAmount>> {
+        self.find_crypto_asset_amount_batch(currency_code, user_seqs).await
+    }
+
+    async fn input_user_current_asset_snapshot_bulk(
+        &self,
+        rows: Vec<crate::entity::user_current_asset_snapshot::ActiveModel>,
+    ) -> anyhow::Result<()> {
+        self.input_user_current_asset_snapshot_bulk(rows).await
+    }
+
+    async fn find_cash_asset_amount_batch(
+        &self,
+        currency_code: &str,
+        user_seqs: &[i64],
+    ) -> anyhow::Result<Vec<AssetAmount>> {
+        self.find_cash_asset_amount_batch(currency_code, user_seqs).await
     }
 }
