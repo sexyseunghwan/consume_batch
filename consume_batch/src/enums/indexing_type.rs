@@ -11,7 +11,6 @@ pub enum IndexingType {
 impl FromStr for IndexingType {
     type Err = String;
 
-    /// Parses short or full string forms into an `IndexingType`.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_uppercase().as_str() {
             "I" | "INSERT" => Ok(IndexingType::Insert),

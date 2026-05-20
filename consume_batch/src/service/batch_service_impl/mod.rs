@@ -116,7 +116,6 @@ where
     I: IndexingService,
     S: SmtpService,
 {
-    /// Clones the batch service by cloning its shared dependency handles.
     fn clone(&self) -> Self {
         Self {
             mysql_service: Arc::clone(&self.mysql_service),
@@ -141,27 +140,6 @@ where
     I: IndexingService + Send + Sync + 'static,
     S: SmtpService + Send + Sync + 'static,
 {
-    /// Creates a new `BatchServiceImpl` instance.
-    ///
-    /// Initializes the service by injecting dependencies and loading the
-    /// batch schedule configuration from the environment-configured path.
-    ///
-    /// # Arguments
-    ///
-    /// * `mysql_service` - Implementation of [`MysqlService`] for database access
-    /// * `elastic_service` - Implementation of [`ElasticService`] for search indexing
-    /// * `consume_service` - Implementation of [`ConsumeService`] for message processing
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(BatchServiceImpl)` on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The batch schedule TOML file cannot be found
-    /// - The configuration file contains invalid TOML syntax
-    /// - Required configuration fields are missing
     pub fn new(
         mysql_service: Arc<M>,
         elastic_service: Arc<E>,
@@ -200,13 +178,6 @@ where
         })
     }
 
-    /// Returns references to all enabled batch schedules.
-    ///
-    /// Filters schedules where `enabled` is `true`.
-    ///
-    /// # Returns
-    ///
-    /// A vector of references to [`BatchScheduleItem`]s that are currently active.
     pub fn find_enabled_schedules(&self) -> Vec<&BatchScheduleItem> {
         self.schedule_config.find_enabled_schedules()
     }
@@ -223,11 +194,6 @@ where
     I: IndexingService + Send + Sync + 'static,
     S: SmtpService + Send + Sync + 'static,
 {
-    /// Main entry point for the batch processing service.
-    ///
-    /// Starts the cron scheduler and keeps it running indefinitely.
-    /// Each enabled schedule will trigger its indexing job based on
-    /// the configured cron expression.
     async fn initialize_batch_task(&self) -> anyhow::Result<()> {
         batch_log!(
             info,
@@ -274,10 +240,6 @@ where
         Ok(())
     }
 
-    /// Runs a single batch schedule immediately.
-    ///
-    /// Delegates directly to `input_batch_by_schedule` using the current service's dependencies.
-    /// Used by the CLI service to trigger on-demand batch execution via socket.
     async fn input_batch(&self, schedule_item: &BatchScheduleItem) -> anyhow::Result<()> {
         Self::input_batch_by_schedule(
             schedule_item,

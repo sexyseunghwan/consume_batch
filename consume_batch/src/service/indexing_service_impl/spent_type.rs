@@ -15,8 +15,6 @@ where
     E: ElasticService + Send + Sync + 'static,
     C: ConsumeService + Send + Sync + 'static,
 {
-    /// Fetches all SpentType keywords from MySQL in batches and bulk-indexes them
-    /// into a new Elasticsearch index, then finalizes settings and swaps the alias.
     async fn input_spent_type_full_data(
         &self,
         schedule_item: &BatchScheduleItem,
@@ -150,7 +148,6 @@ where
         Ok(())
     }
 
-    /// Performs full indexing of spent type keywords from MySQL into Elasticsearch.
     pub(super) async fn input_spent_type_full(
         &self,
         schedule_item: &BatchScheduleItem,

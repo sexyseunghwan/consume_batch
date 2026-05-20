@@ -57,12 +57,6 @@ impl<B> CliServiceImpl<B>
 where
     B: BatchService + Send + Sync + 'static,
 {
-    /// Creates a new `CliServiceImpl` instance.
-    ///
-    /// # Arguments
-    ///
-    /// * `batch_service` - Shared reference to the batch service
-    /// * `schedule_config` - Loaded batch schedule configuration for menu generation
     pub fn new(batch_service: Arc<B>, schedule_config: BatchScheduleConfig) -> Self {
         Self {
             batch_service,
@@ -70,11 +64,6 @@ where
         }
     }
 
-    /// Handles a single socket connection from a CLI client.
-    ///
-    /// Displays a numbered menu of available batch jobs and executes the
-    /// selected job via `batch_service.input_batch()`. Exits when the client
-    /// sends `0` or `q`.
     async fn find_socket_session(
         stream: tokio::net::UnixStream,
         batch_service: Arc<B>,
@@ -208,10 +197,6 @@ impl<B> CliService for CliServiceImpl<B>
 where
     B: BatchService + Send + Sync + 'static,
 {
-    /// Starts the Unix domain socket server for CLI batch execution.
-    ///
-    /// Listens on the path configured in `AppConfig::socket_path` and
-    /// spawns a separate task for each incoming connection.
     async fn initialize_socket_server(&self) -> anyhow::Result<()> {
         let socket_path: &str = AppConfig::get_global()
             .inspect_err(|e| {

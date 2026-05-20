@@ -21,16 +21,6 @@ where
     I: IndexingService + Send + Sync + 'static,
     S: SmtpService + Send + Sync + 'static,
 {
-    /// Populates DIM_CALENDAR for every day in [start_year, end_year].
-    ///
-    /// Iterates day by day, builds a `dim_calendar::ActiveModel` for each date,
-    /// then bulk-inserts in chunks of `batch_size`. Duplicate dates (dt PK) are
-    /// overwritten with the latest data, so the function is safe to re-run.
-    ///
-    /// When `PUBLIC_DATA_API_KEY` is set in the environment, Korean legal holidays
-    /// are fetched from the 공공데이터포털 API and used to populate
-    /// `is_holiday`, `is_before_holiday`, and `is_after_holiday`.
-    /// If the key is absent or the API call fails, all three fields default to `0`.
     pub(super) async fn input_date_dimension_data(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
@@ -53,7 +43,6 @@ where
         let end_date: NaiveDate = NaiveDate::from_ymd_opt(end_year, 12, 31)
             .ok_or_else(|| anyhow!("Invalid end_year: {}", end_year))?;
 
-        /// Returns the number of days in the given month.
         fn days_in_month(year: i32, month: u32) -> anyhow::Result<u32> {
             let first_of_next: NaiveDate = if month == 12 {
                 NaiveDate::from_ymd_opt(year + 1, 1, 1)

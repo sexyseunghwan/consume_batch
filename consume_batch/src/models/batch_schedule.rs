@@ -115,65 +115,10 @@ pub struct BatchScheduleItem {
 }
 
 impl BatchScheduleConfig {
-    /// Loads batch schedule configuration from a TOML file.
-    ///
-    /// Reads and parses the specified TOML file into a [`BatchScheduleConfig`].
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - Path to the TOML configuration file
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(BatchScheduleConfig)` on success, or an error if:
-    /// - The file cannot be read
-    /// - The TOML syntax is invalid
-    /// - The structure doesn't match the expected schema
-    ///
-    /// # Errors
-    ///
-    /// This function will return an error if:
-    /// - The file does not exist or cannot be read
-    /// - The file contains invalid TOML syntax
-    /// - Required fields are missing or have incorrect types
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use crate::models::BatchScheduleConfig;
-    ///
-    /// let config = BatchScheduleConfig::load_from_file("src/config/batch_schedule.toml")?;
-    /// for schedule in &config.batch_schedule {
-    ///     println!("{}: {}", schedule.index_name(), schedule.enabled());
-    /// }
-    /// # Ok::<(), anyhow::Error>(())
-    /// ```
     pub fn find_from_file(path: &str) -> Result<Self> {
         find_toml_from_file(path)
     }
 
-    /// Returns only the enabled batch schedules.
-    ///
-    /// Filters the schedule list to return references to items where
-    /// `enabled` is `true`.
-    ///
-    /// # Returns
-    ///
-    /// A vector of references to enabled [`BatchScheduleItem`]s.
-    /// Returns an empty vector if no schedules are enabled.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// let config = BatchScheduleConfig::find_from_file("batch_schedule.toml")?;
-    /// let enabled = config.find_enabled_schedules();
-    ///
-    /// println!("Active schedules: {}", enabled.len());
-    /// for schedule in enabled {
-    ///     println!("  - {}", schedule.index_name());
-    /// }
-    /// # Ok::<(), anyhow::Error>(())
-    /// ```
     pub fn find_enabled_schedules(&self) -> Vec<&BatchScheduleItem> {
         self.batch_schedule
             .iter()

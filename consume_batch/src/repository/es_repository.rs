@@ -314,48 +314,6 @@ pub struct EsRepositoryImpl {
 }
 
 impl EsRepositoryImpl {
-    /// Creates a new `EsRepositoryImpl` instance.
-    ///
-    /// Initializes the Elasticsearch client by:
-    /// 1. Reading connection configuration from environment variables
-    /// 2. Building a multi-node connection pool with round-robin strategy
-    /// 3. Configuring authentication if credentials are provided
-    /// 4. Setting up a 30-second request timeout
-    ///
-    /// # Environment Variables
-    ///
-    /// * `ES_DB_URL` - Required. Comma-separated list of Elasticsearch hosts (e.g., `host1:9200,host2:9200`)
-    /// * `ES_ID` - Required but can be empty. Username for Basic authentication
-    /// * `ES_PW` - Required but can be empty. Password for Basic authentication
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(EsRepositoryImpl)` on successful initialization.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Any required environment variable is not set
-    /// - Host URLs cannot be parsed
-    /// - Transport cannot be built
-    ///
-    /// # Panics
-    ///
-    /// Panics if `ES_DB_URL`, `ES_ID`, or `ES_PW` environment variables are not set.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use crate::repository::EsRepositoryImpl;
-    ///
-    /// // Ensure environment variables are set:
-    /// // ES_DB_URL=localhost:9200
-    /// // ES_ID=elastic
-    /// // ES_PW=password
-    ///
-    /// let es_repo = EsRepositoryImpl::new()?;
-    /// # Ok::<(), anyhow::Error>(())
-    /// ```
     pub fn new() -> anyhow::Result<Self> {
         let app_config: &AppConfig = AppConfig::get_global().inspect_err(|e| {
             error!("[EsRepositoryImpl::new] app_config: {:#}", e);
@@ -408,38 +366,6 @@ impl EsRepositoryImpl {
 
 #[async_trait]
 impl EsRepository for EsRepositoryImpl {
-    /// Executes a search query against an Elasticsearch index.
-    ///
-    /// Sends the provided query DSL to Elasticsearch and returns the full
-    /// response including hits, aggregations, and metadata.
-    ///
-    /// # Arguments
-    ///
-    /// * `es_query` - The Elasticsearch query DSL as a JSON value
-    /// * `index_name` - The target index name to search
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(Value)` containing the complete Elasticsearch response.
-    ///
-    /// # Response Structure
-    ///
-    /// ```json
-    /// {
-    ///     "hits": {
-    ///         "total": { "value": 100 },
-    ///         "hits": [...]
-    ///     },
-    ///     "aggregations": {...}
-    /// }
-    /// ```
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Network request fails
-    /// - Elasticsearch returns non-2xx status code
-    /// - Response body cannot be parsed as JSON
     async fn find_by_query(&self, es_query: &Value, index_name: &str) -> anyhow::Result<Value> {
         // Execute search request against the specified index
         let response: Response = self
@@ -462,7 +388,6 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
-    /// Executes multiple search queries against a single Elasticsearch index.
     async fn finds_by_query(
         &self,
         es_queries: &[Value],
@@ -527,26 +452,6 @@ impl EsRepository for EsRepositoryImpl {
             .collect()
     }
 
-    /// Indexes a document into an Elasticsearch index.
-    ///
-    /// Creates a new document in the specified index. Elasticsearch will
-    /// automatically generate a document ID if not provided in the document.
-    ///
-    /// # Arguments
-    ///
-    /// * `document` - The document to index as a JSON value
-    /// * `index_name` - The target index name
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` on successful indexing.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Network request fails
-    /// - Document violates index mapping (type mismatch)
-    /// - Index is read-only or unavailable
     async fn input_document(&self, document: &Value, index_name: &str) -> anyhow::Result<()> {
         // Send index request with the document as body
         let response: Response = self
@@ -572,26 +477,6 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
-    /// Deletes a document from an Elasticsearch index by ID.
-    ///
-    /// Removes the specified document from the index. The document must exist,
-    /// otherwise Elasticsearch will return a 404 error.
-    ///
-    /// # Arguments
-    ///
-    /// * `doc_id` - The unique document ID to delete
-    /// * `index_name` - The target index name containing the document
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` on successful deletion.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Network request fails
-    /// - Document with specified ID does not exist (404)
-    /// - Index is read-only or unavailable
     async fn delete_by_id(&self, doc_id: &str, index_name: &str) -> anyhow::Result<()> {
         // Send delete request for the specified document
         let response: Response = self
@@ -617,7 +502,6 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
-    /// Creates a new Elasticsearch index with the provided settings and mappings.
     async fn initialize_index(
         &self,
         index_name: &str,
@@ -653,7 +537,6 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
-    /// Updates settings on an existing Elasticsearch index.
     async fn modify_index_settings(
         &self,
         index_name: &str,
@@ -683,7 +566,6 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
-    /// Sends a bulk-index request for the provided documents.
     async fn input_bulk<T: Serialize + Send + Sync>(
         &self,
         index_name: &str,
@@ -763,7 +645,6 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
-    /// Sends a bulk-update request for the provided documents.
     async fn modify_bulk<T: Serialize + Send + Sync>(
         &self,
         index_name: &str,
@@ -840,7 +721,6 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
-    /// Sends a bulk-delete request for the provided document IDs.
     async fn delete_bulk(&self, index_name: &str, doc_ids: Vec<i64>) -> anyhow::Result<()> {
         if doc_ids.is_empty() {
             return Ok(());
@@ -894,7 +774,6 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
-    /// Refreshes an Elasticsearch index so recent writes become searchable.
     async fn modify_index_refresh(&self, index_name: &str) -> anyhow::Result<()> {
         let response: Response = self
             .es_client
@@ -919,7 +798,6 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
-    /// Atomically removes an alias from old indices and adds it to `new_index_name`.
     async fn modify_alias(&self, alias_name: &str, new_index_name: &str) -> anyhow::Result<()> {
         // First, check if the alias exists and get the old index
         let get_alias_response: std::result::Result<Response, elasticsearch::Error> = self
@@ -987,7 +865,6 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
-    /// Looks up all index names currently bound to an alias.
     async fn find_index_by_alias(&self, alias_name: &str) -> anyhow::Result<Vec<String>> {
         let response: Response = self
             .es_client
@@ -1018,7 +895,6 @@ impl EsRepository for EsRepositoryImpl {
         Ok(indices)
     }
 
-    /// Deletes the given Elasticsearch indices.
     async fn delete_indices(&self, index_names: &[String]) -> anyhow::Result<()> {
         if index_names.is_empty() {
             return Ok(());

@@ -5,8 +5,7 @@ use sea_orm::ActiveValue;
 
 use crate::entity::user_current_asset_snapshot;
 use crate::models::{
-    AssetAmount, Crypto, CurrencyExchangeRateSnapshot, Stock, StockType,
-    batch_schedule::*,
+    AssetAmount, Crypto, CurrencyExchangeRateSnapshot, Stock, StockType, batch_schedule::*,
 };
 use crate::service_trait::{
     consume_service::ConsumeService, elastic_service::ElasticService,
@@ -20,11 +19,7 @@ use crate::api::twelve_data_api::*;
 
 use super::BatchServiceImpl;
 
-/// Converts a flat `Vec<AssetAmount>` into a per-user lookup map.
-///
-/// Users whose `asset_sum` is NULL (no matching rows in the join) are excluded
-/// from the map. Callers should use `.get(&uid).copied().unwrap_or(Decimal::ZERO)`
-/// so missing users default to zero rather than being silently dropped.
+// Converts asset amount rows into a user-seq keyed lookup map.
 fn to_amount_map(amounts: Vec<AssetAmount>) -> HashMap<i64, Decimal> {
     amounts
         .into_iter()
@@ -32,18 +27,7 @@ fn to_amount_map(amounts: Vec<AssetAmount>) -> HashMap<i64, Decimal> {
         .collect()
 }
 
-/// Shared batch-loop logic for asset price sync jobs.
-///
-/// Iterates over the asset table in `batch_size` steps, calls
-/// [`fetch_stock_price`] for each `api_symbol`, and bulk-updates the results.
-/// Individual API failures are logged and skipped; DB errors abort the function.
-///
-/// # Arguments
-///
-/// * `batch_size`  - Rows per iteration
-/// * `label`       - Job name used in log messages (e.g. `"sync_stock_price"`)
-/// * `fetch_fn`    - Returns the next page as `(seq, api_symbol)` pairs
-/// * `update_fn`   - Persists the collected `price_map` to the DB
+// Synchronizes prices for assets that can be fetched by API symbol.
 async fn sync_asset_price<F, G>(
     batch_size: u64,
     label: &str,
@@ -126,6 +110,7 @@ where
     I: IndexingService + Send + Sync + 'static,
     S: SmtpService + Send + Sync + 'static,
 {
+    // Fetches active exchange-rate snapshots from MySQL and refreshes them from the external API.
     pub(super) async fn sync_currency_exchange_rates(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
@@ -199,6 +184,7 @@ where
         Ok(())
     }
 
+    // Synchronizes stock prices in paged batches.
     pub(super) async fn sync_stock_price(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
@@ -222,6 +208,7 @@ where
         .await
     }
 
+    // Synchronizes crypto prices in paged batches.
     pub(super) async fn sync_crypto_price(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
@@ -245,6 +232,7 @@ where
         .await
     }
 
+    // Aggregates each user's current asset totals and stores snapshot rows.
     pub(super) async fn sync_current_asset_total(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
@@ -317,9 +305,8 @@ where
                         );
                     })
                     .map(to_amount_map)?;
-                
+
                 // 4. Get deposit asset (TODO)
-                
 
                 // 5. Get saving asset  (TODO)
 
@@ -331,19 +318,23 @@ where
                 let batch_snapshots: Vec<user_current_asset_snapshot::ActiveModel> = user_seqs
                     .iter()
                     .map(|&uid| user_current_asset_snapshot::ActiveModel {
-                        summary_seq:    ActiveValue::NotSet,
-                        user_seq:       ActiveValue::Set(uid),
-                        currency_code:  ActiveValue::Set(currency.to_owned()),
-                        aggregated_at:  ActiveValue::Set(now),
-                        stock_amount:   ActiveValue::Set(stock_map.get(&uid).copied().unwrap_or(zero)),
-                        crypto_amount:  ActiveValue::Set(crypto_map.get(&uid).copied().unwrap_or(zero)),
-                        cash_amount:    ActiveValue::Set(cash_map.get(&uid).copied().unwrap_or(zero)),   // TODO: step 3
-                        deposit_amount: ActiveValue::Set(zero),   // TODO: step 4
-                        saving_amount:  ActiveValue::Set(zero),   // TODO: step 5
-                        created_at:     ActiveValue::Set(now),
-                        updated_at:     ActiveValue::NotSet,
-                        created_by:     ActiveValue::Set("SYSTEM".to_owned()),
-                        updated_by:     ActiveValue::NotSet,
+                        summary_seq: ActiveValue::NotSet,
+                        user_seq: ActiveValue::Set(uid),
+                        currency_code: ActiveValue::Set(currency.to_owned()),
+                        aggregated_at: ActiveValue::Set(now),
+                        stock_amount: ActiveValue::Set(
+                            stock_map.get(&uid).copied().unwrap_or(zero),
+                        ),
+                        crypto_amount: ActiveValue::Set(
+                            crypto_map.get(&uid).copied().unwrap_or(zero),
+                        ),
+                        cash_amount: ActiveValue::Set(cash_map.get(&uid).copied().unwrap_or(zero)), // TODO: step 3
+                        deposit_amount: ActiveValue::Set(zero), // TODO: step 4
+                        saving_amount: ActiveValue::Set(zero),  // TODO: step 5
+                        created_at: ActiveValue::Set(now),
+                        updated_at: ActiveValue::NotSet,
+                        created_by: ActiveValue::Set("SYSTEM".to_owned()),
+                        updated_by: ActiveValue::NotSet,
                     })
                     .collect();
 

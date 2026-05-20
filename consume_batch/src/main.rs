@@ -105,37 +105,6 @@ type BatchSvc = BatchServiceImpl<
 type CliSvc = CliServiceImpl<BatchSvc>;
 type Controller = MainController<BatchSvc, CliSvc>;
 
-/// Application entry point.
-///
-/// Initializes global configuration, logger, and all service dependencies,
-/// then routes execution to either service mode or CLI client mode based on
-/// the command-line arguments passed at startup.
-///
-/// # Execution Modes
-///
-/// ```text
-/// ./consume_batch_v1           → Service mode (cron scheduler + CLI socket server)
-/// ./consume_batch_v1 --cli     → CLI client mode (connects to a running service)
-/// ```
-///
-/// # Service Mode Initialization Order
-///
-/// ```text
-/// 1. Load environment variables (.env)
-/// 2. Initialize AppConfig and global logger
-/// 3. Create repositories: Elasticsearch, MySQL, Kafka
-/// 4. Build services via dependency injection:
-///      ElasticService / MysqlService / ConsumeService / ProducerService
-///      → BatchService (wraps all sub-services)
-///      → CliService   (holds Arc<BatchService> for on-demand execution)
-/// 5. Assemble MainController<BatchSvc, CliSvc>
-/// 6. Start batch scheduler + CLI socket server
-/// ```
-///
-/// # Panics
-///
-/// Panics if any repository or service fails to initialize, since the application
-/// cannot run without valid connections to all external systems (ES, MySQL, Kafka).
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenv().ok();

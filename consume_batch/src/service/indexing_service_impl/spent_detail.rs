@@ -13,7 +13,6 @@ use crate::service_trait::{
 
 use super::IndexingServiceImpl;
 
-/// Deduplicates a batch of Kafka events by keeping only the latest event per `spent_idx`.
 fn to_merged_batch_events(
     messages: Vec<SpentDetailFromKafka>,
 ) -> anyhow::Result<(Vec<i64>, Vec<i64>)> {
@@ -54,7 +53,6 @@ where
     E: ElasticService + Send + Sync + 'static,
     C: ConsumeService + Send + Sync + 'static,
 {
-    /// Bulk-indexes all `SPENT_DETAIL_INDEXING` rows into `new_index_name` from MySQL.
     async fn input_spent_detail_full_data(
         &self,
         schedule_item: &BatchScheduleItem,
@@ -109,7 +107,6 @@ where
         Ok(total_indexed)
     }
 
-    /// Consumes one Kafka batch and applies upsert/delete to MySQL and Elasticsearch.
     async fn input_spent_detail_incremental_data(
         &self,
         indexer_topic: &str,
@@ -226,8 +223,6 @@ where
         Ok((upsert_processed, delete_processed))
     }
 
-    /// Drives the catch-up phase: consumes incremental events until lag reaches zero,
-    /// then atomically swaps the Elasticsearch alias.
     async fn modify_spent_detail_catch_up(
         &self,
         schedule_item: &BatchScheduleItem,
@@ -397,7 +392,6 @@ where
         Ok(total_upsert_processed + total_delete_processed)
     }
 
-    /// Performs a full reindex of `SPENT_DETAIL` into Elasticsearch.
     pub(super) async fn input_spent_detail_full(
         &self,
         schedule_item: &BatchScheduleItem,
@@ -533,7 +527,6 @@ where
         Ok(())
     }
 
-    /// Runs the incremental indexing loop for `SPENT_DETAIL` indefinitely.
     pub(super) async fn input_spent_detail_incremental(
         &self,
         schedule_item: &BatchScheduleItem,

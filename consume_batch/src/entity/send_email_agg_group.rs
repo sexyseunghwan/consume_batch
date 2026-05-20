@@ -33,24 +33,12 @@ pub enum Relation {
 }
 
 impl Related<super::agg_group::Entity> for Entity {
-    /// Returns the relation definition to `AGG_GROUP`.
-    ///
-    /// # Returns
-    ///
-    /// Returns the SeaORM relation definition for the aggregate group assigned
-    /// to this email recipient mapping.
     fn to() -> RelationDef {
         Relation::AggGroup.def()
     }
 }
 
 impl Related<super::users_email::Entity> for Entity {
-    /// Returns the relation definition to `USERS_EMAIL`.
-    ///
-    /// # Returns
-    ///
-    /// Returns the SeaORM relation definition for the recipient email address
-    /// assigned to this aggregate group.
     fn to() -> RelationDef {
         Relation::UsersEmail.def()
     }

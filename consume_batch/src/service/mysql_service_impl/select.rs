@@ -1,12 +1,13 @@
 use crate::common::*;
 use crate::entity::{
-    agg_group, common_consume_keyword_type, common_consume_prodt_keyword, crypto, crypto_asset,
-    currency_exchange_rate_snapshot, send_email_agg_group, spent_detail, spent_detail_indexing,
-    stock, stock_asset, stock_type, telegram_room, user_payment_methods, users, cash_asset, currency_code
+    agg_group, cash_asset, common_consume_keyword_type, common_consume_prodt_keyword, crypto,
+    crypto_asset, currency_code, currency_exchange_rate_snapshot, send_email_agg_group,
+    spent_detail, spent_detail_indexing, stock, stock_asset, stock_type, telegram_room,
+    user_payment_methods, users,
 };
 use crate::models::{
-    AssetAmount, Crypto, CurrencyExchangeRateSnapshot, SendEmailAggGroup, SpentDetail,
-    SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, StockType, CashAsset
+    AssetAmount, CashAsset, Crypto, CurrencyExchangeRateSnapshot, SendEmailAggGroup, SpentDetail,
+    SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, StockType,
 };
 use crate::repository::mysql_repository::MysqlRepository;
 use sea_orm::sea_query::{Expr, Func, SimpleExpr};
@@ -398,12 +399,14 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
         let db: &DatabaseConnection = self.db_conn.get_connection();
 
         let result: Vec<AssetAmount> = cash_asset::Entity::find()
-            .join(JoinType::InnerJoin, cash_asset::Relation::CurrencyCode.def())
+            .join(
+                JoinType::InnerJoin,
+                cash_asset::Relation::CurrencyCode.def(),
+            )
             .select_only()
             .column(cash_asset::Column::UserSeq)
             .column_as(
-                SimpleExpr::from(Func::sum(
-                    Expr::col(cash_asset::Column::Cash))),
+                SimpleExpr::from(Func::sum(Expr::col(cash_asset::Column::Cash))),
                 "asset_sum",
             )
             .filter(cash_asset::Column::CurrencyCode.eq(currency_code))
@@ -419,7 +422,7 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
                     currency_code, e
                 );
             })?;
-        
+
         Ok(result)
     }
 }

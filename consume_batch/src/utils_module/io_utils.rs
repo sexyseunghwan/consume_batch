@@ -32,11 +32,6 @@ use crate::common::*;
     let index_list: IndexListConfig = read_toml_from_file(&INDEX_LIST_PATH)?;
     ```
 "#]
-/// # Arguments
-/// * `file_path` - Path where the target toml file to read exists
-///
-/// # Returns
-/// * Result<T, anyhow::Error> - Returns a json-compatible object if file is successfully read
 pub fn find_toml_from_file<T: DeserializeOwned>(file_path: &str) -> Result<T, anyhow::Error> {
     let toml_content = std::fs::read_to_string(file_path)?;
     let toml: T = toml::from_str(&toml_content)?;
@@ -78,11 +73,6 @@ pub fn find_toml_from_file<T: DeserializeOwned>(file_path: &str) -> Result<T, an
     let json_value = convert_json_from_struct(&alert_index)?;
     ```
 "#]
-/// # Arguments
-/// * input_struct - Struct to convert to json
-///
-/// # Returns
-/// * Result<Value, anyhow::Error>
 pub fn to_json_from_struct<T: Serialize>(input_struct: &T) -> Result<Value, anyhow::Error> {
     serde_json::to_value(input_struct).map_err(|err| {
         anyhow!(

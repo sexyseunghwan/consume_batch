@@ -18,16 +18,6 @@ pub enum FinalAction {
 }
 
 impl FinalAction {
-    /// 현재 상태(self)에 새 이벤트(event)를 적용해 다음 상태를 반환한다.
-    ///
-    /// ## 상태 전이표
-    ///
-    /// | prev \ event  | Insert        | Update        | Delete  |
-    /// |---------------|---------------|---------------|---------|
-    /// | UpsertNew     | UpsertNew     | UpsertNew     | Noop    |
-    /// | UpsertExisting| UpsertExisting| UpsertExisting| Delete  |
-    /// | Delete        | UpsertExisting| UpsertExisting| Delete  |
-    /// | Noop          | UpsertNew     | UpsertNew     | Noop    |
     pub fn modify_by_event(self, event: IndexingType) -> Self {
         match (self, event) {
             // UpsertNew: I가 첫 이벤트였던 상태
@@ -52,7 +42,6 @@ impl FinalAction {
         }
     }
 
-    /// 초기 이벤트(prev 상태 없음)로부터 첫 FinalAction을 결정한다.
     pub fn initialize_from_first_event(event: IndexingType) -> Self {
         match event {
             IndexingType::Insert => Self::UpsertNew,
@@ -61,7 +50,6 @@ impl FinalAction {
         }
     }
 
-    /// 이 FinalAction이 ES upsert 작업이 필요한지 여부.
     pub fn is_upsert_required(&self) -> bool {
         matches!(self, Self::UpsertNew | Self::UpsertExisting)
     }

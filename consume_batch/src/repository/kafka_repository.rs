@@ -395,14 +395,6 @@ pub struct KafkaRepositoryImpl {
 // the instance should be shared via Arc::clone()
 
 impl KafkaRepositoryImpl {
-    /// Creates a new `KafkaRepositoryImpl` instance.
-    ///
-    /// Initializes the consumer map. Consumers are created lazily
-    /// when `consume_messages` is called for a specific topic.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(KafkaRepositoryImpl)` on successful initialization.
     pub fn new() -> anyhow::Result<Self> {
         // Load configuration from environment
         let app_config: &AppConfig = AppConfig::get_global().inspect_err(|e| {
@@ -470,32 +462,6 @@ impl KafkaRepositoryImpl {
         })
     }
 
-    /// ***************************************************************************************************
-    /// **************************************** [SERVER AS BASIS] ****************************************
-    /// ***************************************************************************************************
-    /// Gets or creates a consumer for a specific topic with optional group suffix.
-    ///
-    /// If a consumer for the topic already exists, returns the existing one.
-    /// Otherwise, creates a new consumer with a topic-specific group.id.
-    ///
-    /// # Arguments
-    ///
-    /// * `topic` - The topic name to get/create a consumer for
-    /// * `group_suffix` - Optional suffix for group.id to create independent consumers
-    ///
-    /// # Returns
-    ///
-    /// Returns an Arc to the StreamConsumer for the topic.
-    ///
-    /// # Consumer Configuration
-    ///
-    /// | Setting                | Value                                    | Description                |
-    /// |------------------------|------------------------------------------|----------------------------|
-    /// | `bootstrap.servers`    | from config                              | Kafka broker addresses     |
-    /// | `group.id`             | `[{base_group_id}-{topic}[-{suffix}]`    | Topic-specific group       |
-    /// | `auto.offset.reset`    | earliest                                 | Start from earliest        |
-    /// | `enable.auto.commit`   | true                                     | Auto commit offsets        |
-    /// | `session.timeout.ms`   | 6000                                     | 6 second session timeout   |
     async fn find_or_create_consumer(
         &self,
         topic: &str,
@@ -595,18 +561,6 @@ impl KafkaRepositoryImpl {
         Ok(consumer_arc)
     }
 
-    /// Consumer group이 활성 상태인지 확인한다.
-    ///
-    /// # Implementation Note
-    ///
-    /// rdkafka 0.38.0에는 describe_groups API가 없으므로,
-    /// 이 구현에서는 단순히 경고 로그를 남기고 true를 반환한다.
-    /// 실제로는 Kafka 외부 도구(kafka-consumer-groups.sh)나
-    /// JMX를 통해 확인해야 한다.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(true)` (항상 활성 상태로 가정)
     async fn is_consumer_group_active(&self, _group_id: &str) -> anyhow::Result<bool> {
         // rdkafka 0.38.0에는 describe_groups API가 없으므로
         // 실제 member 조회는 불가능하다.
@@ -614,25 +568,6 @@ impl KafkaRepositoryImpl {
         Ok(true)
     }
 
-    /// Consumer group을 비활성화한다 (모든 members 제거).
-    ///
-    /// Kafka에서 consumer group을 직접 "비활성화"하는 API는 없지만,
-    /// 모든 member를 제거하여 실질적으로 비활성화할 수 있다.
-    ///
-    /// 실제로는 consumer 애플리케이션을 중지하거나
-    /// DeleteConsumerGroupOffsets API를 사용해야 하지만,
-    /// 여기서는 offset만 덮어쓸 것이므로 별도의 member 제거는 하지 않는다.
-    ///
-    /// # Implementation Note
-    ///
-    /// Kafka Admin API는 consumer group의 member를 직접 제거하는 기능을 제공하지 않는다.
-    /// 대신 다음 방식으로 비활성화를 구현한다:
-    ///
-    /// 1. **Consumer 애플리케이션 중지**: 실제로 가장 안전한 방법
-    /// 2. **Offset 덮어쓰기 전 잠시 대기**: Consumer가 heartbeat를 보내지 않으면 자동으로 제거됨
-    ///
-    /// 이 구현에서는 offset 복사가 consumer가 활성 상태가 아닐 때 수행되도록
-    /// 권장 사항을 로그로 남기는 방식을 사용한다.
     async fn modify_consumer_group_deactivate(&self, group_id: &str) -> anyhow::Result<()> {
         // Kafka Admin API는 consumer group member를 직접 제거하는 기능이 없다.
         // 따라서 여기서는 경고 로그만 남기고 진행한다.
@@ -656,7 +591,6 @@ impl KafkaRepositoryImpl {
         Ok(())
     }
 
-    /// AdminClient를 생성한다.
     fn initialize_admin_client(&self) -> anyhow::Result<AdminClient<DefaultClientContext>> {
         let mut admin_config: ClientConfig = ClientConfig::new();
         admin_config.set("bootstrap.servers", &self.kafka_brokers);
@@ -682,11 +616,6 @@ impl KafkaRepositoryImpl {
         })
     }
 
-    /// 내부적으로 offset을 복사하는 함수 (기존 로직).
-    ///
-    /// 이 함수는 target 그룹이 이미 비활성화된 상태에서 호출되어야 한다.
-    /// * target 그룹: 복사를 하려는 그룹
-    /// * source 그룹: 복사 대상이 되는 그룹
     async fn modify_offsets_internal(
         &self,
         topic: &str,
@@ -886,19 +815,6 @@ impl KafkaRepositoryImpl {
 
 #[async_trait]
 impl KafkaRepository for KafkaRepositoryImpl {
-    /// Consumes messages from a Kafka topic with a specified limit.
-    ///
-    /// Gets or creates a topic-specific consumer, ensuring independent
-    /// offset tracking for each topic.
-    ///
-    /// # Arguments
-    ///
-    /// * `topic` - The Kafka topic to consume from
-    /// * `max_messages` - Maximum number of messages to consume
-    ///
-    /// # Returns
-    ///
-    /// Returns a vector of JSON values representing the consumed messages.
     async fn find_messages(&self, topic: &str, max_messages: usize) -> anyhow::Result<Vec<Value>> {
         // Get or create topic-specific consumer (without group suffix)
         let consumer: Arc<StreamConsumer> = self.find_or_create_consumer(topic, None).await?;
@@ -979,7 +895,6 @@ impl KafkaRepository for KafkaRepositoryImpl {
         Ok(messages)
     }
 
-    /// Consumes messages from a topic using a dedicated consumer-group suffix.
     async fn find_messages_by_group(
         &self,
         topic: &str,
@@ -1055,42 +970,11 @@ impl KafkaRepository for KafkaRepositoryImpl {
         Ok(messages)
     }
 
-    /// Consumes a single message from a Kafka topic.
-    ///
-    /// Convenience method for consuming just one message.
-    ///
-    /// # Arguments
-    ///
-    /// * `topic` - The Kafka topic to consume from
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(Some(Value))` if a message is available within timeout,
-    /// `Ok(None)` if no message is available.
     async fn find_one(&self, topic: &str) -> anyhow::Result<Option<Value>> {
         let messages: Vec<Value> = self.find_messages(topic, 1).await?;
         Ok(messages.into_iter().next())
     }
 
-    /// Sends a JSON message to a Kafka topic.
-    ///
-    /// Uses the shared producer to send messages asynchronously.
-    ///
-    /// # Arguments
-    ///
-    /// * `topic` - The Kafka topic to send to
-    /// * `key` - Optional message key for partitioning
-    /// * `payload` - The JSON payload to send
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` on successful delivery.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Message serialization fails
-    /// - Producer fails to send message within timeout (30 seconds)
     async fn input_message(
         &self,
         topic: &str,
@@ -1129,27 +1013,6 @@ impl KafkaRepository for KafkaRepositoryImpl {
         }
     }
 
-    /// Purges all records from a Kafka topic.
-    ///
-    /// Creates an AdminClient, fetches the high watermark offset for each
-    /// partition, then calls `delete_records` to remove all records up to
-    /// those offsets. The topic itself remains intact.
-    ///
-    /// # Arguments
-    ///
-    /// * `topic` - The Kafka topic to purge
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` if all records were successfully deleted,
-    /// or if the topic was already empty.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Admin client creation fails
-    /// - Topic metadata or watermark fetching fails
-    /// - `delete_records` call fails
     async fn delete_topic_records(&self, topic: &str) -> anyhow::Result<()> {
         info!(
             "[KafkaRepositoryImpl::delete_topic_records] Purging all records from topic: {}",
@@ -1315,13 +1178,6 @@ impl KafkaRepository for KafkaRepositoryImpl {
         Ok(())
     }
 
-    /// 특정 토픽에서 source 컨슈머 그룹의 committed offset을 target 컨슈머 그룹에 안전하게 복사한다.
-    ///
-    /// 이 함수는 다음 순서로 안전한 offset 복사를 수행한다:
-    /// 1. target 그룹의 consumer가 활성 상태인지 확인하고 로그에 기록
-    /// 2. target 그룹의 모든 consumer 비활성화 (members 제거)
-    /// 3. source 그룹의 committed offset 조회 및 target 그룹에 복사
-    /// 4. 복사 성공 여부를 로그에 기록
     async fn modify_consumer_group_offsets(
         &self,
         topic: &str,
@@ -1398,10 +1254,6 @@ impl KafkaRepository for KafkaRepositoryImpl {
         copy_result
     }
 
-    /// Returns the sum of committed offsets across all partitions for a group.
-    ///
-    /// Assembles the full group ID as `{base_group_id}-{topic}-{group_suffix}`,
-    /// consistent with `get_or_create_consumer`.
     async fn find_committed_offsets_total(
         &self,
         topic: &str,
@@ -1497,10 +1349,6 @@ impl KafkaRepository for KafkaRepositoryImpl {
         Ok(total)
     }
 
-    /// Returns committed offsets per partition for a group.
-    ///
-    /// Assembles the full group ID as `{base_group_id}-{topic}-{group_suffix}`,
-    /// consistent with `get_or_create_consumer`.
     async fn find_committed_offsets_by_partition(
         &self,
         topic: &str,

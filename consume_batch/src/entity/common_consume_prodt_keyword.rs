@@ -28,12 +28,6 @@ pub enum Relation {
 }
 
 impl Related<super::common_consume_keyword_type::Entity> for Entity {
-    /// Returns the relation definition to `COMMON_CONSUME_KEYWORD_TYPE`.
-    ///
-    /// # Returns
-    ///
-    /// Returns the SeaORM relation definition for the consume keyword type that
-    /// owns this product keyword.
     fn to() -> RelationDef {
         Relation::CommonConsumeKeywordType.def()
     }

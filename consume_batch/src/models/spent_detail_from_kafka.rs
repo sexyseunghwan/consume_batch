@@ -10,19 +10,6 @@ pub struct SpentDetailFromKafka {
 }
 
 impl SpentDetailFromKafka {
-    /// Converts the Kafka indexing type string into an `IndexingType`.
-    ///
-    /// Parses the `indexing_type` field carried by a Kafka message into the enum
-    /// used by the indexing pipeline.
-    ///
-    /// # Returns
-    ///
-    /// Returns the parsed `IndexingType`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - `indexing_type` does not match a supported indexing event type
     pub fn to_indexing_type(&self) -> anyhow::Result<IndexingType> {
         self.indexing_type
             .parse::<IndexingType>()

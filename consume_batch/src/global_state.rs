@@ -31,12 +31,10 @@ pub static SPENT_DETAIL_INDEXING: once_lazy<RwLock<bool>> = once_lazy::new(|| Rw
 pub static SPENT_DETAIL_INDEXING_CATCHUP: once_lazy<RwLock<bool>> =
     once_lazy::new(|| RwLock::new(true));
 
-/// Returns the current value of [`SPENT_DETAIL_INDEXING`].
 pub async fn get_spent_detail_indexing() -> bool {
     *SPENT_DETAIL_INDEXING.read().await
 }
 
-/// Sets [`SPENT_DETAIL_INDEXING`] to the given `value`.
 pub async fn set_spent_detail_indexing(value: bool) {
     *SPENT_DETAIL_INDEXING.write().await = value;
 }

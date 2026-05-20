@@ -15,7 +15,6 @@ impl<K> ProducerService for ProducerServiceImpl<K>
 where
     K: KafkaRepository + Send + Sync,
 {
-    /// Produces a raw JSON payload to a Kafka topic.
     async fn input_message(
         &self,
         topic: &str,
@@ -26,13 +25,6 @@ where
     }
 
     #[doc = "Produce a single serializable object to a specific Kafka topic"]
-    /// # Arguments
-    /// * `topic` - Kafka topic name
-    /// * `object` - Serializable object to send
-    /// * `key` - Optional message key
-    ///
-    /// # Returns
-    /// * `Result<(), anyhow::Error>` - Ok if message sent successfully
     async fn input_object_to_topic<T>(
         &self,
         topic: &str,
@@ -70,29 +62,6 @@ where
     }
 
     #[doc = "Produce multiple serializable objects to a specific Kafka topic"]
-    /// Each object will be serialized to JSON and sent as a separate message
-    ///
-    /// # Arguments
-    /// * `topic` - Kafka topic name
-    /// * `objects` - Slice of serializable objects
-    /// * `key_fn` - Optional function to generate key for each object
-    ///
-    /// # Returns
-    /// * `Result<(), anyhow::Error>` - Ok if all messages sent successfully
-    ///
-    /// # Example
-    /// ```
-    /// // Example 1: Send without keys
-    /// let spent_details = vec![spent1, spent2, spent3];
-    /// producer.produce_objects_to_topic("dev_spent_detail", &spent_details, None).await?;
-    ///
-    /// // Example 2: Send with user-based keys (for ordering)
-    /// producer.produce_objects_to_topic(
-    ///     "dev_spent_detail",
-    ///     &spent_details,
-    ///     Some(&|obj| format!("user:{}", obj.user_seq))
-    /// ).await?;
-    /// ```
     async fn input_objects_to_topic<T, F>(
         &self,
         topic: &str,
@@ -159,14 +128,6 @@ where
     }
 
     #[doc = "Purge all records from a specific Kafka topic"]
-    /// Delegates to KafkaRepository::purge_topic which uses the Admin API's
-    /// delete_records to remove all messages up to each partition's high watermark offset.
-    ///
-    /// # Arguments
-    /// * `topic` - Kafka topic name to purge
-    ///
-    /// # Returns
-    /// * `Result<(), anyhow::Error>` - Ok if records were successfully deleted
     async fn delete_topic_records(&self, topic: &str) -> Result<(), anyhow::Error> {
         info!(
             "[ProducerServiceImpl::delete_topic_records] Requesting purge for topic: {}",

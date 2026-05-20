@@ -43,21 +43,6 @@ pub struct AppConfig {
 static APP_CONFIG: normalOnceCell<AppConfig> = normalOnceCell::new();
 
 impl AppConfig {
-    /// Initialize the global configuration from environment variables
-    /// This should be called once at application startup
-    ///
-    /// # Returns
-    /// * `Result<(), String>` - Ok if initialization succeeds, Err with message if fails
-    ///
-    /// # Example
-    /// ```no_run
-    /// use consume_alert_rust::config::AppConfig;
-    ///
-    /// AppConfig::init().expect("Failed to initialize config");
-    /// let config = AppConfig::global()?;
-    /// println!("Socket path: {}", config.socket_path());
-    /// # Ok::<(), anyhow::Error>(())
-    /// ```
     pub fn initialize() -> Result<(), String> {
         dotenv::dotenv().ok();
 
@@ -107,31 +92,12 @@ impl AppConfig {
             .map_err(|_| "AppConfig already initialized".to_string())
     }
 
-    /// Get a reference to the global configuration.
-    ///
-    /// # Returns
-    /// * `Ok(&'static AppConfig)` - Reference to the global configuration
-    /// * `Err` - Returned if `AppConfig::init()` has not been called yet
-    ///
-    /// # Example
-    /// ```
-    /// use consume_alert_rust::config::AppConfig;
-    ///
-    /// let config = AppConfig::global()?;
-    /// println!("Topic: {}", config.consume_topic);
-    /// # Ok::<(), anyhow::Error>(())
-    /// ```
     pub fn get_global() -> anyhow::Result<&'static AppConfig> {
         APP_CONFIG.get().ok_or_else(|| {
             anyhow!("AppConfig not initialized. Call AppConfig::initialize() first.")
         })
     }
 
-    /// Try to get a reference to the global configuration
-    /// Returns None if not initialized yet
-    ///
-    /// # Returns
-    /// * `Option<&'static AppConfig>` - Some if initialized, None otherwise
     #[allow(dead_code)]
     pub fn find_global() -> Option<&'static AppConfig> {
         APP_CONFIG.get()
@@ -143,7 +109,6 @@ mod tests {
     use super::*;
 
     #[test]
-    /// Verifies that the global configuration can be initialized and accessed in tests.
     fn test_config_access() -> anyhow::Result<()> {
         // Note: This test requires .env file to be present
         if AppConfig::find_global().is_none() {

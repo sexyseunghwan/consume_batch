@@ -23,18 +23,6 @@ use chrono::Months;
 
 use super::BatchServiceImpl;
 
-/// Escapes reserved HTML characters for safe insertion into HTML.
-///
-/// Replaces characters that can break markup or introduce unintended HTML
-/// with their corresponding entity values before rendering report rows.
-///
-/// # Arguments
-///
-/// * `s` - The raw text value to escape
-///
-/// # Returns
-///
-/// Returns a new `String` containing the escaped text.
 fn escape_html(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -43,18 +31,6 @@ fn escape_html(s: &str) -> String {
         .replace('\'', "&#39;")
 }
 
-/// Formats a money amount with comma separators.
-///
-/// Converts an integer amount into the display format used by the monthly
-/// report, such as `1000000` to `1,000,000`.
-///
-/// # Arguments
-///
-/// * `amount` - The money amount to format
-///
-/// # Returns
-///
-/// Returns the formatted amount as a `String`.
 fn format_money(amount: i64) -> String {
     let s = amount.to_string();
     let mut result = String::new();
@@ -67,35 +43,10 @@ fn format_money(amount: i64) -> String {
     result.chars().rev().collect()
 }
 
-/// Formats a UTC date for display in the monthly report.
-///
-/// Converts a [`DateTime<Utc>`] into the Korean date label used in email rows.
-///
-/// # Arguments
-///
-/// * `dt` - The UTC date and time to format
-///
-/// # Returns
-///
-/// Returns a date string in `YYYY년 M월 D일` format.
 fn format_date(dt: DateTime<Utc>) -> String {
     format!("{}년 {}월 {}일", dt.year(), dt.month(), dt.day())
 }
 
-/// Builds HTML table rows for the monthly spend detail list.
-///
-/// Converts each indexed spend detail document into a table row for the report
-/// email. Empty text fields are rendered as `-`, and user-provided text is HTML
-/// escaped before insertion.
-///
-/// # Arguments
-///
-/// * `source_list` - The spend detail documents returned from Elasticsearch
-///
-/// # Returns
-///
-/// Returns the rendered `<tr>` HTML string. If no spend details exist, returns
-/// a single empty-state row.
 fn build_html_rows(source_list: &[DocumentWithId<SpentDetailIndexing>]) -> String {
     if source_list.is_empty() {
         return "<tr><td colspan=\"5\" style=\"padding:8px 12px;text-align:center;color:#888;\">소비 내역이 없습니다.</td></tr>".to_string();
@@ -142,20 +93,6 @@ fn build_html_rows(source_list: &[DocumentWithId<SpentDetailIndexing>]) -> Strin
     html
 }
 
-/// Builds HTML table rows for spend totals grouped by category.
-///
-/// Converts calculated category summary values into table rows for the report
-/// email. Empty category names are rendered as `-`, and category names are HTML
-/// escaped before insertion.
-///
-/// # Arguments
-///
-/// * `detail_by_type` - Category-level spend summaries to render
-///
-/// # Returns
-///
-/// Returns the rendered `<tr>` HTML string. If no category summaries exist,
-/// returns a single empty-state row.
 fn build_category_rows(detail_by_type: &[SpentResultByType]) -> String {
     if detail_by_type.is_empty() {
         return "<tr><td colspan=\"3\" style=\"padding:8px 12px;text-align:center;color:#888;\">카테고리 데이터가 없습니다.</td></tr>".to_string();
@@ -183,23 +120,6 @@ fn build_category_rows(detail_by_type: &[SpentResultByType]) -> String {
     html
 }
 
-/// Builds an HTML table comparing current and previous period spend totals.
-///
-/// Renders a single-row summary table with three columns — current total,
-/// previous total, and the change expressed as a percentage and absolute
-/// amount.  The change cell is colour-coded: red when spending increased,
-/// green when it decreased, and grey when it is unchanged or there is no
-/// previous data.
-///
-/// # Arguments
-///
-/// * `cur_total` - Total spend amount for the current report period
-/// * `prev_total` - Total spend amount for the comparison period; pass `0`
-///   when no previous data is available
-///
-/// # Returns
-///
-/// Returns a complete `<table>` HTML string ready for template injection.
 fn build_period_summary_html(cur_total: i64, prev_total: i64) -> String {
     let cur_str: String = format!("{} 원", format_money(cur_total));
     let prev_str: String = if prev_total == 0 {
@@ -248,37 +168,6 @@ fn build_period_summary_html(cur_total: i64, prev_total: i64) -> String {
     )
 }
 
-/// Renders a spend report HTML body from the configured template.
-///
-/// Reads the report template path from [`AppConfig`] and substitutes all
-/// placeholders with the supplied values.  Placeholder mapping:
-///
-/// | Placeholder         | Value                                     |
-/// |---------------------|-------------------------------------------|
-/// | `{{REPORT_TITLE}}`  | `report_title`                            |
-/// | `{{START_*}}`       | Year / month / day of `start_date`        |
-/// | `{{END_*}}`         | Year / month / day of `end_date`          |
-/// | `{{COMPARISON}}`    | Inline comparison text (`comparison_html`) |
-/// | `{{PERIOD_SUMMARY}}`| Period-vs-period summary table            |
-/// | `{{ROWS}}`          | Spend detail table rows                   |
-/// | `{{CATEGORY_ROWS}}` | Category summary table rows               |
-/// | `{{TOTAL}}`         | Grand total formatted with commas         |
-///
-/// # Arguments
-///
-/// * `report_title` - Label injected into `{{REPORT_TITLE}}` (e.g. "월간 소비 리포트")
-/// * `start_date` - First date included in the report range
-/// * `end_date` - Last date included in the report range
-/// * `rows_html` - Pre-rendered `<tr>` rows for the spend detail table
-/// * `total` - Grand total spend amount for the current period
-/// * `category_rows_html` - Pre-rendered `<tr>` rows for the category summary table
-/// * `comparison_html` - Inline HTML fragment showing the period-over-period change
-/// * `period_summary_html` - HTML table comparing current and previous period totals
-///
-/// # Errors
-///
-/// Returns an error if the global config is not initialized or the template
-/// file cannot be read.
 fn build_report_html(
     report_title: &str,
     start_date: DateTime<Utc>,
@@ -330,24 +219,6 @@ where
     I: IndexingService + Send + Sync + 'static,
     S: SmtpService + Send + Sync + 'static,
 {
-    /// Calculates the monthly report date range.
-    ///
-    /// Builds an inclusive range starting at 09:00:00 UTC on the same calendar
-    /// day of the previous month and ending at the provided `now` value.
-    ///
-    /// # Arguments
-    ///
-    /// * `now` - The current UTC date and time used as the report end date
-    ///
-    /// # Returns
-    ///
-    /// Returns `(start_date, end_date)` for the report query range.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The previous-month date cannot be calculated
-    /// - The calculated start time cannot be represented
     fn find_monthly_report_range(
         now: DateTime<Utc>,
     ) -> anyhow::Result<(DateTime<Utc>, DateTime<Utc>)> {
@@ -368,26 +239,6 @@ where
         Ok((start_date, now))
     }
 
-    /// Loads report recipient email records grouped by aggregate group sequence.
-    ///
-    /// Reads send-email aggregate group rows from MySQL in batches, then builds a
-    /// map where each `agg_group_seq` points to the email addresses that should
-    /// receive that group's report.
-    ///
-    /// # Arguments
-    ///
-    /// * `mysql_service` - MySQL service used to fetch recipient aggregate groups
-    /// * `batch_size` - Number of recipient rows to fetch per query
-    ///
-    /// # Returns
-    ///
-    /// Returns `(agg_group_map, total_processed)`, where `agg_group_map` is keyed
-    /// by aggregate group sequence and `total_processed` is the number of rows read.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - MySQL recipient lookup fails for any batch
     async fn find_send_email_agg_group_map(
         mysql_service: &Arc<M>,
         batch_size: u64,
@@ -429,25 +280,6 @@ where
         Ok((agg_group_map, total_processed))
     }
 
-    /// Calculates report pie-chart/category summary values from category totals.
-    ///
-    /// Converts a map of category name to total spend amount into
-    /// `SpentResultByType` values, calculating each category's percentage of the
-    /// total report cost and rounding it to one decimal place.
-    ///
-    /// # Arguments
-    ///
-    /// * `total_cost` - Total spend amount across all categories
-    /// * `type_map` - Map of category name to category spend amount
-    ///
-    /// # Returns
-    ///
-    /// Returns category spend summary values used by the report template.
-    ///
-    /// # Errors
-    ///
-    /// This function currently does not create errors directly, but returns
-    /// `anyhow::Result` to match the surrounding report helper pipeline.
     fn find_calculate_pie_infos_from_category(
         total_cost: f64,
         type_map: &HashMap<String, i64>,
@@ -458,7 +290,7 @@ where
             .map(|(key, value)| {
                 let spent_type: String = key.to_string();
                 let spent_cost: i64 = *value;
-                
+
                 let spent_per: f64 = (spent_cost as f64 / total_cost) * 100.0;
                 let spent_per_rounded: f64 = (spent_per * 10.0).round() / 10.0; /* Round to the second decimal place */
 
@@ -469,23 +301,6 @@ where
         Ok(spent_result_by_types)
     }
 
-    /// Builds sorted category summaries from spend detail search results.
-    ///
-    /// Groups Elasticsearch spend detail results by `consume_keyword_type`, sums
-    /// spend amounts for each category, calculates category percentages, and
-    /// sorts the result by spend amount in descending order.
-    ///
-    /// # Arguments
-    ///
-    /// * `spent_details` - Aggregated spend details returned from Elasticsearch
-    ///
-    /// # Returns
-    ///
-    /// Returns category spend summaries sorted from highest spend to lowest.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if category percentage calculation fails.
     fn find_spent_result_by_category(
         spent_details: &AggResultSet<SpentDetailIndexing>,
     ) -> anyhow::Result<Vec<SpentResultByType>> {
@@ -522,36 +337,6 @@ where
         Ok(spent_result_by_types)
     }
 
-    /// Processes and sends a spend report for one aggregate group.
-    ///
-    /// Queries Elasticsearch twice — once for the current period and once for
-    /// the comparison period — then builds the full HTML report (spend detail
-    /// rows, category summary, period-vs-period comparison) and delivers it to
-    /// every email address associated with the aggregate group.
-    ///
-    /// # Arguments
-    ///
-    /// * `agg_group_seq` - Aggregate group sequence used to filter Elasticsearch data
-    /// * `email_ids` - Email addresses that should receive the rendered report
-    /// * `elastic_service` - Elasticsearch service used to query spend details
-    /// * `smtp_service` - SMTP service used to deliver the report email
-    /// * `report_title` - Report label shown in the email subject and HTML header
-    ///   (e.g. "월간 소비 리포트" or "주간 소비 리포트")
-    /// * `index_name` - Elasticsearch index or alias to query
-    /// * `date_range` - Date range for the current report period
-    /// * `prev_date_range` - Date range for the comparison (previous) period;
-    ///   used to calculate the period-over-period change shown in the report
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` after the report is delivered to every recipient.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Either Elasticsearch query fails
-    /// - The HTML report cannot be rendered (config not initialized or template unreadable)
-    /// - SMTP delivery fails for any recipient
     async fn process_agg_group(
         agg_group_seq: i64,
         email_ids: Vec<String>,
@@ -650,18 +435,6 @@ where
         Ok(())
     }
 
-    /// Collects the next completed aggregate-group task result.
-    ///
-    /// Waits for one task in the [`JoinSet`] to finish, logs task errors, and
-    /// converts the result into a simple failure flag for the caller.
-    ///
-    /// # Arguments
-    ///
-    /// * `join_set` - Running aggregate-group report tasks
-    ///
-    /// # Returns
-    ///
-    /// Returns `true` when the completed task failed, otherwise `false`.
     async fn collect_finished_agg_group_task(join_set: &mut JoinSet<anyhow::Result<()>>) -> bool {
         match join_set.join_next().await {
             Some(Ok(Ok(()))) => false,
@@ -685,28 +458,6 @@ where
         }
     }
 
-    /// Processes aggregate-group reports with bounded concurrency.
-    ///
-    /// Spawns one task per aggregate group and caps simultaneous in-flight
-    /// sends at `REPORT_MAX_CONCURRENCY`.  Each task calls
-    /// [`Self::process_agg_group`], which queries both the current and
-    /// comparison periods, renders the full HTML report, and delivers it via
-    /// SMTP.
-    ///
-    /// # Arguments
-    ///
-    /// * `agg_group_map` - Map of aggregate group sequence to recipient email addresses
-    /// * `elastic_service` - Elasticsearch service shared across all report tasks
-    /// * `smtp_service` - SMTP service shared across all report tasks
-    /// * `report_title` - Label forwarded to each task (e.g. "월간 소비 리포트")
-    /// * `index_name` - Elasticsearch index or alias to query
-    /// * `date_range` - Date range for the current report period
-    /// * `prev_date_range` - Date range for the comparison period, forwarded to
-    ///   each task for period-over-period calculations
-    ///
-    /// # Returns
-    ///
-    /// Returns the number of aggregate-group tasks that failed.
     async fn process_agg_groups_concurrently(
         agg_group_map: HashMap<i64, Vec<String>>,
         elastic_service: &Arc<E>,
@@ -763,28 +514,6 @@ where
         failed_count
     }
 
-    /// Sends monthly spend reports to configured recipients.
-    ///
-    /// Calculates the monthly report range, loads recipient aggregate groups from
-    /// MySQL, queries Elasticsearch for each group's spend details, and sends the
-    /// rendered HTML report through SMTP.
-    ///
-    /// # Arguments
-    ///
-    /// * `schedule_item` - Batch schedule configuration containing batch size and index name
-    /// * `elastic_service` - Elasticsearch service used to query spend details
-    /// * `mysql_service` - MySQL service used to load report recipients
-    /// * `smtp_service` - SMTP service used to send report emails
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` after all aggregate groups have been processed.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The report date range cannot be calculated
-    /// - Recipient aggregate groups cannot be loaded from MySQL
     pub(super) async fn send_monthly_spent_report(
         schedule_item: &BatchScheduleItem,
         elastic_service: &Arc<E>,
@@ -845,24 +574,6 @@ where
         Ok(())
     }
 
-    /// Calculates the weekly report date range.
-    ///
-    /// Builds an inclusive range starting at 09:00:00 UTC seven days before
-    /// `now` and ending at the provided `now` value.
-    ///
-    /// # Arguments
-    ///
-    /// * `now` - The current UTC date and time used as the report end date
-    ///
-    /// # Returns
-    ///
-    /// Returns `(start_date, end_date)` for the weekly report query range.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Seven days before `now` cannot be calculated
-    /// - The calculated start time cannot be represented
     fn find_weekly_report_range(
         now: DateTime<Utc>,
     ) -> anyhow::Result<(DateTime<Utc>, DateTime<Utc>)> {
@@ -880,30 +591,6 @@ where
         Ok((start_date, now))
     }
 
-    /// Sends weekly spend reports to configured recipients.
-    ///
-    /// Calculates two consecutive weekly date ranges — the current week
-    /// (`date_range`) and the preceding week (`prev_date_range`) — then loads
-    /// recipient aggregate groups from MySQL and dispatches one HTML report per
-    /// group via SMTP.  Each report includes spend details, a category summary,
-    /// and a period-over-period comparison between the two weeks.
-    ///
-    /// # Arguments
-    ///
-    /// * `schedule_item` - Batch schedule configuration (batch size, index name)
-    /// * `elastic_service` - Elasticsearch service used to query spend details
-    /// * `mysql_service` - MySQL service used to load report recipients
-    /// * `smtp_service` - SMTP service used to deliver report emails
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` after all aggregate groups have been processed.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Either weekly date range cannot be calculated
-    /// - Recipient aggregate groups cannot be loaded from MySQL
     pub(super) async fn send_weekly_spent_report(
         schedule_item: &BatchScheduleItem,
         elastic_service: &Arc<E>,

@@ -28,24 +28,12 @@ pub enum Relation {
 }
 
 impl Related<super::users::Entity> for Entity {
-    /// Returns the relation definition to `USERS`.
-    ///
-    /// # Returns
-    ///
-    /// Returns the SeaORM relation definition for the user that owns this email
-    /// address.
     fn to() -> RelationDef {
         Relation::Users.def()
     }
 }
 
 impl Related<super::send_email_agg_group::Entity> for Entity {
-    /// Returns the relation definition to `SEND_EMAIL_AGG_GROUP`.
-    ///
-    /// # Returns
-    ///
-    /// Returns the SeaORM relation definition for monthly report recipient
-    /// mappings associated with this email address.
     fn to() -> RelationDef {
         Relation::SendEmailAggGroup.def()
     }

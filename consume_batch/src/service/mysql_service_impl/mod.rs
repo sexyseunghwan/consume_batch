@@ -20,8 +20,8 @@ use rust_decimal::Decimal;
 use crate::common::*;
 use crate::entity::dim_calendar;
 use crate::models::{
-    Crypto, CurrencyExchangeRateSnapshot, SendEmailAggGroup, SpentDetail, SpentDetailIndexing,
-    SpentDetailWithRelations, SpentTypeKeyword, Stock, AssetAmount, StockType,
+    AssetAmount, Crypto, CurrencyExchangeRateSnapshot, SendEmailAggGroup, SpentDetail,
+    SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, StockType,
 };
 use crate::repository::mysql_repository::MysqlRepository;
 use crate::service_trait::mysql_service::MysqlService;
@@ -184,7 +184,8 @@ where
         currency_code: &str,
         user_seqs: &[i64],
     ) -> anyhow::Result<Vec<AssetAmount>> {
-        self.find_crypto_asset_amount_batch(currency_code, user_seqs).await
+        self.find_crypto_asset_amount_batch(currency_code, user_seqs)
+            .await
     }
 
     async fn input_user_current_asset_snapshot_bulk(
@@ -199,6 +200,7 @@ where
         currency_code: &str,
         user_seqs: &[i64],
     ) -> anyhow::Result<Vec<AssetAmount>> {
-        self.find_cash_asset_amount_batch(currency_code, user_seqs).await
+        self.find_cash_asset_amount_batch(currency_code, user_seqs)
+            .await
     }
 }

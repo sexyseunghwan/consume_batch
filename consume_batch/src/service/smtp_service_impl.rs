@@ -14,7 +14,6 @@ pub struct SmtpServiceImpl {
 }
 
 impl SmtpServiceImpl {
-    /// Creates a new `SmtpServiceImpl` from explicit credentials.
     pub fn new(
         smtp_host: impl Into<String>,
         smtp_id: impl Into<String>,
@@ -30,7 +29,6 @@ impl SmtpServiceImpl {
 
 #[async_trait]
 impl SmtpService for SmtpServiceImpl {
-    /// Sends a single HTML email to `to` via the configured SMTP relay.
     async fn send_html_email(&self, to: &str, subject: &str, html: &str) -> anyhow::Result<()> {
         if self.smtp_host.is_empty() || self.smtp_id.is_empty() || self.smtp_pw.is_empty() {
             return Err(anyhow!(

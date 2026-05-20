@@ -42,21 +42,6 @@ enum TwelveDataPriceResponse {
     Error(TwelveDataErrorPayload),
 }
 
-/// Fetches the latest exchange rate for a single currency pair from the
-/// Twelve Data API.
-///
-/// Calls `GET https://api.twelvedata.com/exchange_rate?symbol={FROM}/{TO}&apikey=…`
-/// and returns the `rate` field from the JSON response.
-///
-/// # Arguments
-///
-/// * `base`    - ISO 4217 source currency code (e.g. `"USD"`)
-/// * `target`  - ISO 4217 destination currency code (e.g. `"KRW"`)
-///
-/// # Errors
-///
-/// Returns an error if the HTTP request fails, the response cannot be
-/// deserialized, or the API returns an error payload.
 pub async fn fetch_exchange_rate(base: &str, target: &str) -> anyhow::Result<f64> {
     let app_config: &AppConfig = AppConfig::get_global()?;
 
@@ -99,22 +84,6 @@ pub async fn fetch_exchange_rate(base: &str, target: &str) -> anyhow::Result<f64
     }
 }
 
-/// Fetches the current market price for a single stock symbol from the
-/// Twelve Data API.
-///
-/// Calls `GET {base_url}/price?symbol={symbol}&apikey=…` and returns the
-/// `price` field parsed as [`Decimal`].
-///
-/// # Arguments
-///
-/// * `symbol` - Stock ticker symbol stored in `STOCK.api_symbol`
-///   (e.g. `"AAPL"`, `"005930"`)
-///
-/// # Errors
-///
-/// Returns an error if the HTTP request fails, the response cannot be
-/// deserialized, the price string cannot be parsed, or the API returns
-/// an error payload.
 pub async fn fetch_stock_price(symbol: &str) -> anyhow::Result<Decimal> {
     let app_config: &AppConfig = AppConfig::get_global()?;
 

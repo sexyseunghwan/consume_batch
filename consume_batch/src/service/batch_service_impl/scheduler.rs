@@ -21,15 +21,6 @@ where
     I: IndexingService + Send + Sync + 'static,
     S: SmtpService + Send + Sync + 'static,
 {
-    /// Creates and starts the cron [`JobScheduler`], registering one job per enabled
-    /// schedule that has `cron_schedule_apply = true`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The scheduler cannot be created
-    /// - Any cron expression is invalid
-    /// - Jobs cannot be added to the scheduler
     pub(super) async fn initialize_cron_scheduler(&self) -> anyhow::Result<JobScheduler> {
         let scheduler: JobScheduler = JobScheduler::new().await.inspect_err(|e| {
             error!(
@@ -72,14 +63,6 @@ where
         Ok(scheduler)
     }
 
-    /// Spawns all enabled immediate (one-time) batch jobs and returns their handles.
-    ///
-    /// Only schedules where `immediate_apply` is `true` are spawned here.
-    /// Cron-based jobs are handled separately by [`initialize_cron_scheduler`].
-    ///
-    /// # Returns
-    ///
-    /// Returns a [`JoinSet`] containing handles to all spawned immediate jobs.
     pub(super) fn initialize_immediate_jobs(&self) -> JoinSet<()> {
         let mut immediate_jobs: JoinSet<()> = JoinSet::new();
 
@@ -139,22 +122,6 @@ where
         immediate_jobs
     }
 
-    /// Creates a scheduled [`Job`] for a specific index.
-    ///
-    /// Wraps the indexing logic in a cron job that will be managed by
-    /// the [`JobScheduler`].
-    ///
-    /// # Arguments
-    ///
-    /// * `schedule_item` - The schedule configuration for this index
-    ///
-    /// # Returns
-    ///
-    /// Returns a configured [`Job`] ready to be added to the scheduler.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the cron expression is invalid.
     pub(super) fn initialize_index_job(&self, schedule_item: &BatchScheduleItem) -> Result<Job> {
         let index_name: String = schedule_item.index_name().clone();
         let cron_expr: String = schedule_item.cron_schedule().clone();

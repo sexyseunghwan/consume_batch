@@ -44,7 +44,6 @@ where
     E: ElasticService + Send + Sync + 'static,
     C: ConsumeService + Send + Sync + 'static,
 {
-    /// Creates a new `IndexingServiceImpl` with the given service dependencies.
     pub fn new(
         mysql_service: Arc<M>,
         producer_service: Arc<P>,
@@ -59,10 +58,6 @@ where
         }
     }
 
-    /// Deletes an orphaned index that was created during a failed full-indexing run.
-    ///
-    /// Called as a cleanup step whenever any phase after index creation fails.
-    /// Errors here are only logged — the original error is returned to the caller.
     pub(super) async fn delete_orphaned_index(&self, index_name: &str) {
         error!(
             "[IndexingServiceImpl::delete_orphaned_index] Cleaning up orphaned index '{}' due to pipeline failure",

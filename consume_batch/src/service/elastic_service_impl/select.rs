@@ -7,7 +7,6 @@ use crate::repository::es_repository::EsRepository;
 use super::ElasticServiceImpl;
 
 impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
-    /// Selects the best consume type from Elasticsearch search results.
     fn find_consume_type(
         prodt_name: &str,
         results: Vec<DocumentWithId<ConsumingIndexProdtType>>,

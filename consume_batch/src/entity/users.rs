@@ -42,33 +42,24 @@ pub enum Relation {
 }
 
 impl Related<super::spent_detail::Entity> for Entity {
-    /// Returns the relation definition to `SPENT_DETAIL`.
     fn to() -> RelationDef {
         Relation::SpentDetail.def()
     }
 }
 
 impl Related<super::telegram_room::Entity> for Entity {
-    /// Returns the relation definition to `TELEGRAM_ROOM`.
     fn to() -> RelationDef {
         Relation::TelegramRoom.def()
     }
 }
 
 impl Related<super::user_payment_methods::Entity> for Entity {
-    /// Returns the relation definition to `USER_PAYMENT_METHODS`.
     fn to() -> RelationDef {
         Relation::UserPaymentMethods.def()
     }
 }
 
 impl Related<super::users_email::Entity> for Entity {
-    /// Returns the relation definition to `USERS_EMAIL`.
-    ///
-    /// # Returns
-    ///
-    /// Returns the SeaORM relation definition for email addresses owned by this
-    /// user.
     fn to() -> RelationDef {
         Relation::UsersEmail.def()
     }

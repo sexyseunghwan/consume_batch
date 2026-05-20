@@ -39,7 +39,6 @@ pub struct PathConfig {
 }
 
 impl PathConfig {
-    /// Loads path-related configuration from environment variables.
     fn initialize_from_env() -> Result<Self> {
         Ok(Self {
             batch_schedule: env::var("BATCH_SCHEDULE")
@@ -79,7 +78,6 @@ pub struct ElasticsearchConfig {
 }
 
 impl ElasticsearchConfig {
-    /// Loads Elasticsearch connection settings from environment variables.
     fn initialize_from_env() -> Result<Self> {
         Ok(Self {
             url: env::var("ES_DB_URL").context("ES_DB_URL must be set")?,
@@ -88,13 +86,6 @@ impl ElasticsearchConfig {
         })
     }
 
-    /// Returns a list of Elasticsearch node URLs.
-    ///
-    /// Parses the comma-separated URL string into individual URLs.
-    ///
-    /// # Returns
-    ///
-    /// A vector of URL strings for each node in the cluster.
     pub fn get_urls(&self) -> Vec<String> {
         self.url.split(',').map(|s| s.to_string()).collect()
     }
@@ -154,7 +145,6 @@ pub struct KafkaConfig {
 }
 
 impl KafkaConfig {
-    /// Loads Kafka connection settings from environment variables.
     fn initialize_from_env() -> Result<Self> {
         Ok(Self {
             host: env::var("KAFKA_HOST")
@@ -168,7 +158,6 @@ impl KafkaConfig {
         })
     }
 
-    /// Returns true if SASL authentication is configured.
     pub fn is_sasl_enabled(&self) -> bool {
         self.security_protocol.is_some()
             && self.sasl_mechanism.is_some()
@@ -203,7 +192,6 @@ pub struct MySqlConfig {
 }
 
 impl MySqlConfig {
-    /// Loads MySQL connection settings from environment variables.
     fn initialize_from_env() -> Result<Self> {
         Ok(Self {
             host: env::var("MY_SQL_HOST").context("MY_SQL_HOST must be set")?,
@@ -229,7 +217,6 @@ pub struct TelegramConfig {
 }
 
 impl TelegramConfig {
-    /// Loads Telegram bot settings from environment variables.
     fn initialize_from_env() -> Result<Self> {
         Ok(Self {
             token: env::var("TELOXIDE_TOKEN").context("TELOXIDE_TOKEN must be set")?,
@@ -254,7 +241,6 @@ pub struct BatchConfig {
 }
 
 impl BatchConfig {
-    /// Loads batch-processing settings from environment variables.
     fn initialize_from_env() -> Result<Self> {
         Ok(Self {
             batch_size: env::var("BATCH_SIZE")
@@ -320,12 +306,6 @@ pub struct Environment {
 }
 
 impl Environment {
-    /// Loads all configuration from environment variables.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if any required environment variable is missing
-    /// or has an invalid value.
     fn initialize() -> Result<Self> {
         Ok(Self {
             paths: PathConfig::initialize_from_env()?,

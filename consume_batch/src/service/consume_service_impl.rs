@@ -68,26 +68,6 @@ impl<K> ConsumeService for ConsumeServiceImpl<K>
 where
     K: KafkaRepository + Sync + Send,
 {
-    /// Consumes messages from a Kafka topic.
-    ///
-    /// Delegates to the underlying `KafkaRepository` to consume messages.
-    /// Each topic gets its own consumer with independent offset tracking.
-    ///
-    /// # Arguments
-    ///
-    /// * `topic` - The Kafka topic to consume from
-    /// * `max_messages` - Maximum number of messages to retrieve
-    ///
-    /// # Returns
-    ///
-    /// Returns a vector of JSON values representing the consumed messages.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// let messages = service.find_messages("orders_topic", 50).await?;
-    /// info!("Consumed {} messages", messages.len());
-    /// ```
     async fn find_messages(
         &self,
         topic: &str,
@@ -109,17 +89,6 @@ where
         Ok(messages)
     }
 
-    /// Consumes a single message from a Kafka topic.
-    ///
-    /// Convenience method for retrieving just one message.
-    ///
-    /// # Arguments
-    ///
-    /// * `topic` - The Kafka topic to consume from
-    ///
-    /// # Returns
-    ///
-    /// Returns `Some(Value)` if a message is available, `None` otherwise.
     async fn find_one(&self, topic: &str) -> Result<Option<Value>, anyhow::Error> {
         info!(
             "[ConsumeServiceImpl::find_one] Consuming single message from topic: {}",
@@ -143,26 +112,6 @@ where
         Ok(message)
     }
 
-    /// Consumes messages from a Kafka topic using a custom consumer-group suffix.
-    ///
-    /// Delegates to the underlying `KafkaRepository` with the given group suffix,
-    /// allowing separate offset tracking per consumer group.
-    ///
-    /// # Arguments
-    ///
-    /// * `topic` - The Kafka topic to consume from
-    /// * `max_messages` - Maximum number of messages to retrieve
-    /// * `group_suffix` - Consumer group identifier for independent offset tracking
-    ///
-    /// # Returns
-    ///
-    /// Returns a vector of raw JSON values representing the consumed messages.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Kafka connection fails
-    /// - Message consumption fails
     async fn find_messages_by_group(
         &self,
         topic: &str,
@@ -189,31 +138,6 @@ where
         Ok(messages)
     }
 
-    /// Consumes and deserializes messages using a custom consumer-group suffix.
-    ///
-    /// Combines `consume_messages_with_group` and JSON deserialization into type `T`.
-    /// Each consumed message is deserialized individually; if any message fails
-    /// to deserialize, the entire call returns an error.
-    ///
-    /// # Type Parameters
-    ///
-    /// * `T` - Target type for deserialization (must implement `DeserializeOwned`)
-    ///
-    /// # Arguments
-    ///
-    /// * `topic` - The Kafka topic to consume from
-    /// * `max_messages` - Maximum number of messages to retrieve
-    /// * `group_suffix` - Consumer group identifier for independent offset tracking
-    ///
-    /// # Returns
-    ///
-    /// Returns a vector of deserialized messages of type `T` on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Kafka consumption fails
-    /// - JSON deserialization fails for any message
     async fn find_messages_as_by_group<T>(
         &self,
         topic: &str,
@@ -260,43 +184,6 @@ where
         Ok(results)
     }
 
-    /// Consumes messages from a Kafka topic and deserializes them into type T.
-    ///
-    /// This is a generic version of `consume_messages` that automatically
-    /// deserializes JSON messages into the specified type.
-    ///
-    /// # Type Parameters
-    ///
-    /// * `T` - Target type for deserialization (must implement `DeserializeOwned`)
-    ///
-    /// # Arguments
-    ///
-    /// * `topic` - The Kafka topic to consume from
-    /// * `max_messages` - Maximum number of messages to retrieve
-    ///
-    /// # Returns
-    ///
-    /// Returns a vector of deserialized messages of type `T`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Kafka consumption fails
-    /// - JSON deserialization fails for any message
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// #[derive(Deserialize)]
-    /// struct OrderMessage {
-    ///     order_id: i64,
-    ///     amount: f64,
-    /// }
-    ///
-    /// let orders: Vec<OrderMessage> = service
-    ///     .find_messages_as("orders_topic", 50)
-    ///     .await?;
-    /// ```
     async fn find_messages_as<T>(
         &self,
         topic: &str,
@@ -337,36 +224,6 @@ where
         Ok(results)
     }
 
-    /// Replicates committed offsets from one consumer group to another for a given topic.
-    ///
-    /// Reads the committed offsets of `source_group` and applies them to `target_group`,
-    /// allowing `target_group` to resume consumption from the exact same position as `source_group`.
-    ///
-    /// # Arguments
-    ///
-    /// * `topic`        - The Kafka topic whose offsets are being replicated
-    /// * `source_group` - The consumer group to read offsets from
-    /// * `target_group` - The consumer group to apply offsets to
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` if offsets were successfully replicated.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Topic metadata fetch fails
-    /// - Source group committed offset fetch fails
-    /// - Target group offset commit fails
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// service
-    ///     .replicate_consumer_group_offsets("orders_topic", "batch-group", "replay-group")
-    ///     .await?;
-    /// // "replay-group" now starts consuming from where "batch-group" left off
-    /// ```
     async fn modify_consumer_group_offsets(
         &self,
         topic: &str,
@@ -381,26 +238,6 @@ where
             })
     }
 
-    /// Computes total lag by comparing summed committed offsets for two consumer groups.
-    ///
-    /// Fetches the total committed offsets for both `reference_group` and `catchup_group`
-    /// across all partitions, then returns the non-negative difference.
-    /// A result of `0` means the catchup group has fully caught up with the reference group.
-    ///
-    /// # Arguments
-    ///
-    /// * `topic` - The Kafka topic to measure lag on
-    /// * `reference_group` - The consumer group acting as the reference (e.g., full-index group)
-    /// * `catchup_group` - The consumer group that is catching up (e.g., incremental group)
-    ///
-    /// # Returns
-    ///
-    /// Returns the total lag (`reference_offset - catchup_offset`, clamped to `0`) on success.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - Committed offset fetch fails for either consumer group
     async fn find_consumer_group_lag(
         &self,
         topic: &str,
@@ -426,7 +263,6 @@ where
         Ok((ref_offset - catchup_offset).max(0))
     }
 
-    /// Computes per-partition lag information between two consumer groups.
     async fn find_consumer_group_lag_by_partition(
         &self,
         topic: &str,

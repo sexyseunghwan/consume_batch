@@ -21,28 +21,6 @@ where
     I: IndexingService + Send + Sync + 'static,
     S: SmtpService + Send + Sync + 'static,
 {
-    /// Dispatches a batch job to the appropriate handler based on `batch_name`.
-    ///
-    /// This is the core routing function called by both the cron scheduler and
-    /// immediate-job runner. Each `batch_name` maps to a specific handler:
-    ///
-    /// | `batch_name`                  | Handler                          |
-    /// |-------------------------------|----------------------------------|
-    /// | `spent_detail_full`           | `input_spent_detail_full`        |
-    /// | `spent_detail_incremental`    | `input_spent_detail_incremental` |
-    /// | `spent_type`                  | `input_spent_type_full`          |
-    /// | `all_change_spent_detail_type`| `modify_all_spent_detail_types`  |
-    /// | `dimension_date_table`        | `input_date_dimension_data`      |
-    /// | `monthly_spent_report`        | `send_monthly_spent_report`      |
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if any step in the pipeline fails.
-    ///
-    /// # Note
-    ///
-    /// This is an associated function (not `&self` method) to allow calling
-    /// from within `'static` closures used by the cron scheduler.
     pub(super) async fn input_batch_by_schedule(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
@@ -138,7 +116,7 @@ where
             }
             "sync_currency_exchange_rates" => {
                 Self::sync_currency_exchange_rates(
-                    schedule_item, 
+                    schedule_item,
                     mysql_service
                 )
                 .await
@@ -151,7 +129,7 @@ where
             }
             "sync_stock_price" => {
                 Self::sync_stock_price(
-                    schedule_item, 
+                    schedule_item,
                     mysql_service
                 )
                 .await
@@ -164,7 +142,7 @@ where
             }
             "sync_crypto_price" => {
                 Self::sync_crypto_price(
-                    schedule_item, 
+                    schedule_item,
                     mysql_service
                 )
                 .await
@@ -177,7 +155,7 @@ where
             }
             "sync_current_asset_total" => {
                 Self::sync_current_asset_total(
-                    schedule_item, 
+                    schedule_item,
                     mysql_service
                 )
                 .await

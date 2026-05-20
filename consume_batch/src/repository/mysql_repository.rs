@@ -238,37 +238,6 @@ pub struct MysqlRepositoryImpl {
 }
 
 impl MysqlRepositoryImpl {
-    /// Creates a new `MysqlRepositoryImpl` instance.
-    ///
-    /// Establishes a connection to the MySQL database using the
-    /// connection string from environment variables.
-    ///
-    /// # Environment Variables
-    ///
-    /// * `DATABASE_URL` - Required. MySQL connection string
-    ///   (e.g., `mysql://user:password@host:port/database`)
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(MysqlRepositoryImpl)` on successful connection.
-    ///
-    /// # Panics
-    ///
-    /// Panics if:
-    /// - `DATABASE_URL` environment variable is not set
-    /// - Database connection cannot be established
-    ///
-    /// # Examples
-    ///
-    /// ```rust,no_run
-    /// use crate::repository::MysqlRepositoryImpl;
-    ///
-    /// // Ensure DATABASE_URL is set:
-    /// // DATABASE_URL=mysql://root:password@localhost:3306/mydb
-    ///
-    /// let mysql_repo = MysqlRepositoryImpl::new().await?;
-    /// # Ok::<(), anyhow::Error>(())
-    /// ```
     pub async fn new() -> anyhow::Result<Self> {
         // Load database URL from environment
         //let db_url: String = ENV.mysql().database_url().to_string();
@@ -288,22 +257,6 @@ impl MysqlRepositoryImpl {
 
 #[async_trait]
 impl MysqlRepository for MysqlRepositoryImpl {
-    /// Inserts a single record into the database.
-    ///
-    /// Uses SeaORM's `insert` method on the ActiveModel to persist
-    /// the record to the corresponding table.
-    ///
-    /// # Arguments
-    ///
-    /// * `active_model` - The ActiveModel instance containing data to insert
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` on successful insertion.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the insert operation fails.
     async fn input<A>(&self, active_model: A) -> anyhow::Result<()>
     where
         A: ActiveModelTrait + ActiveModelBehavior + Send + 'static,
@@ -318,23 +271,6 @@ impl MysqlRepository for MysqlRepositoryImpl {
         Ok(())
     }
 
-    /// Inserts multiple records in a single query.
-    ///
-    /// Optimizes performance by batching all records into one INSERT statement
-    /// rather than executing individual inserts.
-    ///
-    /// # Arguments
-    ///
-    /// * `active_models` - Vector of ActiveModel instances to insert
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` on successful insertion.
-    ///
-    /// # Note
-    ///
-    /// This method does NOT use transactions. For atomic operations,
-    /// use `input_many_with_transaction` instead.
     async fn input_many<A>(&self, active_models: Vec<A>) -> anyhow::Result<()>
     where
         A: ActiveModelTrait + ActiveModelBehavior + Send + 'static,
@@ -359,24 +295,6 @@ impl MysqlRepository for MysqlRepositoryImpl {
         Ok(())
     }
 
-    /// Inserts multiple records within a database transaction.
-    ///
-    /// Provides atomic bulk insert where either all records are inserted
-    /// successfully, or none are (rollback on any failure).
-    ///
-    /// # Arguments
-    ///
-    /// * `active_models` - Vector of ActiveModel instances to insert
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` when all records are successfully committed.
-    ///
-    /// # Transaction Flow
-    ///
-    /// 1. Begin transaction
-    /// 2. Execute bulk insert (single query for performance)
-    /// 3. Commit on success / Rollback on failure
     async fn input_many_with_transaction<A>(&self, active_models: Vec<A>) -> anyhow::Result<()>
     where
         A: ActiveModelTrait + ActiveModelBehavior + Send + 'static,
@@ -421,11 +339,6 @@ impl MysqlRepository for MysqlRepositoryImpl {
         Ok(())
     }
 
-    /// Returns a reference to the underlying database connection.
-    ///
-    /// # Returns
-    ///
-    /// A reference to the `DatabaseConnection` for custom query execution.
     fn get_connection(&self) -> &DatabaseConnection {
         &self.db_conn
     }

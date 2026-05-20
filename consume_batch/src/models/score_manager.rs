@@ -13,7 +13,6 @@ pub struct ScoredData<T> {
 struct MinHeapItem(i64);
 
 impl Ord for MinHeapItem {
-    /// Compares two heap items so lower scores are treated as higher priority.
     fn cmp(&self, other: &Self) -> Ordering {
         /* Low Score Priority Sorting (min-heap) */
         other.0.cmp(&self.0)
@@ -21,7 +20,6 @@ impl Ord for MinHeapItem {
 }
 
 impl PartialOrd for MinHeapItem {
-    /// Defers partial comparison to the total ordering implementation.
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
@@ -34,7 +32,6 @@ pub struct ScoreManager<T: std::fmt::Debug> {
 }
 
 impl<T: std::fmt::Debug> ScoreManager<T> {
-    /// Creates an empty score manager backed by a min-heap.
     pub fn new() -> Self {
         Self {
             heap: BinaryHeap::new(),
@@ -43,7 +40,6 @@ impl<T: std::fmt::Debug> ScoreManager<T> {
     }
 
     /* Insert Score and Data */
-    /// Inserts a value under the given score.
     pub fn input(&mut self, score: i64, data: T) {
         /* Insert Data */
         self.data_map
@@ -58,7 +54,6 @@ impl<T: std::fmt::Debug> ScoreManager<T> {
     }
 
     /* Get the lowest score and data */
-    /// Removes and returns one value with the lowest score currently stored.
     pub fn find_lowest(&mut self) -> Option<ScoredData<T>> {
         /* Get the lowest score in the heap */
         let lowest_score: i64 = self.heap.pop()?.0;

@@ -4,8 +4,8 @@ use rust_decimal::Decimal;
 use crate::common::*;
 use crate::entity::dim_calendar;
 use crate::models::{
-    Crypto, CurrencyExchangeRateSnapshot, SendEmailAggGroup, SpentDetail, SpentDetailIndexing,
-    SpentDetailWithRelations, SpentTypeKeyword, Stock, AssetAmount, StockType,
+    AssetAmount, Crypto, CurrencyExchangeRateSnapshot, SendEmailAggGroup, SpentDetail,
+    SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, StockType,
 };
 
 /// Data access contract for MySQL reads and writes.
@@ -515,15 +515,21 @@ pub trait MysqlService {
     async fn find_user_seq_batch(&self, offset: u64, limit: u64) -> anyhow::Result<Vec<i64>>;
 
     /// Fetches per-user total crypto valuation for the provided currency and user list.
-    /// 
+    ///
     /// Requested query:
-    // select
-    //     ca.user_seq,
-    //     sum(c.crypto_price*ca.crypto_cnt) as asset_sum
-    // from CRYPTO_ASSET ca
-    // inner join CRYPTO c on ca.crypto_seq = c.crypto_seq
-    // inner join CURRENCY_CODE cc on cc.currency_code = c.currency_code
-    // group by ca.user_seq;
+    /// ```sql
+    /// SELECT
+    ///   ca.user_seq,
+    ///   SUM(c.crypto_price * ca.crypto_cnt) AS asset_sum
+    /// FROM CRYPTO_ASSET ca
+    /// INNER JOIN CRYPTO c
+    ///   ON ca.crypto_seq = c.crypto_seq
+    /// INNER JOIN CURRENCY_CODE cc
+    ///   ON cc.currency_code = c.currency_code
+    /// WHERE c.currency_code = :currency_code
+    ///   AND ca.user_seq IN (:user_seqs)
+    /// GROUP BY ca.user_seq;
+    /// ```
     async fn find_crypto_asset_amount_batch(
         &self,
         currency_code: &str,
@@ -540,15 +546,19 @@ pub trait MysqlService {
     ) -> anyhow::Result<()>;
 
     /// Fetches per-user total cash valuation for the provided currency and user list.
-    /// 
+    ///
     /// Requested query:
-    // select
-    //     ca.user_seq,
-    //     sum(ca.cash) as asset_sum
-    // from CASH_ASSET ca
-    // inner join CURRENCY_CODE cc on cc.currency_code = ca.currency_code
-    // where ca.currency_code = 'USD'
-    // group by ca.user_seq;
+    /// ```sql
+    /// SELECT
+    ///   ca.user_seq,
+    ///   SUM(ca.cash) AS asset_sum
+    /// FROM CASH_ASSET ca
+    /// INNER JOIN CURRENCY_CODE cc
+    ///   ON cc.currency_code = ca.currency_code
+    /// WHERE ca.currency_code = :currency_code
+    ///   AND ca.user_seq IN (:user_seqs)
+    /// GROUP BY ca.user_seq;
+    /// ```
     async fn find_cash_asset_amount_batch(
         &self,
         currency_code: &str,

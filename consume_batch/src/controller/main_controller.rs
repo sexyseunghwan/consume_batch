@@ -59,24 +59,6 @@ where
     B: BatchService + Send + Sync,
     CS: CliService + Send + Sync + 'static,
 {
-    /// Starts both the CLI socket server and the batch scheduler.
-    ///
-    /// The CLI service is spawned as a background task, while the batch service
-    /// runs in the foreground and blocks until a Ctrl+C shutdown signal is received.
-    ///
-    /// # Execution Flow
-    ///
-    /// ```text
-    /// main_task()
-    ///      │
-    ///      ├── tokio::spawn ──► .initialize_socket_server()  [background]
-    ///      │
-    ///      └── batch_service.main_batch_task()  [foreground, blocks until Ctrl+C]
-    /// ```
-    ///
-    /// # Returns
-    ///
-    /// Always returns `Ok(())`. Errors from either service are logged but not propagated.
     pub async fn main_task(&self) -> anyhow::Result<()> {
         // Spawn CLI socket server in the background
         {

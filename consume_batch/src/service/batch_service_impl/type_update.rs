@@ -21,17 +21,6 @@ where
     I: IndexingService + Send + Sync + 'static,
     S: SmtpService + Send + Sync + 'static,
 {
-    /// Runs `modify_all_spent_detail_type` and `modify_all_spent_detail_indexing_type` in sequence.
-    ///
-    /// # Arguments
-    ///
-    /// * `schedule_item` - The batch schedule configuration (batch size, index name, etc.)
-    /// * `mysql_service` - MySQL service for fetching and updating records
-    /// * `elastic_service` - Elasticsearch service for keyword type classification
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if either inner function fails.
     pub(super) async fn modify_all_spent_detail_types(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
@@ -43,23 +32,6 @@ where
         Ok(())
     }
 
-    /// Re-evaluates and updates the `consume_keyword_type_id` for all spent details.
-    ///
-    /// Fetches all records from MySQL in batches, queries Elasticsearch to determine
-    /// the correct keyword type for each record's `spent_name`, and bulk-updates
-    /// any records whose type has changed.
-    ///
-    /// # Arguments
-    ///
-    /// * `schedule_item` - The batch schedule configuration (batch size, index name, etc.)
-    /// * `mysql_service` - MySQL service for fetching and updating spent details
-    /// * `elastic_service` - Elasticsearch service for keyword type classification
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - MySQL fetch or batch update fails
-    /// - Elasticsearch type judgement query fails
     async fn modify_all_spent_detail_type(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
@@ -216,24 +188,6 @@ where
         Ok(())
     }
 
-    /// Re-evaluates and updates the `consume_keyword_type_id` and `consume_keyword_type`
-    /// for all spent detail indexing records.
-    ///
-    /// Fetches all records from `SPENT_DETAIL_INDEXING` in batches, queries Elasticsearch to
-    /// determine the correct keyword type for each record's `spent_name`, and bulk-updates
-    /// any records whose type has changed.
-    ///
-    /// # Arguments
-    ///
-    /// * `schedule_item` - The batch schedule configuration (batch size, index name, etc.)
-    /// * `mysql_service` - MySQL service for fetching and updating spent detail indexing records
-    /// * `elastic_service` - Elasticsearch service for keyword type classification
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - MySQL fetch or batch update fails
-    /// - Elasticsearch type judgement query fails
     async fn modify_all_spent_detail_indexing_type(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
