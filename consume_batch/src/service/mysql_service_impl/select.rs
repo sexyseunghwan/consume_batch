@@ -3,11 +3,11 @@ use crate::entity::{
     agg_group, cash_asset, common_consume_keyword_type, common_consume_prodt_keyword, crypto,
     crypto_asset, currency_code, currency_exchange_rate_snapshot, send_email_agg_group,
     spent_detail, spent_detail_indexing, stock, stock_asset, stock_type, telegram_room,
-    user_payment_methods, users,
+    user_payment_methods, users, deposit_asset
 };
 use crate::models::{
     AssetAmount, CashAsset, Crypto, CurrencyExchangeRateSnapshot, SendEmailAggGroup, SpentDetail,
-    SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, StockType,
+    SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, StockType, DepositAsset
 };
 use crate::repository::mysql_repository::MysqlRepository;
 use sea_orm::sea_query::{Expr, Func, SimpleExpr};
@@ -407,6 +407,42 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
             .column(cash_asset::Column::UserSeq)
             .column_as(
                 SimpleExpr::from(Func::sum(Expr::col(cash_asset::Column::Cash))),
+                "asset_sum",
+            )
+            .filter(cash_asset::Column::CurrencyCode.eq(currency_code))
+            .filter(cash_asset::Column::UserSeq.is_in(user_seqs.to_vec()))
+            .group_by(cash_asset::Column::UserSeq)
+            .into_model::<AssetAmount>()
+            .all(db)
+            .await
+            .inspect_err(|e| {
+                error!(
+                    "[MysqlServiceImpl::find_cash_asset_amount_batch] Failed to execute query \
+                     (currency_code={}): {:#}",
+                    currency_code, e
+                );
+            })?;
+
+        Ok(result)
+    }
+
+
+    pub(super) async fn find_deposit_asset_amount_batch(
+        &self,
+        currency_code: &str,
+        user_seqs: &[i64],
+    ) -> anyhow::Result<Vec<AssetAmount>> {
+        if user_seqs.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+
+        let result: Vec<AssetAmount> = deposit_asset::Entity::find()
+            .select_only()
+            .column(deposit_asset::Column::UserSeq)
+            .column_as(
+                SimpleExpr::from(Func::sum(Expr::col(deposit_asset::Column::DepositAmount))),
                 "asset_sum",
             )
             .filter(cash_asset::Column::CurrencyCode.eq(currency_code))

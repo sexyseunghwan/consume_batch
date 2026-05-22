@@ -1,5 +1,14 @@
 pub mod agg_group;
 
+pub mod deposit_asset;
+pub use deposit_asset::*;
+
+pub mod earned_detail;
+pub use earned_detail::*;
+
+pub mod saving_asset;
+pub use saving_asset::*;
+
 pub mod batch_schedule;
 
 pub mod spent_type_keyword;

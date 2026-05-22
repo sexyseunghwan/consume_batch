@@ -203,4 +203,13 @@ where
         self.find_cash_asset_amount_batch(currency_code, user_seqs)
             .await
     }
+
+    async fn find_deposit_asset_amount_batch(
+        &self,
+        currency_code: &str,
+        user_seqs: &[i64],
+    ) -> anyhow::Result<Vec<AssetAmount>> {
+        self.find_deposit_asset_amount_batch(currency_code, user_seqs)
+            .await
+    }
 }

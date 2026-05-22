@@ -25,6 +25,12 @@ pub struct Model {
 pub enum Relation {
     #[sea_orm(has_many = "super::spent_detail::Entity")]
     SpentDetail,
+    #[sea_orm(has_many = "super::deposit_asset::Entity")]
+    DepositAsset,
+    #[sea_orm(has_many = "super::saving_asset::Entity")]
+    SavingAsset,
+    #[sea_orm(has_many = "super::earned_detail::Entity")]
+    EarnedDetail,
     #[sea_orm(has_many = "super::telegram_room::Entity")]
     TelegramRoom,
     #[sea_orm(has_many = "super::user_payment_methods::Entity")]
@@ -44,6 +50,24 @@ pub enum Relation {
 impl Related<super::spent_detail::Entity> for Entity {
     fn to() -> RelationDef {
         Relation::SpentDetail.def()
+    }
+}
+
+impl Related<super::deposit_asset::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::DepositAsset.def()
+    }
+}
+
+impl Related<super::saving_asset::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::SavingAsset.def()
+    }
+}
+
+impl Related<super::earned_detail::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::EarnedDetail.def()
     }
 }
 

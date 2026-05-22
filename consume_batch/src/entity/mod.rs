@@ -4,6 +4,9 @@ pub mod prelude;
 
 pub mod agg_group;
 pub mod cash_asset;
+pub mod deposit_asset;
+pub mod earned_detail;
+pub mod saving_asset;
 pub mod common_consume_keyword_type;
 pub mod common_consume_prodt_keyword;
 pub mod crypto;

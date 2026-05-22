@@ -306,9 +306,23 @@ where
                     })
                     .map(to_amount_map)?;
 
-                // 4. Get deposit asset (TODO)
+                // 4. Get deposit asset
+                let deposit_map: HashMap<i64, Decimal> = mysql_service
+                    .find_deposit_asset_amount_batch(currency, &user_seqs)
+                    .await
+                    .inspect_err(|e| {
+                        error!(
+                            "[BatchServiceImpl::find_deposit_asset_amount_batch] \
+                             find_crypto_asset_amount_batch failed \
+                             (currency={}, offset={}): {:#}",
+                            currency, offset, e
+                        );
+                    })
+                    .map(to_amount_map)?;
 
-                // 5. Get saving asset  (TODO)
+
+                // 5. Get saving asset
+                //let saving_map
 
                 // Single pass over user_seqs: O(1) HashMap lookups per user,
                 // no nested iteration across asset types.
@@ -328,9 +342,9 @@ where
                         crypto_amount: ActiveValue::Set(
                             crypto_map.get(&uid).copied().unwrap_or(zero),
                         ),
-                        cash_amount: ActiveValue::Set(cash_map.get(&uid).copied().unwrap_or(zero)), // TODO: step 3
-                        deposit_amount: ActiveValue::Set(zero), // TODO: step 4
-                        saving_amount: ActiveValue::Set(zero),  // TODO: step 5
+                        cash_amount: ActiveValue::Set(cash_map.get(&uid).copied().unwrap_or(zero)),
+                        deposit_amount: ActiveValue::Set(deposit_map.get(&uid).copied().unwrap_or(zero)), 
+                        saving_amount: ActiveValue::Set(zero), //to-do
                         created_at: ActiveValue::Set(now),
                         updated_at: ActiveValue::NotSet,
                         created_by: ActiveValue::Set("SYSTEM".to_owned()),

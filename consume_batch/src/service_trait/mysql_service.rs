@@ -549,17 +549,33 @@ pub trait MysqlService {
     ///
     /// Requested query:
     /// ```sql
-    /// SELECT
-    ///   ca.user_seq,
-    ///   SUM(ca.cash) AS asset_sum
-    /// FROM CASH_ASSET ca
-    /// INNER JOIN CURRENCY_CODE cc
-    ///   ON cc.currency_code = ca.currency_code
-    /// WHERE ca.currency_code = :currency_code
-    ///   AND ca.user_seq IN (:user_seqs)
-    /// GROUP BY ca.user_seq;
+    //  SELECT
+    //    ca.user_seq,
+    //    SUM(ca.cash) AS asset_sum
+    //  FROM CASH_ASSET ca
+    //  INNER JOIN CURRENCY_CODE cc
+    //    ON cc.currency_code = ca.currency_code
+    //  WHERE ca.currency_code = :currency_code
+    //    AND ca.user_seq IN (:user_seqs)
+    //  GROUP BY ca.user_seq;
     /// ```
     async fn find_cash_asset_amount_batch(
+        &self,
+        currency_code: &str,
+        user_seqs: &[i64],
+    ) -> anyhow::Result<Vec<AssetAmount>>;
+
+    /// Fetches per-user total deposit valuation for the provided currency and user list.
+    ///
+    /// Requested query:
+    /// ```sql
+    // select
+    //     d.user_seq,
+    //     sum(d.deposit_amount) as asset_amount
+    // from DEPOSIT_ASSET d
+    // where d.currency_code = 'KRW'
+    // group by d.user_seq;
+    async fn find_deposit_asset_amount_batch(
         &self,
         currency_code: &str,
         user_seqs: &[i64],
