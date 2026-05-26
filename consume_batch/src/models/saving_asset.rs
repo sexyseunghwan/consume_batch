@@ -7,11 +7,13 @@ use rust_decimal::Decimal;
 pub struct SavingAsset {
     pub saving_seq: i64,
     pub saving_name: String,
+    pub saving_amount: Decimal,
     pub accum_saving_amount: Decimal,
     pub interest_rate: Decimal,
     pub term_month: i32,
     pub saving_start_date: DateTime<Utc>,
     pub saving_end_date: DateTime<Utc>,
+    pub is_terminated: bool,
     pub user_seq: i64,
     pub currency_code: String,
     pub created_at: DateTime<Utc>,

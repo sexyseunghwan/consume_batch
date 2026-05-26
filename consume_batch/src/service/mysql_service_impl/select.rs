@@ -3,11 +3,12 @@ use crate::entity::{
     agg_group, cash_asset, common_consume_keyword_type, common_consume_prodt_keyword, crypto,
     crypto_asset, currency_code, currency_exchange_rate_snapshot, send_email_agg_group,
     spent_detail, spent_detail_indexing, stock, stock_asset, stock_type, telegram_room,
-    user_payment_methods, users, deposit_asset
+    user_payment_methods, users, deposit_asset, saving_asset
 };
 use crate::models::{
     AssetAmount, CashAsset, Crypto, CurrencyExchangeRateSnapshot, SendEmailAggGroup, SpentDetail,
-    SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, StockType, DepositAsset
+    SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, StockType, DepositAsset,
+    SavingAsset
 };
 use crate::repository::mysql_repository::MysqlRepository;
 use sea_orm::sea_query::{Expr, Func, SimpleExpr};
@@ -399,10 +400,10 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
         let db: &DatabaseConnection = self.db_conn.get_connection();
 
         let result: Vec<AssetAmount> = cash_asset::Entity::find()
-            .join(
-                JoinType::InnerJoin,
-                cash_asset::Relation::CurrencyCode.def(),
-            )
+            // .join(
+            //     JoinType::InnerJoin,
+            //     cash_asset::Relation::CurrencyCode.def(),
+            // )
             .select_only()
             .column(cash_asset::Column::UserSeq)
             .column_as(
@@ -460,5 +461,22 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
             })?;
 
         Ok(result)
+    }
+
+
+    pub(super) async fn find_saving_asset_amount_batch(
+        &self,
+        currency_code: &str,
+        user_seqs: &[i64],
+    ) -> anyhow::Result<Vec<AssetAmount>> {
+        if user_seqs.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+        
+        
+
+        Ok(Vec::new())
     }
 }
