@@ -446,9 +446,9 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
                 SimpleExpr::from(Func::sum(Expr::col(deposit_asset::Column::DepositAmount))),
                 "asset_sum",
             )
-            .filter(cash_asset::Column::CurrencyCode.eq(currency_code))
-            .filter(cash_asset::Column::UserSeq.is_in(user_seqs.to_vec()))
-            .group_by(cash_asset::Column::UserSeq)
+            .filter(deposit_asset::Column::CurrencyCode.eq(currency_code))
+            .filter(deposit_asset::Column::UserSeq.is_in(user_seqs.to_vec()))
+            .group_by(deposit_asset::Column::UserSeq)
             .into_model::<AssetAmount>()
             .all(db)
             .await
@@ -475,8 +475,27 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
 
         let db: &DatabaseConnection = self.db_conn.get_connection();
         
-        
-
-        Ok(Vec::new())
+        let result: Vec<AssetAmount> = saving_asset::Entity::find()
+            .select_only()
+            .column(saving_asset::Column::UserSeq)
+            .column_as(
+                SimpleExpr::from(Func::sum(Expr::col(saving_asset::Column::AccumSavingAmount))), 
+                "asset_sum"
+            )
+            .filter(saving_asset::Column::CurrencyCode.eq(currency_code))
+            .filter(saving_asset::Column::UserSeq.is_in(user_seqs.to_vec()))
+            .group_by(saving_asset::Column::UserSeq)
+            .into_model::<AssetAmount>()
+            .all(db)
+            .await
+            .inspect_err(|e| {
+                error!(
+                    "[MysqlServiceImpl::find_saving_asset_amount_batch] Failed to execute query \
+                     (currency_code={}): {:#}",
+                    currency_code, e
+                );
+            })?;
+            
+        Ok(result)
     }
 }

@@ -578,4 +578,20 @@ pub trait MysqlService {
         currency_code: &str,
         user_seqs: &[i64],
     ) -> anyhow::Result<Vec<AssetAmount>>;
+
+    /// Fetches per-user total saving valuation for the provided currency and user list.
+    ///
+    /// Requested query:
+    /// ```sql
+    // select 
+    //     user_seq,
+    //     sum(accum_saving_amount) as asset_sum
+    // from SAVING_ASSET
+    // where currency_code = 'KRW'
+    // group by user_seq;
+    async fn find_saving_asset_amount_batch(
+        &self,
+        currency_code: &str,
+        user_seqs: &[i64],
+    ) -> anyhow::Result<Vec<AssetAmount>>;
 }

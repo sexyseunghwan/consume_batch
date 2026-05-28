@@ -36,6 +36,9 @@ pub struct AppConfig {
     pub monthly_report_template: String,
     pub twelve_data_api: String,
     pub twelve_data_api_key: String,
+    pub kis_app_key: Option<String>,
+    pub kis_app_secret: Option<String>,
+    pub kis_api_base_url: Option<String>,
 }
 
 /// Global static instance of AppConfig
@@ -85,6 +88,9 @@ impl AppConfig {
                 .map_err(|_| "TWELVE_DATA_API not found in environment".to_string())?,
             twelve_data_api_key: env::var("TWELVE_DATA_API_KEY")
                 .map_err(|_| "TWELVE_DATA_API_KEY not found in environment".to_string())?,
+            kis_app_key: env::var("KIS_APP_KEY").ok(),
+            kis_app_secret: env::var("KIS_APP_SECRET").ok(),
+            kis_api_base_url: env::var("KIS_API_BASE_URL").ok(),
         };
 
         APP_CONFIG
