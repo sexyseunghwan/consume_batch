@@ -1,14 +1,14 @@
 use crate::common::*;
 use crate::entity::{
     agg_group, cash_asset, common_consume_keyword_type, common_consume_prodt_keyword, crypto,
-    crypto_asset, currency_code, currency_exchange_rate_snapshot, send_email_agg_group,
-    spent_detail, spent_detail_indexing, stock, stock_asset, stock_type, telegram_room,
-    user_payment_methods, users, deposit_asset, saving_asset
+    crypto_asset, currency_code, currency_exchange_rate_snapshot, deposit_asset, saving_asset,
+    send_email_agg_group, spent_detail, spent_detail_indexing, stock, stock_asset, stock_type,
+    telegram_room, user_payment_methods, users,
 };
 use crate::models::{
-    AssetAmount, CashAsset, Crypto, CurrencyExchangeRateSnapshot, SendEmailAggGroup, SpentDetail,
-    SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, StockType, DepositAsset,
-    SavingAsset
+    AssetAmount, CashAsset, Crypto, CurrencyExchangeRateSnapshot, DepositAsset, SavingAsset,
+    SendEmailAggGroup, SpentDetail, SpentDetailIndexing, SpentDetailWithRelations,
+    SpentTypeKeyword, Stock, StockType,
 };
 use crate::repository::mysql_repository::MysqlRepository;
 use sea_orm::sea_query::{Expr, Func, SimpleExpr};
@@ -427,7 +427,6 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
         Ok(result)
     }
 
-
     pub(super) async fn find_deposit_asset_amount_batch(
         &self,
         currency_code: &str,
@@ -463,7 +462,6 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
         Ok(result)
     }
 
-
     pub(super) async fn find_saving_asset_amount_batch(
         &self,
         currency_code: &str,
@@ -474,13 +472,15 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
         }
 
         let db: &DatabaseConnection = self.db_conn.get_connection();
-        
+
         let result: Vec<AssetAmount> = saving_asset::Entity::find()
             .select_only()
             .column(saving_asset::Column::UserSeq)
             .column_as(
-                SimpleExpr::from(Func::sum(Expr::col(saving_asset::Column::AccumSavingAmount))), 
-                "asset_sum"
+                SimpleExpr::from(Func::sum(Expr::col(
+                    saving_asset::Column::AccumSavingAmount,
+                ))),
+                "asset_sum",
             )
             .filter(saving_asset::Column::CurrencyCode.eq(currency_code))
             .filter(saving_asset::Column::UserSeq.is_in(user_seqs.to_vec()))
@@ -495,7 +495,7 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
                     currency_code, e
                 );
             })?;
-            
+
         Ok(result)
     }
 }

@@ -11,7 +11,7 @@ use crate::service_trait::{
     consume_service::ConsumeService, elastic_service::ElasticService,
     indexing_service::IndexingService, mysql_service::MysqlService,
     producer_service::ProducerService, public_data_service::PublicDataService,
-    smtp_service::SmtpService,
+    redis_service::RedisService, smtp_service::SmtpService,
 };
 use crate::{batch_log, common::*};
 
@@ -100,7 +100,7 @@ where
     Ok(())
 }
 
-impl<M, E, C, P, D, I, S> BatchServiceImpl<M, E, C, P, D, I, S>
+impl<M, E, C, P, D, I, S, R> BatchServiceImpl<M, E, C, P, D, I, S, R>
 where
     M: MysqlService + Send + Sync + 'static,
     E: ElasticService + Send + Sync + 'static,
@@ -109,6 +109,7 @@ where
     D: PublicDataService + Send + Sync + 'static,
     I: IndexingService + Send + Sync + 'static,
     S: SmtpService + Send + Sync + 'static,
+    R: RedisService + Send + Sync + 'static,
 {
     // Fetches active exchange-rate snapshots from MySQL and refreshes them from the external API.
     pub(super) async fn sync_currency_exchange_rates(
@@ -320,7 +321,6 @@ where
                     })
                     .map(to_amount_map)?;
 
-
                 // 5. Get saving asset
                 let saving_map: HashMap<i64, Decimal> = mysql_service
                     .find_saving_asset_amount_batch(currency, &user_seqs)
@@ -334,46 +334,45 @@ where
                         );
                     })
                     .map(to_amount_map)?;
-                    
 
                 // Single pass over user_seqs: O(1) HashMap lookups per user,
                 // no nested iteration across asset types.
                 let now: sea_orm::prelude::DateTime = Utc::now().naive_utc();
                 let zero: Decimal = Decimal::ZERO;
 
-                let batch_snapshots: Vec<user_current_asset_snapshot::ActiveModel> = user_seqs
-                    .iter()
-                    .map(|&uid| user_current_asset_snapshot::ActiveModel {
-                        summary_seq: ActiveValue::NotSet,
-                        user_seq: ActiveValue::Set(uid),
-                        currency_code: ActiveValue::Set(currency.to_owned()),
-                        aggregated_at: ActiveValue::Set(now),
-                        stock_amount: ActiveValue::Set(
-                            stock_map.get(&uid).copied().unwrap_or(zero),
-                        ),
-                        crypto_amount: ActiveValue::Set(
-                            crypto_map.get(&uid).copied().unwrap_or(zero),
-                        ),
-                        cash_amount: ActiveValue::Set(cash_map.get(&uid).copied().unwrap_or(zero)),
-                        deposit_amount: ActiveValue::Set(deposit_map.get(&uid).copied().unwrap_or(zero)), 
-                        saving_amount: ActiveValue::Set(saving_map.get(&uid).copied().unwrap_or(zero)), 
-                        created_at: ActiveValue::Set(now),
-                        updated_at: ActiveValue::NotSet,
-                        created_by: ActiveValue::Set("SYSTEM".to_owned()),
-                        updated_by: ActiveValue::NotSet,
-                    })
-                    .collect();
+                // let batch_snapshots: Vec<user_current_asset_snapshot::ActiveModel> = user_seqs
+                //     .iter()
+                //     .map(|&uid| user_current_asset_snapshot::ActiveModel {
+                //         summary_seq: ActiveValue::NotSet,
+                //         user_seq: ActiveValue::Set(uid),
+                //         currency_code: ActiveValue::Set(currency.to_owned()),
+                //         aggregated_at: ActiveValue::Set(now),
+                //         stock_amount: ActiveValue::Set(
+                //             stock_map.get(&uid).copied().unwrap_or(zero),
+                //         ),
+                //         crypto_amount: ActiveValue::Set(
+                //             crypto_map.get(&uid).copied().unwrap_or(zero),
+                //         ),
+                //         cash_amount: ActiveValue::Set(cash_map.get(&uid).copied().unwrap_or(zero)),
+                //         deposit_amount: ActiveValue::Set(deposit_map.get(&uid).copied().unwrap_or(zero)),
+                //         saving_amount: ActiveValue::Set(saving_map.get(&uid).copied().unwrap_or(zero)),
+                //         created_at: ActiveValue::Set(now),
+                //         updated_at: ActiveValue::NotSet,
+                //         created_by: ActiveValue::Set("SYSTEM".to_owned()),
+                //         updated_by: ActiveValue::NotSet,
+                //     })
+                //     .collect();
 
-                mysql_service
-                    .input_user_current_asset_snapshot_bulk(batch_snapshots)
-                    .await
-                    .inspect_err(|e| {
-                        error!(
-                            "[BatchServiceImpl::sync_current_asset_total] \
-                             input_user_current_asset_snapshot_bulk failed (offset={}): {:#}",
-                            offset, e
-                        );
-                    })?;
+                // mysql_service
+                //     .input_user_current_asset_snapshot_bulk(batch_snapshots)
+                //     .await
+                //     .inspect_err(|e| {
+                //         error!(
+                //             "[BatchServiceImpl::sync_current_asset_total] \
+                //              input_user_current_asset_snapshot_bulk failed (offset={}): {:#}",
+                //             offset, e
+                //         );
+                //     })?;
 
                 offset += batch_size;
             }

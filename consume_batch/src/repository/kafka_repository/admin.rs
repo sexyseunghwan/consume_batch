@@ -39,10 +39,7 @@ impl KafkaRepositoryImpl {
     ///
     /// rdkafka 0.38 lacks `describe_groups`, so this always returns true
     /// and logs a warning instead.
-    pub(super) async fn is_consumer_group_active(
-        &self,
-        _group_id: &str,
-    ) -> anyhow::Result<bool> {
+    pub(super) async fn is_consumer_group_active(&self, _group_id: &str) -> anyhow::Result<bool> {
         Ok(true)
     }
 
@@ -106,7 +103,8 @@ impl KafkaRepositoryImpl {
             .map_err(|e| {
                 anyhow!(
                     "[KafkaRepositoryImpl] Failed to fetch metadata for topic '{}': {:?}",
-                    topic, e
+                    topic,
+                    e
                 )
             })?;
 
@@ -402,7 +400,8 @@ impl KafkaRepositoryImpl {
         // ──────────────────────────────────────────────────────────────
         // [2단계] target 그룹 비활성화
         // ──────────────────────────────────────────────────────────────
-        self.modify_consumer_group_deactivate(&target_group_id).await?;
+        self.modify_consumer_group_deactivate(&target_group_id)
+            .await?;
 
         info!(
             "[KafkaRepositoryImpl::copy_consumer_group_offsets] Target group '{}' deactivated.",

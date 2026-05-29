@@ -14,7 +14,7 @@ use crate::service_trait::{
     consume_service::ConsumeService, elastic_service::ElasticService,
     indexing_service::IndexingService, mysql_service::MysqlService,
     producer_service::ProducerService, public_data_service::PublicDataService,
-    smtp_service::SmtpService,
+    redis_service::RedisService, smtp_service::SmtpService,
 };
 
 use crate::enums::RangeOperator;
@@ -209,7 +209,7 @@ fn build_report_html(
     Ok(html)
 }
 
-impl<M, E, C, P, D, I, S> BatchServiceImpl<M, E, C, P, D, I, S>
+impl<M, E, C, P, D, I, S, R> BatchServiceImpl<M, E, C, P, D, I, S, R>
 where
     M: MysqlService + Send + Sync + 'static,
     E: ElasticService + Send + Sync + 'static,
@@ -218,6 +218,7 @@ where
     D: PublicDataService + Send + Sync + 'static,
     I: IndexingService + Send + Sync + 'static,
     S: SmtpService + Send + Sync + 'static,
+    R: RedisService + Send + Sync + 'static,
 {
     fn find_monthly_report_range(
         now: DateTime<Utc>,

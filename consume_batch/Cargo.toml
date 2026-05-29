@@ -36,3 +36,5 @@ toml = "0.8"
 tokio-cron-scheduler = "0.13"
 quick-xml = { version = "0.36", features = ["serialize"] }
 lettre = { version = "0.11", features = ["tokio1", "tokio1-native-tls", "builder"] }
+scraper = "0.22"
+redis = { version = "1.2", features = ["aio", "tokio-comp", "connection-manager", "cluster", "cluster-async"] }

@@ -54,7 +54,7 @@ use crate::models::batch_schedule::*;
 use crate::service_trait::{
     batch_service::*, consume_service::ConsumeService, elastic_service::*, indexing_service::*,
     mysql_service::*, producer_service::ProducerService, public_data_service::PublicDataService,
-    smtp_service::SmtpService,
+    smtp_service::SmtpService, redis_service::*
 };
 use crate::{app_config::*, batch_log, common::*};
 
@@ -79,7 +79,7 @@ use crate::{app_config::*, batch_log, common::*};
 /// across multiple async tasks spawned by the scheduler.
 #[derive(Debug, Getters)]
 #[getset(get = "pub")]
-pub struct BatchServiceImpl<M, E, C, P, D, I, S>
+pub struct BatchServiceImpl<M, E, C, P, D, I, S, R>
 where
     M: MysqlService,
     E: ElasticService,
@@ -88,6 +88,7 @@ where
     D: PublicDataService,
     I: IndexingService,
     S: SmtpService,
+    R: RedisService
 {
     /// Service for MySQL database operations.
     mysql_service: Arc<M>,
@@ -103,10 +104,11 @@ where
     indexing_service: Arc<I>,
     /// Service for sending SMTP emails.
     smtp_service: Arc<S>,
+    redis_service: Arc<R>,
 }
 
 // Manual Clone impl: Arc<T> is always Clone regardless of T: Clone
-impl<M, E, C, P, D, I, S> Clone for BatchServiceImpl<M, E, C, P, D, I, S>
+impl<M, E, C, P, D, I, S, R> Clone for BatchServiceImpl<M, E, C, P, D, I, S, R>
 where
     M: MysqlService,
     E: ElasticService,
@@ -115,6 +117,7 @@ where
     D: PublicDataService,
     I: IndexingService,
     S: SmtpService,
+    R: RedisService
 {
     fn clone(&self) -> Self {
         Self {
@@ -126,11 +129,12 @@ where
             public_data_service: Arc::clone(&self.public_data_service),
             indexing_service: Arc::clone(&self.indexing_service),
             smtp_service: Arc::clone(&self.smtp_service),
+            redis_service: Arc::clone(&self.redis_service)
         }
     }
 }
 
-impl<M, E, C, P, D, I, S> BatchServiceImpl<M, E, C, P, D, I, S>
+impl<M, E, C, P, D, I, S, R> BatchServiceImpl<M, E, C, P, D, I, S, R>
 where
     M: MysqlService + Send + Sync + 'static,
     E: ElasticService + Send + Sync + 'static,
@@ -139,6 +143,7 @@ where
     D: PublicDataService + Send + Sync + 'static,
     I: IndexingService + Send + Sync + 'static,
     S: SmtpService + Send + Sync + 'static,
+    R: RedisService + Send + Sync + 'static
 {
     pub fn new(
         mysql_service: Arc<M>,
@@ -148,6 +153,7 @@ where
         public_data_service: D,
         indexing_service: I,
         smtp_service: S,
+        redis_service: R
     ) -> Result<Self> {
         let app_config: &AppConfig = AppConfig::get_global().inspect_err(|e| {
             error!("[BatchServiceImpl::new] app_config: {:#}", e);
@@ -175,6 +181,7 @@ where
             public_data_service: Arc::new(public_data_service),
             indexing_service: Arc::new(indexing_service),
             smtp_service: Arc::new(smtp_service),
+            redis_service: Arc::new(redis_service)
         })
     }
 
@@ -184,7 +191,7 @@ where
 }
 
 #[async_trait]
-impl<M, E, C, P, D, I, S> BatchService for BatchServiceImpl<M, E, C, P, D, I, S>
+impl<M, E, C, P, D, I, S, R> BatchService for BatchServiceImpl<M, E, C, P, D, I, S, R>
 where
     M: MysqlService + Send + Sync + 'static,
     E: ElasticService + Send + Sync + 'static,
@@ -193,6 +200,7 @@ where
     D: PublicDataService + Send + Sync + 'static,
     I: IndexingService + Send + Sync + 'static,
     S: SmtpService + Send + Sync + 'static,
+    R: RedisService + Send + Sync + 'static
 {
     async fn initialize_batch_task(&self) -> anyhow::Result<()> {
         batch_log!(
@@ -200,9 +208,9 @@ where
             "[BatchServiceImpl::initialize_batch_task] Starting batch service main task"
         );
 
-        let mut scheduler = self.initialize_cron_scheduler().await?;
-        let mut immediate_jobs = self.initialize_immediate_jobs();
-
+        let mut immediate_jobs: JoinSet<()> = self.initialize_immediate_jobs();     // 애는 한번 실행되어야 함
+        let mut scheduler: JobScheduler = self.initialize_cron_scheduler().await?;  // 동시에 스케쥴러는 계속 실행되어야 함.
+        
         batch_log!(
             info,
             "[BatchServiceImpl::initialize_batch_task] Scheduler is running. Press Ctrl+C to shutdown gracefully."

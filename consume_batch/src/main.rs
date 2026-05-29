@@ -58,16 +58,16 @@ mod entity;
 
 mod service;
 use service::{
-    batch_service_impl::*, cli_service_impl::CliServiceImpl, consume_service_impl::*,
-    elastic_service_impl::*, indexing_service_impl::IndexingServiceImpl, mysql_service_impl::*,
-    producer_service_impl::*, public_data_service_impl::PublicDataServiceImpl,
-    smtp_service_impl::SmtpServiceImpl,
+    batch_service_impl::*, redis_service_impl::*, cli_service_impl::CliServiceImpl,
+    consume_service_impl::*, elastic_service_impl::*, indexing_service_impl::IndexingServiceImpl,
+    mysql_service_impl::*, producer_service_impl::*,
+    public_data_service_impl::PublicDataServiceImpl, smtp_service_impl::SmtpServiceImpl,
 };
 
 mod service_trait;
 
 mod repository;
-use repository::{es_repository::*, kafka_repository::*, mysql_repository::*};
+use repository::{es_repository::*, kafka_repository::*, mysql_repository::*, redis_repository::*};
 
 mod models;
 
@@ -85,6 +85,7 @@ mod dtos;
 mod api;
 
 // Type aliases
+type RedisService = RedisServiceImpl<RedisRepositoryImpl>;
 type ElasticService = ElasticServiceImpl<EsRepositoryImpl>;
 type MysqlService = MysqlServiceImpl<MysqlRepositoryImpl>;
 type ConsumeService = ConsumeServiceImpl<KafkaRepositoryImpl>;
@@ -101,6 +102,7 @@ type BatchSvc = BatchServiceImpl<
     PublicDataSvc,
     IndexingSvc,
     SmtpSvc,
+    RedisService,
 >;
 type CliSvc = CliServiceImpl<BatchSvc>;
 type Controller = MainController<BatchSvc, CliSvc>;
@@ -129,29 +131,19 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Indexing Batch Program Start.");
 
-    let elastic_repo: EsRepositoryImpl = match EsRepositoryImpl::new() {
-        Ok(es_repo) => es_repo,
-        Err(e) => {
-            error!("[main] elastic_repo: {:#}", e);
-            panic!("[main] elastic_repo: {:#}", e);
-        }
-    };
+    let elastic_repo: EsRepositoryImpl =
+        EsRepositoryImpl::new().inspect_err(|e| error!("[main] elastic_repo: {:#}", e))?;
 
-    let mysql_repo: MysqlRepositoryImpl = match MysqlRepositoryImpl::new().await {
-        Ok(sql_repo) => sql_repo,
-        Err(e) => {
-            error!("[main] mysql_repo: {:#}", e);
-            panic!("[main] mysql_repo: {:#}", e);
-        }
-    };
+    let mysql_repo: MysqlRepositoryImpl = MysqlRepositoryImpl::new()
+        .await
+        .inspect_err(|e| error!("[main] mysql_repo: {:#}", e))?;
 
-    let kafka_repo: KafkaRepositoryImpl = match KafkaRepositoryImpl::new() {
-        Ok(kafka_repo) => kafka_repo,
-        Err(e) => {
-            error!("[main] kafka_repo: {:#}", e);
-            panic!("[main] kafka_repo: {:#}", e);
-        }
-    };
+    let kafka_repo: KafkaRepositoryImpl =
+        KafkaRepositoryImpl::new().inspect_err(|e| error!("[main] kafka_repo: {:#}", e))?;
+
+    let redis_repo: RedisRepositoryImpl = RedisRepositoryImpl::new()
+        .await
+        .inspect_err(|e| error!("[main] redis_repo: {:#}", e))?;
 
     let shared_kafka_repo: Arc<KafkaRepositoryImpl> = Arc::new(kafka_repo);
 
@@ -160,6 +152,7 @@ async fn main() -> anyhow::Result<()> {
     let elastic_query_service: Arc<ElasticService> =
         Arc::new(ElasticServiceImpl::new(elastic_repo));
     let mysql_query_service: Arc<MysqlService> = Arc::new(MysqlServiceImpl::new(mysql_repo));
+    let redis_service: RedisService = RedisServiceImpl::new(redis_repo);
 
     // Share Kafka repository across multiple services (clone is cheap - only Arc increment)
     let consume_service: Arc<ConsumeService> =
@@ -167,6 +160,7 @@ async fn main() -> anyhow::Result<()> {
     let producer_service: Arc<ProducerService> =
         Arc::new(ProducerServiceImpl::new(Arc::clone(&shared_kafka_repo)));
 
+    // public DATA... TO..DO...
     let public_data_api_key: String = AppConfig::get_global()?
         .public_data_api_key()
         .clone()
@@ -181,7 +175,7 @@ async fn main() -> anyhow::Result<()> {
             cfg.smtp_pw().clone().unwrap_or_default(),
         )
     };
-
+    
     // Create indexing service — shares the same service Arc refs as BatchServiceImpl
     let indexing_service: IndexingSvc = IndexingServiceImpl::new(
         Arc::clone(&mysql_query_service),
@@ -189,9 +183,9 @@ async fn main() -> anyhow::Result<()> {
         Arc::clone(&elastic_query_service),
         Arc::clone(&consume_service),
     );
-
+    
     // Create batch service with all dependencies
-    let batch_service: BatchSvc = match BatchServiceImpl::new(
+    let batch_service: BatchSvc = BatchServiceImpl::new(
         mysql_query_service,
         elastic_query_service,
         consume_service,
@@ -199,14 +193,10 @@ async fn main() -> anyhow::Result<()> {
         public_data_service,
         indexing_service,
         smtp_service,
-    ) {
-        Ok(batch_service) => batch_service,
-        Err(e) => {
-            error!("[main] batch_service: {:#}", e);
-            panic!("[main] batch_service: {:#}", e);
-        }
-    };
-
+        redis_service,
+    )
+    .inspect_err(|e| error!("[main] batch_service: {:#}", e))?;
+    
     // Create CLI service: shares the batch service via Arc for on-demand execution
     let cli_service: CliSvc = CliServiceImpl::new(
         Arc::new(batch_service.clone()),
@@ -216,12 +206,10 @@ async fn main() -> anyhow::Result<()> {
     // Create main controller with both services
     let main_controller: Controller = MainController::new(batch_service, Arc::new(cli_service));
 
-    match main_controller.main_task().await {
-        Ok(_) => (),
-        Err(e) => {
-            error!("[main] {:#}", e);
-        }
-    }
+    main_controller
+        .main_task()
+        .await
+        .inspect_err(|e| error!("[main] {:#}", e))?;
 
     Ok(())
 }

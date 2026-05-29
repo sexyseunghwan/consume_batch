@@ -202,11 +202,16 @@ impl KafkaRepository for KafkaRepositoryImpl {
         max_messages: usize,
         group_suffix: &str,
     ) -> anyhow::Result<Vec<Value>> {
-        self.consume_messages(topic, Some(group_suffix), max_messages).await
+        self.consume_messages(topic, Some(group_suffix), max_messages)
+            .await
     }
 
     async fn find_one(&self, topic: &str) -> anyhow::Result<Option<Value>> {
-        Ok(self.consume_messages(topic, None, 1).await?.into_iter().next())
+        Ok(self
+            .consume_messages(topic, None, 1)
+            .await?
+            .into_iter()
+            .next())
     }
 
     async fn input_message(
@@ -228,7 +233,8 @@ impl KafkaRepository for KafkaRepositoryImpl {
         source_group: &str,
         target_group: &str,
     ) -> anyhow::Result<()> {
-        self.copy_consumer_group_offsets(topic, source_group, target_group).await
+        self.copy_consumer_group_offsets(topic, source_group, target_group)
+            .await
     }
 
     async fn find_committed_offsets_total(
@@ -236,7 +242,8 @@ impl KafkaRepository for KafkaRepositoryImpl {
         topic: &str,
         group_suffix: &str,
     ) -> anyhow::Result<i64> {
-        self.fetch_committed_offsets_total(topic, group_suffix).await
+        self.fetch_committed_offsets_total(topic, group_suffix)
+            .await
     }
 
     async fn find_committed_offsets_by_partition(
@@ -244,6 +251,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
         topic: &str,
         group_suffix: &str,
     ) -> anyhow::Result<HashMap<i32, i64>> {
-        self.fetch_committed_offsets_by_partition(topic, group_suffix).await
+        self.fetch_committed_offsets_by_partition(topic, group_suffix)
+            .await
     }
 }

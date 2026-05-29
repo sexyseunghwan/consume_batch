@@ -535,7 +535,7 @@ where
         let write_index_alias: String = format!("write_{}", index_alias);
         let relation_topic: &str = schedule_item.relation_topic();
         let batch_size: usize = *schedule_item.batch_size();
-        let consumer_group: &str = schedule_item.consumer_group();
+        let consumer_group: &str = schedule_item.consumer_group(); // incremental_spent_detail_group_dev
 
         batch_log!(
             info,

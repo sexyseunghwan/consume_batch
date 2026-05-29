@@ -583,7 +583,7 @@ pub trait MysqlService {
     ///
     /// Requested query:
     /// ```sql
-    // select 
+    // select
     //     user_seq,
     //     sum(accum_saving_amount) as asset_sum
     // from SAVING_ASSET

@@ -31,7 +31,8 @@ impl KafkaRepositoryImpl {
             .map_err(|(e, _)| {
                 anyhow!(
                     "[KafkaRepositoryImpl::send_message] Failed to send to topic {}: {:?}",
-                    topic, e
+                    topic,
+                    e
                 )
             })
     }
