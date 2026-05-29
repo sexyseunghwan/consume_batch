@@ -95,7 +95,7 @@ impl AppConfig {
                 .map_err(|_| "KIS_APP_KEY not found in environment".to_string())?,
             kis_api_base_url: env::var("KIS_API_BASE_URL")
                 .map_err(|_| "KIS_API_BASE_URL not found in environment".to_string())?,
-            redis_url: env::var("KIS_API_BASE_URL")
+            redis_url: env::var("REDIS_URL")
                 .map_err(|_| "REDIS_URL not found in environment".to_string())?,
         };
 

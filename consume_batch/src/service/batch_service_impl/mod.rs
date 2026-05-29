@@ -208,7 +208,7 @@ where
             "[BatchServiceImpl::initialize_batch_task] Starting batch service main task"
         );
 
-        let mut immediate_jobs: JoinSet<()> = self.initialize_immediate_jobs();     // 애는 한번 실행되어야 함
+        let mut immediate_jobs: JoinSet<()> = self.initialize_immediate_jobs();     // 애는 즉시 한번 실행되어야 함
         let mut scheduler: JobScheduler = self.initialize_cron_scheduler().await?;  // 동시에 스케쥴러는 계속 실행되어야 함.
         
         batch_log!(
@@ -216,6 +216,10 @@ where
             "[BatchServiceImpl::initialize_batch_task] Scheduler is running. Press Ctrl+C to shutdown gracefully."
         );
 
+        /*
+            tokio::select! 는 Rust async code 에서 여러 비동기 작업을 동시에 기다리다가, 
+            먼저 완료되는 작업 하나를 처리하는 메크로임.
+        */
         tokio::select! {
             _ = tokio::signal::ctrl_c() => {
                 batch_log!(info,
@@ -229,7 +233,7 @@ where
                     }
                 }
                 batch_log!(info, "[BatchServiceImpl::initialize_batch_task] All immediate jobs completed, keeping service alive until Ctrl+C...");
-                std::future::pending::<()>().await;
+                std::future::pending::<()>().await; 
             } => {}
         }
 

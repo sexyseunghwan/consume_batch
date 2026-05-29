@@ -65,7 +65,7 @@ where
     }
 
     pub(super) fn initialize_immediate_jobs(&self) -> JoinSet<()> {
-        let mut immediate_jobs: JoinSet<()> = JoinSet::new();
+        let mut immediate_jobs: JoinSet<()> = JoinSet::new(); // 여러 비동기 작업을 등록해두고, 완료되는 순서대로 기다리기 위한 작업 묶음
 
         let immediate_schedules: Vec<&BatchScheduleItem> = self
             .find_enabled_schedules()
@@ -93,6 +93,7 @@ where
                 immediate_item.index_name()
             );
 
+            // immediate_jobs 에 비동기 작업을 등록함: 일반적인 자료구조랑은 다름 stack(x), queue(x)
             immediate_jobs.spawn(async move {
                 batch_log!(info, "[{}] Immediate job started", item.index_name());
 
@@ -125,7 +126,7 @@ where
 
     pub(super) fn initialize_index_job(&self, schedule_item: &BatchScheduleItem) -> Result<Job> {
         let index_name: String = schedule_item.index_name().clone();
-        let cron_expr: String = schedule_item.cron_schedule().clone();
+        let cron_expr: String = schedule_item.cron_schedule().clone(); // -> `"0 */5 * * * * *"`...
 
         // Clone Arc references for the async closure
         // These clones are necessary because the closure must be 'static

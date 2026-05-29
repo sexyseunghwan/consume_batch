@@ -22,6 +22,7 @@ where
     S: SmtpService + Send + Sync + 'static,
     R: RedisService + Send + Sync + 'static,
 {
+    // 여기가 진짜 실행할 함수들의 모음이 존재함...
     pub(super) async fn input_batch_by_schedule(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
