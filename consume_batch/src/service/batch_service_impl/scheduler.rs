@@ -22,6 +22,7 @@ where
     S: SmtpService + Send + Sync + 'static,
     R: RedisService + Send + Sync + 'static,
 {
+    // 스케쥴 작업 모음
     pub(super) async fn initialize_cron_scheduler(&self) -> anyhow::Result<JobScheduler> {
         let scheduler: JobScheduler = JobScheduler::new().await.inspect_err(|e| {
             error!(
@@ -43,7 +44,7 @@ where
         );
 
         for schedule_item in cron_schedules {
-            let job: Job = self.initialize_index_job(schedule_item)?;
+            let job: Job = self.initialize_batch_job(schedule_item)?;
             scheduler.add(job).await?;
 
             batch_log!(
@@ -124,7 +125,7 @@ where
         immediate_jobs
     }
 
-    pub(super) fn initialize_index_job(&self, schedule_item: &BatchScheduleItem) -> Result<Job> {
+    pub(super) fn initialize_batch_job(&self, schedule_item: &BatchScheduleItem) -> Result<Job> {
         let index_name: String = schedule_item.index_name().clone();
         let cron_expr: String = schedule_item.cron_schedule().clone(); // -> `"0 */5 * * * * *"`...
 

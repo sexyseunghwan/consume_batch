@@ -233,7 +233,13 @@ where
                     }
                 }
                 batch_log!(info, "[BatchServiceImpl::initialize_batch_task] All immediate jobs completed, keeping service alive until Ctrl+C...");
-                std::future::pending::<()>().await; 
+                
+                /*
+                    아래의 pending이 없다면, immediate_jobs 를 모두 실행하고 프로그램을 그냥 종료해버림
+                    스케쥴 작업도 계속 돌려야 하므로 immediate_jobs를 모두 실행시킨 후에도 중지시켜놔야함.
+                */
+                std::future::pending::<()>().await;
+
             } => {}
         }
 
