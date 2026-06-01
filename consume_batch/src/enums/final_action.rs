@@ -2,7 +2,7 @@ use crate::enums::IndexingType;
 
 /// Batch 내 동일 key의 이벤트들을 압축한 최종 작업 단위.
 ///
-/// 상태 전이는 [`FinalAction::merge`]를 통해 이루어진다.
+/// 상태 전이는 [`FinalAction::apply_event`]를 통해 이루어진다.
 /// - `UpsertNew`     : 이 배치에서 처음 생성된 문서 (Insert가 첫 이벤트).
 ///                     이후 Delete 이벤트가 오면 ES에 존재하지 않으므로 Noop.
 /// - `UpsertExisting`: 이 배치 이전부터 존재하던 문서 (Update/Delete→Insert가 첫 이벤트).
@@ -18,7 +18,7 @@ pub enum FinalAction {
 }
 
 impl FinalAction {
-    pub fn modify_by_event(self, event: IndexingType) -> Self {
+    pub fn apply_event(self, event: IndexingType) -> Self {
         match (self, event) {
             // UpsertNew: I가 첫 이벤트였던 상태
             (Self::UpsertNew, IndexingType::Insert) => Self::UpsertNew,

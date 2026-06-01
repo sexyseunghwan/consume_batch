@@ -98,7 +98,7 @@ where
             immediate_jobs.spawn(async move {
                 batch_log!(info, "[{}] Immediate job started", item.index_name());
 
-                match Self::input_batch_by_schedule(
+                match Self::execute_batch_by_name(
                     &item,
                     &mysql,
                     &elastic,
@@ -157,7 +157,7 @@ where
             Box::pin(async move {
                 batch_log!(info, "[{}] Cron job triggered", schedule_item.index_name());
 
-                match Self::input_batch_by_schedule(
+                match Self::execute_batch_by_name(
                     &schedule_item,
                     &mysql,
                     &elastic,

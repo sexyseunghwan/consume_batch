@@ -93,8 +93,8 @@ where
         self.find_query_result_vec(response_body).await
     }
 
-    async fn modify_index_setting(&self, index_name: &str) -> anyhow::Result<()> {
-        self.modify_index_setting(index_name).await
+    async fn finalize_index_settings(&self, index_name: &str) -> anyhow::Result<()> {
+        self.finalize_index_settings(index_name).await
     }
 
     async fn initialize_full_index(

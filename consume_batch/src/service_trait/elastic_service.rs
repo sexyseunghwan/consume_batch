@@ -183,7 +183,7 @@ pub trait ElasticService {
     async fn modify_read_alias(&self, read_alias: &str, new_index: &str) -> anyhow::Result<()>;
 
     /// Restores production settings on an index after bulk loading completes.
-    async fn modify_index_setting(&self, index_name: &str) -> anyhow::Result<()>;
+    async fn finalize_index_settings(&self, index_name: &str) -> anyhow::Result<()>;
 
     /// Prepares a new Elasticsearch index for full indexing.
     ///

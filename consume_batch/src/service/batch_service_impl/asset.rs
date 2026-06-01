@@ -339,7 +339,10 @@ where
                 // no nested iteration across asset types.
                 let now: sea_orm::prelude::DateTime = Utc::now().naive_utc();
                 let zero: Decimal = Decimal::ZERO;
+                
+                
 
+                // 잠깐 주석처리해둠.
                 // let batch_snapshots: Vec<user_current_asset_snapshot::ActiveModel> = user_seqs
                 //     .iter()
                 //     .map(|&uid| user_current_asset_snapshot::ActiveModel {

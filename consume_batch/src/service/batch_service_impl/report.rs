@@ -220,7 +220,7 @@ where
     S: SmtpService + Send + Sync + 'static,
     R: RedisService + Send + Sync + 'static,
 {
-    fn find_monthly_report_range(
+    fn to_monthly_report_range(
         now: DateTime<Utc>,
     ) -> anyhow::Result<(DateTime<Utc>, DateTime<Utc>)> {
         let start_date_naive: chrono::NaiveDateTime = now
@@ -229,7 +229,7 @@ where
             .and_then(|date| date.and_hms_opt(9, 0, 0))
             .ok_or_else(|| {
                 anyhow!(
-                    "[BatchServiceImpl::find_monthly_report_range] Failed to calculate one month ago 09:00:00 from {}",
+                    "[BatchServiceImpl::to_monthly_report_range] Failed to calculate one month ago 09:00:00 from {}",
                     now
                 )
             })?;
@@ -281,7 +281,7 @@ where
         Ok((agg_group_map, total_processed))
     }
 
-    fn find_calculate_pie_infos_from_category(
+    fn to_spent_results_with_percentage(
         total_cost: f64,
         type_map: &HashMap<String, i64>,
     ) -> anyhow::Result<Vec<SpentResultByType>> {
@@ -302,7 +302,7 @@ where
         Ok(spent_result_by_types)
     }
 
-    fn find_spent_result_by_category(
+    fn to_spent_result_by_category(
         spent_details: &AggResultSet<SpentDetailIndexing>,
     ) -> anyhow::Result<Vec<SpentResultByType>> {
         let spent_inner_details: &Vec<DocumentWithId<SpentDetailIndexing>> =
@@ -327,7 +327,7 @@ where
         cost_map.retain(|_, v| *v > 0);
 
         let mut spent_result_by_types: Vec<SpentResultByType> =
-            Self::find_calculate_pie_infos_from_category(total_cost, &cost_map)?;
+            Self::to_spent_results_with_percentage(total_cost, &cost_map)?;
 
         spent_result_by_types.sort_by(|a, b| {
             b.spent_cost
@@ -383,7 +383,7 @@ where
             .await?;
 
         // 소비 정보 디테일 - 카테고리 별
-        let detail_by_type: Vec<SpentResultByType> = Self::find_spent_result_by_category(&cur_agg_infos)
+        let detail_by_type: Vec<SpentResultByType> = Self::to_spent_result_by_category(&cur_agg_infos)
             .inspect_err(|e| {
                 error!("[BatchServiceImpl::process_agg_group] Initialisation of the `detail_by_type` data has failed. {:#}", e);
             })?;
@@ -522,13 +522,13 @@ where
         smtp_service: &Arc<S>,
     ) -> anyhow::Result<()> {
         let now: DateTime<Utc> = Utc::now();
-        let (start_date, end_date) = Self::find_monthly_report_range(now)?;
+        let (start_date, end_date) = Self::to_monthly_report_range(now)?;
         let date_range: ReportDateRange = ReportDateRange {
             start_date,
             end_date,
         };
 
-        let (prev_start_date, prev_end_date) = Self::find_monthly_report_range(start_date)?;
+        let (prev_start_date, prev_end_date) = Self::to_monthly_report_range(start_date)?;
         let prev_date_range: ReportDateRange = ReportDateRange {
             start_date: prev_start_date,
             end_date: prev_end_date,
@@ -575,17 +575,17 @@ where
         Ok(())
     }
 
-    fn find_weekly_report_range(
+    fn to_weekly_report_range(
         now: DateTime<Utc>,
     ) -> anyhow::Result<(DateTime<Utc>, DateTime<Utc>)> {
         let seven_days_ago: DateTime<Utc> = now
             .checked_sub_signed(chrono::Duration::days(7))
-            .ok_or_else(|| anyhow!("[BatchServiceImpl::find_weekly_report_range] Failed to calculate 7 days ago from {}", now))?;
+            .ok_or_else(|| anyhow!("[BatchServiceImpl::to_weekly_report_range] Failed to calculate 7 days ago from {}", now))?;
 
         let start_date_naive = seven_days_ago
             .date_naive()
             .and_hms_opt(9, 0, 0)
-            .ok_or_else(|| anyhow!("[BatchServiceImpl::find_weekly_report_range] Failed to create 09:00:00 for date {:?}", seven_days_ago.date_naive()))?;
+            .ok_or_else(|| anyhow!("[BatchServiceImpl::to_weekly_report_range] Failed to create 09:00:00 for date {:?}", seven_days_ago.date_naive()))?;
 
         let start_date = DateTime::<Utc>::from_naive_utc_and_offset(start_date_naive, Utc);
 
@@ -599,13 +599,13 @@ where
         smtp_service: &Arc<S>,
     ) -> anyhow::Result<()> {
         let now: DateTime<Utc> = Utc::now();
-        let (start_date, end_date) = Self::find_weekly_report_range(now)?;
+        let (start_date, end_date) = Self::to_weekly_report_range(now)?;
         let date_range: ReportDateRange = ReportDateRange {
             start_date,
             end_date,
         };
 
-        let (prev_start_date, prev_end_date) = Self::find_weekly_report_range(start_date)?;
+        let (prev_start_date, prev_end_date) = Self::to_weekly_report_range(start_date)?;
         let prev_date_range: ReportDateRange = ReportDateRange {
             start_date: prev_start_date,
             end_date: prev_end_date,

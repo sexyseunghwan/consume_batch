@@ -161,7 +161,7 @@ where
         let batch_schedule: &str = app_config.batch_schedule().as_str();
 
         let schedule_config: BatchScheduleConfig =
-            BatchScheduleConfig::find_from_file(batch_schedule).inspect_err(|e| {
+            BatchScheduleConfig::initialize_from_file(batch_schedule).inspect_err(|e| {
                 error!("[BatchServiceImpl::new] schedule_config: {:#}", e);
             })?;
 
@@ -259,7 +259,7 @@ where
     }
 
     async fn input_batch(&self, schedule_item: &BatchScheduleItem) -> anyhow::Result<()> {
-        Self::input_batch_by_schedule(
+        Self::execute_batch_by_name(
             schedule_item,
             &self.mysql_service,
             &self.elastic_service,

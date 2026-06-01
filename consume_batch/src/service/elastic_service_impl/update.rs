@@ -77,9 +77,9 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
             })
     }
 
-    pub(super) async fn modify_index_setting(&self, index_name: &str) -> anyhow::Result<()> {
+    pub(super) async fn finalize_index_settings(&self, index_name: &str) -> anyhow::Result<()> {
         info!(
-            "[ElasticServiceImpl::modify_index_setting] Updating index settings for production: {}",
+            "[ElasticServiceImpl::finalize_index_settings] Updating index settings for production: {}",
             index_name
         );
 
@@ -94,7 +94,7 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
             .await
             .inspect_err(|e| {
                 error!(
-                    "[ElasticServiceImpl::modify_index_setting] Failed to update index settings: {:#}",
+                    "[ElasticServiceImpl::finalize_index_settings] Failed to update index settings: {:#}",
                     e
                 );
             })?;
@@ -104,7 +104,7 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
             .await
             .inspect_err(|e| {
                 error!(
-                    "[ElasticServiceImpl::modify_index_setting] Failed to refresh index: {:#}",
+                    "[ElasticServiceImpl::finalize_index_settings] Failed to refresh index: {:#}",
                     e
                 );
             })?;

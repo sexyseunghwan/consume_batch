@@ -23,7 +23,7 @@ where
     R: RedisService + Send + Sync + 'static,
 {
     // 여기가 진짜 실행할 함수들의 모음이 존재함...
-    pub(super) async fn input_batch_by_schedule(
+    pub(super) async fn execute_batch_by_name(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
         elastic_service: &Arc<E>,

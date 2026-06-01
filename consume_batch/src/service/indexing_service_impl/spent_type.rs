@@ -110,7 +110,7 @@ where
         }
 
         self.elastic_service
-            .modify_index_setting(&new_index_name)
+            .finalize_index_settings(&new_index_name)
             .await
             .inspect_err(|e| {
                 error!(

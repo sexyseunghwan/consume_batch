@@ -115,7 +115,7 @@ pub struct BatchScheduleItem {
 }
 
 impl BatchScheduleConfig {
-    pub fn find_from_file(path: &str) -> Result<Self> {
+    pub fn initialize_from_file(path: &str) -> Result<Self> {
         find_toml_from_file(path)
     }
 

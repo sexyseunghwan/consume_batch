@@ -13,7 +13,7 @@ use crate::service_trait::{
 
 use super::IndexingServiceImpl;
 
-fn to_merged_batch_events(
+fn merge_events_to_action_ids(
     messages: Vec<SpentDetailFromKafka>,
 ) -> anyhow::Result<(Vec<i64>, Vec<i64>)> {
     use std::collections::hash_map::Entry;
@@ -146,7 +146,7 @@ where
             indexer_topic
         );
 
-        let (upsert_ids, delete_ids) = to_merged_batch_events(messages)?;
+        let (upsert_ids, delete_ids) = merge_events_to_action_ids(messages)?;
 
         batch_log!(
             info,
@@ -223,7 +223,7 @@ where
         Ok((upsert_processed, delete_processed))
     }
 
-    async fn modify_spent_detail_catch_up(
+    async fn input_spent_detail_catch_up(
         &self,
         schedule_item: &BatchScheduleItem,
         index_name: &str,
@@ -238,7 +238,7 @@ where
 
         batch_log!(
             info,
-            "[IndexingServiceImpl::modify_spent_detail_catch_up] Starting. topic='{}', index='{}', ref='{}', catchup='{}'",
+            "[IndexingServiceImpl::input_spent_detail_catch_up] Starting. topic='{}', index='{}', ref='{}', catchup='{}'",
             relation_topic,
             index_name,
             consumer_group,
@@ -263,7 +263,7 @@ where
                 .await
                 .inspect_err(|e| {
                     error!(
-                        "[IndexingServiceImpl::modify_spent_detail_catch_up] Failed to get lag: {:#}",
+                        "[IndexingServiceImpl::input_spent_detail_catch_up] Failed to get lag: {:#}",
                         e
                     );
                 })?;
@@ -272,7 +272,7 @@ where
 
             batch_log!(
                 info,
-                "[IndexingServiceImpl::modify_spent_detail_catch_up] lag={}, batch_size={}, partitions={}",
+                "[IndexingServiceImpl::input_spent_detail_catch_up] lag={}, batch_size={}, partitions={}",
                 lag,
                 batch_size,
                 lag_info.partition_lags.len()
@@ -281,7 +281,7 @@ where
             for partition_lag in &lag_info.partition_lags {
                 if partition_lag.lag > 0 {
                     info!(
-                        "[IndexingServiceImpl::modify_spent_detail_catch_up] Partition {}: lag={} (ref={}, catchup={})",
+                        "[IndexingServiceImpl::input_spent_detail_catch_up] Partition {}: lag={} (ref={}, catchup={})",
                         partition_lag.partition,
                         partition_lag.lag,
                         partition_lag.reference_offset,
@@ -293,7 +293,7 @@ where
             if !indexing_paused && lag <= batch_size as i64 {
                 batch_log!(
                     info,
-                    "[IndexingServiceImpl::modify_spent_detail_catch_up] Almost caught up (lag={}). Pausing incremental indexing.",
+                    "[IndexingServiceImpl::input_spent_detail_catch_up] Almost caught up (lag={}). Pausing incremental indexing.",
                     lag
                 );
                 set_spent_detail_indexing(false).await;
@@ -303,16 +303,16 @@ where
             if indexing_paused && lag == 0 {
                 batch_log!(
                     info,
-                    "[IndexingServiceImpl::modify_spent_detail_catch_up] Fully caught up. total_processed={}. Swapping aliases.",
+                    "[IndexingServiceImpl::input_spent_detail_catch_up] Fully caught up. total_processed={}. Swapping aliases.",
                     total_upsert_processed + total_delete_processed
                 );
 
                 self.elastic_service
-                    .modify_index_setting(index_name)
+                    .finalize_index_settings(index_name)
                     .await
                     .inspect_err(|e| {
                         error!(
-                            "[IndexingServiceImpl::modify_spent_detail_catch_up] Failed to revert the index settings.{:#}",
+                            "[IndexingServiceImpl::input_spent_detail_catch_up] Failed to revert the index settings.{:#}",
                             e
                         );
                     })?;
@@ -322,7 +322,7 @@ where
                     .await
                     .inspect_err(|e| {
                         error!(
-                            "[IndexingServiceImpl::modify_spent_detail_catch_up] update_write_alias failed: {:#}",
+                            "[IndexingServiceImpl::input_spent_detail_catch_up] update_write_alias failed: {:#}",
                             e
                         );
                     })?;
@@ -332,14 +332,14 @@ where
                     .await
                     .inspect_err(|e| {
                         error!(
-                            "[IndexingServiceImpl::modify_spent_detail_catch_up] update_read_alias failed: {:#}",
+                            "[IndexingServiceImpl::input_spent_detail_catch_up] update_read_alias failed: {:#}",
                             e
                         );
                     })?;
 
                 batch_log!(
                     info,
-                    "[IndexingServiceImpl::modify_spent_detail_catch_up] Alias swap complete. Resuming incremental indexing."
+                    "[IndexingServiceImpl::input_spent_detail_catch_up] Alias swap complete. Resuming incremental indexing."
                 );
 
                 set_spent_detail_indexing(true).await;
@@ -362,12 +362,12 @@ where
                 Err(e) => {
                     consecutive_errors += 1;
                     error!(
-                        "[IndexingServiceImpl::modify_spent_detail_catch_up] error ({}/{}): {:#}",
+                        "[IndexingServiceImpl::input_spent_detail_catch_up] error ({}/{}): {:#}",
                         consecutive_errors, MAX_CONSECUTIVE_ERRORS, e
                     );
                     if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
                         return Err(anyhow!(
-                            "[IndexingServiceImpl::modify_spent_detail_catch_up] Aborting catch-up after {} consecutive errors. Last error: {:#}",
+                            "[IndexingServiceImpl::input_spent_detail_catch_up] Aborting catch-up after {} consecutive errors. Last error: {:#}",
                             MAX_CONSECUTIVE_ERRORS,
                             e
                         ));
@@ -379,7 +379,7 @@ where
 
             batch_log!(
                 info,
-                "[IndexingServiceImpl::modify_spent_detail_catch_up] upsert: {}, delete: {} (total: {})",
+                "[IndexingServiceImpl::input_spent_detail_catch_up] upsert: {}, delete: {} (total: {})",
                 upsert_processed,
                 delete_processed,
                 upsert_processed + delete_processed
@@ -465,7 +465,7 @@ where
         );
 
         let catch_up_indexed: u64 = match self
-            .modify_spent_detail_catch_up(schedule_item, &new_index_name)
+            .input_spent_detail_catch_up(schedule_item, &new_index_name)
             .await
         {
             Ok(n) => n,
@@ -495,7 +495,7 @@ where
 
         if let Err(e) = self
             .elastic_service
-            .modify_index_setting(&new_index_name)
+            .finalize_index_settings(&new_index_name)
             .await
         {
             error!(
