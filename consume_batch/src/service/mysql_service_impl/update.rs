@@ -172,6 +172,7 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
         Ok(total_affected)
     }
 
+    #[allow(dead_code)]
     pub(super) async fn modify_spent_detail_type_one_by_one(
         &self,
         updates: Vec<(i64, i64)>,

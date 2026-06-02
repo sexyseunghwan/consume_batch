@@ -23,6 +23,15 @@ use chrono::Months;
 
 use super::BatchServiceImpl;
 
+struct ReportAggGroupContext<E, S> {
+    elastic_service: Arc<E>,
+    smtp_service: Arc<S>,
+    report_title: String,
+    index_name: String,
+    date_range: ReportDateRange,
+    prev_date_range: ReportDateRange,
+}
+
 fn escape_html(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -341,20 +350,16 @@ where
     async fn process_agg_group(
         agg_group_seq: i64,
         email_ids: Vec<String>,
-        elastic_service: Arc<E>,
-        smtp_service: Arc<S>,
-        report_title: String,
-        index_name: &str,
-        date_range: ReportDateRange,
-        prev_date_range: ReportDateRange,
+        context: ReportAggGroupContext<E, S>,
     ) -> anyhow::Result<()> {
         // 소비 정보 디테일 + 집계
-        let cur_agg_infos: AggResultSet<SpentDetailIndexing> = elastic_service
+        let cur_agg_infos: AggResultSet<SpentDetailIndexing> = context
+            .elastic_service
             .find_info_filter_groupseq_orderby_aggs_range(GroupSeqAggsRangeQuery {
-                index_name,
+                index_name: &context.index_name,
                 range_field: "spent_at",
-                start_date: date_range.start_date,
-                end_date: date_range.end_date,
+                start_date: context.date_range.start_date,
+                end_date: context.date_range.end_date,
                 start_op: RangeOperator::GreaterThanOrEqual,
                 end_op: RangeOperator::LessThanOrEqual,
                 order_by_field: "spent_at",
@@ -366,12 +371,13 @@ where
             .await?;
 
         // 비교 기간 집계
-        let versus_agg_infos: AggResultSet<SpentDetailIndexing> = elastic_service
+        let versus_agg_infos: AggResultSet<SpentDetailIndexing> = context
+            .elastic_service
             .find_info_filter_groupseq_orderby_aggs_range(GroupSeqAggsRangeQuery {
-                index_name,
+                index_name: &context.index_name,
                 range_field: "spent_at",
-                start_date: prev_date_range.start_date,
-                end_date: prev_date_range.end_date,
+                start_date: context.prev_date_range.start_date,
+                end_date: context.prev_date_range.end_date,
                 start_op: RangeOperator::GreaterThanOrEqual,
                 end_op: RangeOperator::LessThanOrEqual,
                 order_by_field: "spent_at",
@@ -395,9 +401,9 @@ where
         let period_summary_html: String = build_period_summary_html(total, prev_total);
 
         let html: String = build_report_html(
-            &report_title,
-            date_range.start_date,
-            date_range.end_date,
+            &context.report_title,
+            context.date_range.start_date,
+            context.date_range.end_date,
             &rows_html,
             total,
             &category_rows_html,
@@ -405,17 +411,18 @@ where
         )?;
         let subject: String = format!(
             "[{}] {}년 {}월 {}일 ~ {}년 {}월 {}일 소비 내역",
-            report_title,
-            date_range.start_date.year(),
-            date_range.start_date.month(),
-            date_range.start_date.day(),
-            date_range.end_date.year(),
-            date_range.end_date.month(),
-            date_range.end_date.day(),
+            context.report_title,
+            context.date_range.start_date.year(),
+            context.date_range.start_date.month(),
+            context.date_range.start_date.day(),
+            context.date_range.end_date.year(),
+            context.date_range.end_date.month(),
+            context.date_range.end_date.day(),
         );
 
         for email_id in &email_ids {
-            smtp_service
+            context
+                .smtp_service
                 .send_html_email(email_id, &subject, &html)
                 .await
                 .inspect_err(|e| {
@@ -478,6 +485,14 @@ where
             let smtp_service: Arc<S> = Arc::clone(smtp_service);
             let report_title: String = report_title.clone();
             let index_name: String = index_name.to_string();
+            let context = ReportAggGroupContext {
+                elastic_service,
+                smtp_service,
+                report_title,
+                index_name,
+                date_range,
+                prev_date_range,
+            };
 
             /*
                 - agg_group_seq: Group sequence number.
@@ -486,17 +501,7 @@ where
                 and sends emails to the addresses belonging to each group.
             */
             join_set.spawn(async move {
-                Self::process_agg_group(
-                    agg_group_seq,
-                    email_ids,
-                    elastic_service,
-                    smtp_service,
-                    report_title,
-                    &index_name,
-                    date_range,
-                    prev_date_range,
-                )
-                .await
+                Self::process_agg_group(agg_group_seq, email_ids, context).await
             });
 
             if join_set.len() >= REPORT_MAX_CONCURRENCY

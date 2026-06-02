@@ -4,7 +4,9 @@ use crate::common::*;
 pub struct KisTokenResponse {
     pub access_token: String,
     pub access_token_token_expired: String,
+    #[allow(dead_code)]
     pub token_type: String,
+    #[allow(dead_code)]
     pub expires_in: u64,
 }
 

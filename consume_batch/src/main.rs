@@ -185,16 +185,16 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // Create batch service with all dependencies
-    let batch_service: BatchSvc = BatchServiceImpl::new(
-        mysql_query_service,
-        elastic_query_service,
+    let batch_service: BatchSvc = BatchServiceImpl::new(BatchServiceDeps {
+        mysql_service: mysql_query_service,
+        elastic_service: elastic_query_service,
         consume_service,
         producer_service,
         public_data_service,
         indexing_service,
         smtp_service,
         redis_service,
-    )
+    })
     .inspect_err(|e| error!("[main] batch_service: {:#}", e))?;
 
     // Create CLI service: shares the batch service via Arc for on-demand execution

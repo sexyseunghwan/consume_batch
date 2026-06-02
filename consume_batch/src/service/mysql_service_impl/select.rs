@@ -1,18 +1,17 @@
 use crate::common::*;
 use crate::entity::{
     agg_group, cash_asset, common_consume_keyword_type, common_consume_prodt_keyword, crypto,
-    crypto_asset, currency_code, currency_exchange_rate_snapshot, deposit_asset, kis_api_token,
-    saving_asset, send_email_agg_group, spent_detail, spent_detail_indexing, stock, stock_asset,
-    stock_type, telegram_room, user_payment_methods, users,
+    crypto_asset, currency_exchange_rate_snapshot, deposit_asset, kis_api_token, saving_asset,
+    send_email_agg_group, spent_detail, spent_detail_indexing, stock, stock_asset, stock_type,
+    telegram_room, user_payment_methods, users,
 };
 use crate::models::{
-    AssetAmount, CashAsset, Crypto, CurrencyExchangeRateSnapshot, DepositAsset, KisApiToken,
-    SavingAsset, SendEmailAggGroup, SpentDetail, SpentDetailIndexing, SpentDetailWithRelations,
-    SpentTypeKeyword, Stock, StockType,
+    AssetAmount, Crypto, CurrencyExchangeRateSnapshot, KisApiToken, SendEmailAggGroup, SpentDetail,
+    SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, StockType,
 };
 use crate::repository::mysql_repository::MysqlRepository;
 use sea_orm::sea_query::{Expr, Func, SimpleExpr};
-use sea_orm::{EntityOrSelect, JoinType, PaginatorTrait, QuerySelect, RelationTrait};
+use sea_orm::{EntityOrSelect, JoinType, QuerySelect, RelationTrait};
 
 use super::MysqlServiceImpl;
 

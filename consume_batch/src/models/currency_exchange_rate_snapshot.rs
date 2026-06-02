@@ -2,6 +2,7 @@ use rust_decimal::Decimal;
 
 use crate::common::*;
 
+#[allow(clippy::too_many_arguments)]
 #[derive(Debug, Clone, Serialize, Deserialize, FromQueryResult, Getters, new)]
 #[getset(get = "pub")]
 pub struct CurrencyExchangeRateSnapshot {

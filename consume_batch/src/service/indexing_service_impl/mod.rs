@@ -12,7 +12,6 @@
 mod spent_detail;
 mod spent_type;
 
-use crate::batch_log;
 use crate::common::*;
 use crate::models::batch_schedule::BatchScheduleItem;
 use crate::service_trait::{

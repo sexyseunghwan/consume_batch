@@ -14,6 +14,7 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
             .await
     }
 
+    #[allow(dead_code)]
     pub(super) async fn modify_bulk<T: Serialize + Send + Sync>(
         &self,
         index_name: &str,

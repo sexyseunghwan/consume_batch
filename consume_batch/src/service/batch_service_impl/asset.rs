@@ -4,10 +4,8 @@ use rust_decimal::Decimal;
 use sea_orm::ActiveValue;
 
 //use crate::api::kis_api::fetch_current_stock_price;
-use crate::entity::{currency_code, user_current_asset_snapshot};
-use crate::models::{
-    AssetAmount, Crypto, CurrencyExchangeRateSnapshot, Stock, StockType, batch_schedule::*,
-};
+use crate::entity::user_current_asset_snapshot;
+use crate::models::{AssetAmount, CurrencyExchangeRateSnapshot, StockType, batch_schedule::*};
 use crate::service_trait::{
     consume_service::ConsumeService, elastic_service::ElasticService,
     indexing_service::IndexingService, mysql_service::MysqlService,
@@ -35,13 +33,13 @@ async fn sync_asset_price<F, G, M, R>(
     fetch_fn: F,
     update_fn: G,
     mysql_service: &Arc<M>,
-    redis_service: &Arc<R>
+    redis_service: &Arc<R>,
 ) -> anyhow::Result<()>
 where
     F: AsyncFn(u64, u64) -> anyhow::Result<Vec<(i64, String, String)>>,
     G: AsyncFn(HashMap<i64, Decimal>) -> anyhow::Result<()>,
     M: MysqlService,
-    R: RedisService
+    R: RedisService,
 {
     let mut offset: u64 = 0;
     let mut total_count: usize = 0;
@@ -127,7 +125,7 @@ where
 {
     // Fetches active exchange-rate snapshots from MySQL and refreshes them from the external API.
     pub(super) async fn sync_currency_exchange_rates(
-        schedule_item: &BatchScheduleItem,
+        _schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
     ) -> anyhow::Result<()> {
         batch_log!(
@@ -204,7 +202,7 @@ where
     pub(super) async fn sync_stock_price(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
-        redis_service: &Arc<R>
+        redis_service: &Arc<R>,
     ) -> anyhow::Result<()> {
         let batch_size: u64 = *schedule_item.batch_size() as u64;
         let ms1: Arc<M> = Arc::clone(mysql_service);
@@ -228,7 +226,7 @@ where
             },
             async move |price_map| ms2.modify_stock_price_bulk(&price_map).await,
             mysql_service,
-            redis_service
+            redis_service,
         )
         .await
     }
@@ -237,7 +235,7 @@ where
     pub(super) async fn sync_crypto_price(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
-        redis_service: &Arc<R>
+        redis_service: &Arc<R>,
     ) -> anyhow::Result<()> {
         let batch_size: u64 = *schedule_item.batch_size() as u64;
         let ms1: Arc<M> = Arc::clone(mysql_service);
@@ -261,7 +259,7 @@ where
             },
             async move |price_map| ms2.modify_crypto_price_bulk(&price_map).await,
             mysql_service,
-            redis_service
+            redis_service,
         )
         .await
     }

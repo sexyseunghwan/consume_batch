@@ -101,6 +101,7 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
             })
     }
 
+    #[allow(dead_code)]
     pub(super) async fn find_consume_type_judgement(
         &self,
         prodt_name: &str,

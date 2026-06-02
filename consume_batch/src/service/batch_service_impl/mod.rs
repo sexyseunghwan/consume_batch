@@ -107,6 +107,17 @@ where
     redis_service: Arc<R>,
 }
 
+pub struct BatchServiceDeps<M, E, C, P, D, I, S, R> {
+    pub mysql_service: Arc<M>,
+    pub elastic_service: Arc<E>,
+    pub consume_service: Arc<C>,
+    pub producer_service: Arc<P>,
+    pub public_data_service: D,
+    pub indexing_service: I,
+    pub smtp_service: S,
+    pub redis_service: R,
+}
+
 // Manual Clone impl: Arc<T> is always Clone regardless of T: Clone
 impl<M, E, C, P, D, I, S, R> Clone for BatchServiceImpl<M, E, C, P, D, I, S, R>
 where
@@ -145,16 +156,7 @@ where
     S: SmtpService + Send + Sync + 'static,
     R: RedisService + Send + Sync + 'static,
 {
-    pub fn new(
-        mysql_service: Arc<M>,
-        elastic_service: Arc<E>,
-        consume_service: Arc<C>,
-        producer_service: Arc<P>,
-        public_data_service: D,
-        indexing_service: I,
-        smtp_service: S,
-        redis_service: R,
-    ) -> Result<Self> {
+    pub fn new(deps: BatchServiceDeps<M, E, C, P, D, I, S, R>) -> Result<Self> {
         let app_config: &AppConfig = AppConfig::get_global().inspect_err(|e| {
             error!("[BatchServiceImpl::new] app_config: {:#}", e);
         })?;
@@ -173,15 +175,15 @@ where
         );
 
         Ok(Self {
-            mysql_service,
-            elastic_service,
-            consume_service,
+            mysql_service: deps.mysql_service,
+            elastic_service: deps.elastic_service,
+            consume_service: deps.consume_service,
             schedule_config,
-            producer_service,
-            public_data_service: Arc::new(public_data_service),
-            indexing_service: Arc::new(indexing_service),
-            smtp_service: Arc::new(smtp_service),
-            redis_service: Arc::new(redis_service),
+            producer_service: deps.producer_service,
+            public_data_service: Arc::new(deps.public_data_service),
+            indexing_service: Arc::new(deps.indexing_service),
+            smtp_service: Arc::new(deps.smtp_service),
+            redis_service: Arc::new(deps.redis_service),
         })
     }
 

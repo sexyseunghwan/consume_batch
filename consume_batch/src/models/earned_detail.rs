@@ -1,4 +1,4 @@
-#![allow(clippy::too_many_arguments)]
+#![allow(dead_code, clippy::too_many_arguments)]
 use crate::common::*;
 use rust_decimal::Decimal;
 

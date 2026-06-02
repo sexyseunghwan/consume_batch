@@ -3,7 +3,6 @@ use rust_decimal::Decimal;
 
 use crate::app_config::AppConfig;
 use crate::common::*;
-use crate::entity::currency_exchange_rate_snapshot;
 
 static HTTP_CLIENT: once_lazy<Client> = once_lazy::new(reqwest::Client::new);
 
