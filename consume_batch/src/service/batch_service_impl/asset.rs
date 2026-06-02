@@ -3,8 +3,8 @@
 use rust_decimal::Decimal;
 use sea_orm::ActiveValue;
 
-use crate::api::kis_api::fetch_current_stock_price;
-use crate::entity::user_current_asset_snapshot;
+//use crate::api::kis_api::fetch_current_stock_price;
+use crate::entity::{currency_code, user_current_asset_snapshot};
 use crate::models::{
     AssetAmount, Crypto, CurrencyExchangeRateSnapshot, Stock, StockType, batch_schedule::*,
 };
@@ -16,7 +16,7 @@ use crate::service_trait::{
 };
 use crate::{batch_log, common::*};
 
-use crate::api::twelve_data_api::*;
+use crate::api::{kis_api, twelve_data_api};
 
 use super::BatchServiceImpl;
 
@@ -29,15 +29,19 @@ fn to_amount_map(amounts: Vec<AssetAmount>) -> HashMap<i64, Decimal> {
 }
 
 // Synchronizes prices for assets that can be fetched by API symbol.
-async fn sync_asset_price<F, G>(
+async fn sync_asset_price<F, G, M, R>(
     batch_size: u64,
     label: &str,
     fetch_fn: F,
     update_fn: G,
+    mysql_service: &Arc<M>,
+    redis_service: &Arc<R>
 ) -> anyhow::Result<()>
 where
-    F: AsyncFn(u64, u64) -> anyhow::Result<Vec<(i64, String)>>,
+    F: AsyncFn(u64, u64) -> anyhow::Result<Vec<(i64, String, String)>>,
     G: AsyncFn(HashMap<i64, Decimal>) -> anyhow::Result<()>,
+    M: MysqlService,
+    R: RedisService
 {
     let mut offset: u64 = 0;
     let mut total_count: usize = 0;
@@ -50,12 +54,13 @@ where
     );
 
     loop {
-        let items: Vec<(i64, String)> = fetch_fn(offset, batch_size).await.inspect_err(|e| {
-            error!(
-                "[BatchServiceImpl::{}] Failed to fetch batch (offset={}): {:#}",
-                label, offset, e
-            );
-        })?;
+        let items: Vec<(i64, String, String)> =
+            fetch_fn(offset, batch_size).await.inspect_err(|e| {
+                error!(
+                    "[BatchServiceImpl::{}] Failed to fetch batch (offset={}): {:#}",
+                    label, offset, e
+                );
+            })?;
 
         if items.is_empty() {
             break;
@@ -64,17 +69,32 @@ where
         total_count += items.len();
         let mut price_map: HashMap<i64, Decimal> = HashMap::new();
 
-        for (seq, symbol) in &items {
-            match fetch_stock_price(symbol).await {
-                Ok(price) => {
-                    price_map.insert(*seq, price);
+        for (seq, symbol, currency_code) in &items {
+            if currency_code == "USD" {
+                match twelve_data_api::fetch_stock_price(symbol).await {
+                    Ok(price) => {
+                        price_map.insert(*seq, price);
+                    }
+                    Err(e) => {
+                        error!(
+                            "[BatchServiceImpl::{}] Failed to fetch price for {} (seq={}): {:#}",
+                            label, symbol, seq, e
+                        );
+                        fail_count += 1;
+                    }
                 }
-                Err(e) => {
-                    error!(
-                        "[BatchServiceImpl::{}] Failed to fetch price for {} (seq={}): {:#}",
-                        label, symbol, seq, e
-                    );
-                    fail_count += 1;
+            } else {
+                match kis_api::fetch_current_stock_price(symbol, redis_service, mysql_service).await {
+                    Ok(cureent_stock_price) => {
+                        price_map.insert(*seq, *cureent_stock_price.current_price());
+                    }
+                    Err(e) => {
+                        error!(
+                            "[BatchServiceImpl::{}] Failed to fetch price for {} (seq={}): {:#}",
+                            label, symbol, seq, e
+                        );
+                        fail_count += 1;
+                    } 
                 }
             }
         }
@@ -146,7 +166,8 @@ where
             let target: &str = snapshot.target_currency_code();
             let seq: i64 = snapshot.exchange_rate_snapshot_seq;
 
-            let exchange_rate: f64 = match fetch_exchange_rate(base, target).await {
+            let exchange_rate: f64 = match twelve_data_api::fetch_exchange_rate(base, target).await
+            {
                 Ok(r) => r,
                 Err(e) => {
                     error!(
@@ -190,6 +211,7 @@ where
     pub(super) async fn sync_stock_price(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
+        redis_service: &Arc<R>
     ) -> anyhow::Result<()> {
         let batch_size: u64 = *schedule_item.batch_size() as u64;
         let ms1: Arc<M> = Arc::clone(mysql_service);
@@ -201,11 +223,19 @@ where
             async move |offset, limit| {
                 ms1.find_stock_batch(offset, limit).await.map(|v| {
                     v.into_iter()
-                        .map(|s| (*s.stock_seq(), s.api_symbol().clone()))
+                        .map(|s| {
+                            (
+                                *s.stock_seq(),
+                                s.api_symbol().clone(),
+                                s.currency_code().clone(),
+                            )
+                        })
                         .collect()
                 })
             },
             async move |price_map| ms2.modify_stock_price_bulk(&price_map).await,
+            mysql_service,
+            redis_service
         )
         .await
     }
@@ -214,6 +244,7 @@ where
     pub(super) async fn sync_crypto_price(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
+        redis_service: &Arc<R>
     ) -> anyhow::Result<()> {
         let batch_size: u64 = *schedule_item.batch_size() as u64;
         let ms1: Arc<M> = Arc::clone(mysql_service);
@@ -225,11 +256,19 @@ where
             async move |offset, limit| {
                 ms1.find_crypto_batch(offset, limit).await.map(|v| {
                     v.into_iter()
-                        .map(|c| (*c.crypto_seq(), c.api_symbol().clone()))
+                        .map(|c| {
+                            (
+                                *c.crypto_seq(),
+                                c.api_symbol().clone(),
+                                c.currency_code().clone(),
+                            )
+                        })
                         .collect()
                 })
             },
             async move |price_map| ms2.modify_crypto_price_bulk(&price_map).await,
+            mysql_service,
+            redis_service
         )
         .await
     }
@@ -341,45 +380,44 @@ where
                 let now: sea_orm::prelude::DateTime = Utc::now().naive_utc();
                 let zero: Decimal = Decimal::ZERO;
 
-                let test: crate::api::dto::kis_dto::CurrentStockPriceDto = fetch_current_stock_price("000660").await?; 
-                println!("======================================================================");
-                println!("test: {:?}", test);   
-                println!("======================================================================");
-                
                 // 잠깐 주석처리해둠.
-                // let batch_snapshots: Vec<user_current_asset_snapshot::ActiveModel> = user_seqs
-                //     .iter()
-                //     .map(|&uid| user_current_asset_snapshot::ActiveModel {
-                //         summary_seq: ActiveValue::NotSet,
-                //         user_seq: ActiveValue::Set(uid),
-                //         currency_code: ActiveValue::Set(currency.to_owned()),
-                //         aggregated_at: ActiveValue::Set(now),
-                //         stock_amount: ActiveValue::Set(
-                //             stock_map.get(&uid).copied().unwrap_or(zero),
-                //         ),
-                //         crypto_amount: ActiveValue::Set(
-                //             crypto_map.get(&uid).copied().unwrap_or(zero),
-                //         ),
-                //         cash_amount: ActiveValue::Set(cash_map.get(&uid).copied().unwrap_or(zero)),
-                //         deposit_amount: ActiveValue::Set(deposit_map.get(&uid).copied().unwrap_or(zero)),
-                //         saving_amount: ActiveValue::Set(saving_map.get(&uid).copied().unwrap_or(zero)),
-                //         created_at: ActiveValue::Set(now),
-                //         updated_at: ActiveValue::NotSet,
-                //         created_by: ActiveValue::Set("SYSTEM".to_owned()),
-                //         updated_by: ActiveValue::NotSet,
-                //     })
-                //     .collect();
+                let batch_snapshots: Vec<user_current_asset_snapshot::ActiveModel> = user_seqs
+                    .iter()
+                    .map(|&uid| user_current_asset_snapshot::ActiveModel {
+                        summary_seq: ActiveValue::NotSet,
+                        user_seq: ActiveValue::Set(uid),
+                        currency_code: ActiveValue::Set(currency.to_owned()),
+                        aggregated_at: ActiveValue::Set(now),
+                        stock_amount: ActiveValue::Set(
+                            stock_map.get(&uid).copied().unwrap_or(zero),
+                        ),
+                        crypto_amount: ActiveValue::Set(
+                            crypto_map.get(&uid).copied().unwrap_or(zero),
+                        ),
+                        cash_amount: ActiveValue::Set(cash_map.get(&uid).copied().unwrap_or(zero)),
+                        deposit_amount: ActiveValue::Set(
+                            deposit_map.get(&uid).copied().unwrap_or(zero),
+                        ),
+                        saving_amount: ActiveValue::Set(
+                            saving_map.get(&uid).copied().unwrap_or(zero),
+                        ),
+                        created_at: ActiveValue::Set(now),
+                        updated_at: ActiveValue::NotSet,
+                        created_by: ActiveValue::Set("SYSTEM".to_owned()),
+                        updated_by: ActiveValue::NotSet,
+                    })
+                    .collect();
 
-                // mysql_service
-                //     .input_user_current_asset_snapshot_bulk(batch_snapshots)
-                //     .await
-                //     .inspect_err(|e| {
-                //         error!(
-                //             "[BatchServiceImpl::sync_current_asset_total] \
-                //              input_user_current_asset_snapshot_bulk failed (offset={}): {:#}",
-                //             offset, e
-                //         );
-                //     })?;
+                mysql_service
+                    .input_user_current_asset_snapshot_bulk(batch_snapshots)
+                    .await
+                    .inspect_err(|e| {
+                        error!(
+                            "[BatchServiceImpl::sync_current_asset_total] \
+                             input_user_current_asset_snapshot_bulk failed (offset={}): {:#}",
+                            offset, e
+                        );
+                    })?;
 
                 offset += batch_size;
             }

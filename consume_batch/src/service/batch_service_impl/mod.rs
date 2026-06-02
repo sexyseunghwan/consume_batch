@@ -54,7 +54,7 @@ use crate::models::batch_schedule::*;
 use crate::service_trait::{
     batch_service::*, consume_service::ConsumeService, elastic_service::*, indexing_service::*,
     mysql_service::*, producer_service::ProducerService, public_data_service::PublicDataService,
-    smtp_service::SmtpService, redis_service::*
+    redis_service::*, smtp_service::SmtpService,
 };
 use crate::{app_config::*, batch_log, common::*};
 
@@ -88,7 +88,7 @@ where
     D: PublicDataService,
     I: IndexingService,
     S: SmtpService,
-    R: RedisService
+    R: RedisService,
 {
     /// Service for MySQL database operations.
     mysql_service: Arc<M>,
@@ -117,7 +117,7 @@ where
     D: PublicDataService,
     I: IndexingService,
     S: SmtpService,
-    R: RedisService
+    R: RedisService,
 {
     fn clone(&self) -> Self {
         Self {
@@ -129,7 +129,7 @@ where
             public_data_service: Arc::clone(&self.public_data_service),
             indexing_service: Arc::clone(&self.indexing_service),
             smtp_service: Arc::clone(&self.smtp_service),
-            redis_service: Arc::clone(&self.redis_service)
+            redis_service: Arc::clone(&self.redis_service),
         }
     }
 }
@@ -143,7 +143,7 @@ where
     D: PublicDataService + Send + Sync + 'static,
     I: IndexingService + Send + Sync + 'static,
     S: SmtpService + Send + Sync + 'static,
-    R: RedisService + Send + Sync + 'static
+    R: RedisService + Send + Sync + 'static,
 {
     pub fn new(
         mysql_service: Arc<M>,
@@ -153,7 +153,7 @@ where
         public_data_service: D,
         indexing_service: I,
         smtp_service: S,
-        redis_service: R
+        redis_service: R,
     ) -> Result<Self> {
         let app_config: &AppConfig = AppConfig::get_global().inspect_err(|e| {
             error!("[BatchServiceImpl::new] app_config: {:#}", e);
@@ -181,7 +181,7 @@ where
             public_data_service: Arc::new(public_data_service),
             indexing_service: Arc::new(indexing_service),
             smtp_service: Arc::new(smtp_service),
-            redis_service: Arc::new(redis_service)
+            redis_service: Arc::new(redis_service),
         })
     }
 
@@ -200,7 +200,7 @@ where
     D: PublicDataService + Send + Sync + 'static,
     I: IndexingService + Send + Sync + 'static,
     S: SmtpService + Send + Sync + 'static,
-    R: RedisService + Send + Sync + 'static
+    R: RedisService + Send + Sync + 'static,
 {
     async fn initialize_batch_task(&self) -> anyhow::Result<()> {
         batch_log!(
@@ -208,16 +208,16 @@ where
             "[BatchServiceImpl::initialize_batch_task] Starting batch service main task"
         );
 
-        let mut immediate_jobs: JoinSet<()> = self.initialize_immediate_jobs();     // 애는 즉시 한번 실행되어야 함
-        let mut scheduler: JobScheduler = self.initialize_cron_scheduler().await?;  // 동시에 스케쥴러는 계속 실행되어야 함.
-        
+        let mut immediate_jobs: JoinSet<()> = self.initialize_immediate_jobs(); // 애는 즉시 한번 실행되어야 함
+        let mut scheduler: JobScheduler = self.initialize_cron_scheduler().await?; // 동시에 스케쥴러는 계속 실행되어야 함.
+
         batch_log!(
             info,
             "[BatchServiceImpl::initialize_batch_task] Scheduler is running. Press Ctrl+C to shutdown gracefully."
         );
 
         /*
-            tokio::select! 는 Rust async code 에서 여러 비동기 작업을 동시에 기다리다가, 
+            tokio::select! 는 Rust async code 에서 여러 비동기 작업을 동시에 기다리다가,
             먼저 완료되는 작업 하나를 처리하는 메크로임.
         */
         tokio::select! {
@@ -233,7 +233,7 @@ where
                     }
                 }
                 batch_log!(info, "[BatchServiceImpl::initialize_batch_task] All immediate jobs completed, keeping service alive until Ctrl+C...");
-                
+
                 /*
                     아래의 pending이 없다면, immediate_jobs 를 모두 실행하고 프로그램을 그냥 종료해버림
                     스케쥴 작업도 계속 돌려야 하므로 immediate_jobs를 모두 실행시킨 후에도 중지시켜놔야함.
@@ -266,6 +266,7 @@ where
             &self.public_data_service,
             &self.indexing_service,
             &self.smtp_service,
+            &self.redis_service,
         )
         .await
     }

@@ -63,7 +63,7 @@ where
             schedule_config,
         }
     }
-    
+
     async fn find_socket_session(
         stream: tokio::net::UnixStream,
         batch_service: Arc<B>,
@@ -74,19 +74,19 @@ where
             writer - Write-only data from the client(OwnedWriteHalf) -> 상대에게 데이터 보내기.
         */
         let (reader, writer) = stream.into_split();
-        
+
         /*
             stream.into_split() 을 하면 OwnedReadHalf, OwnedWriteHalf 로 나뉜다.
-            즉 읽기전용, 쓰기 전용으로 나뉘는 것이다. 
+            즉 읽기전용, 쓰기 전용으로 나뉘는 것이다.
             OwnedReadHalf -> 이건 아주 기본적인 읽기 기능만 제공
 
-            데이터를 읽을 때 매번 OS/socket에서 조금씩 읽는 대신, 
+            데이터를 읽을 때 매번 OS/socket에서 조금씩 읽는 대신,
             내부 버퍼에 어느 정도 데이터를 미리 읽어두고 그 버퍼에서 꺼내 쓰게 해주는 래퍼를 사용.
             -> Small read call 을 줄이기 위함.
         */
         let mut reader: tokio::io::BufReader<tokio::net::unix::OwnedReadHalf> =
             tokio::io::BufReader::new(reader);
-        
+
         /*
             Route all socket writes through a channel so the log-forwarding task and the main loop can both write concurrently.
             * socket_tx -> 보내는 쪽(Sender)
@@ -94,17 +94,17 @@ where
             이건 소켓에 바로 쓰는 대신, 소켓에 보낼 메시지를 담는 Queue를 만드는 것.
         */
         let (socket_tx, mut socket_rx) = mpsc::channel::<String>(256);
-        
+
         /*
             아래가 파이프라인의 역할을 수행하는 것.
             -> socket_tx 로 보낸 것들을 모두 socket_rx 에서 받아서 처리한다.
         */
         tokio::spawn(async move {
-            /* 
-                writer, socket_rx을 소유권을 이동시킴. 
-            */ 
+            /*
+                writer, socket_rx을 소유권을 이동시킴.
+            */
             let mut w: tokio::net::unix::OwnedWriteHalf = writer;
-            
+
             while let Some(msg) = socket_rx.recv().await {
                 if w.write_all(msg.as_bytes()).await.is_err() {
                     break;
@@ -174,7 +174,7 @@ where
                             let _ = socket_tx_log.send(format!("[LOG] {}\n", msg)).await;
                         }
                     });
-                    
+
                     // Run batch with the log sender stored in task-local storage.
                     // When the scope exits, log_tx is dropped, which closes log_rx
                     // and causes the forwarding task above to exit cleanly.

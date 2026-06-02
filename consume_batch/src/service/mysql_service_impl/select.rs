@@ -1,13 +1,13 @@
 use crate::common::*;
 use crate::entity::{
     agg_group, cash_asset, common_consume_keyword_type, common_consume_prodt_keyword, crypto,
-    crypto_asset, currency_code, currency_exchange_rate_snapshot, deposit_asset, saving_asset,
-    send_email_agg_group, spent_detail, spent_detail_indexing, stock, stock_asset, stock_type,
-    telegram_room, user_payment_methods, users,
+    crypto_asset, currency_code, currency_exchange_rate_snapshot, deposit_asset, kis_api_token,
+    saving_asset, send_email_agg_group, spent_detail, spent_detail_indexing, stock, stock_asset,
+    stock_type, telegram_room, user_payment_methods, users,
 };
 use crate::models::{
-    AssetAmount, CashAsset, Crypto, CurrencyExchangeRateSnapshot, DepositAsset, SavingAsset,
-    SendEmailAggGroup, SpentDetail, SpentDetailIndexing, SpentDetailWithRelations,
+    AssetAmount, CashAsset, Crypto, CurrencyExchangeRateSnapshot, DepositAsset, KisApiToken,
+    SavingAsset, SendEmailAggGroup, SpentDetail, SpentDetailIndexing, SpentDetailWithRelations,
     SpentTypeKeyword, Stock, StockType,
 };
 use crate::repository::mysql_repository::MysqlRepository;
@@ -216,7 +216,18 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
         let db: &DatabaseConnection = self.db_conn.get_connection();
 
         let results: Vec<Stock> = stock::Entity::find()
-            .select()
+            .join(JoinType::InnerJoin, stock::Relation::StockType.def())
+            .select_only()
+            .column(stock::Column::StockSeq)
+            .column(stock::Column::MarketSeq)
+            .column(stock::Column::StockName)
+            .column(stock::Column::ApiSymbol)
+            .column(stock::Column::StockPrice)
+            .column(stock_type::Column::CurrencyCode)
+            .column(stock::Column::CreatedAt)
+            .column(stock::Column::UpdatedAt)
+            .column(stock::Column::CreatedBy)
+            .column(stock::Column::UpdatedBy)
             .order_by_asc(stock::Column::StockSeq)
             .offset(offset)
             .limit(limit)
@@ -493,6 +504,23 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
                     "[MysqlServiceImpl::find_saving_asset_amount_batch] Failed to execute query \
                      (currency_code={}): {:#}",
                     currency_code, e
+                );
+            })?;
+
+        Ok(result)
+    }
+
+    pub(super) async fn find_kis_api_token(&self) -> anyhow::Result<Option<KisApiToken>> {
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+
+        let result: Option<KisApiToken> = kis_api_token::Entity::find()
+            .into_model::<KisApiToken>()
+            .one(db)
+            .await
+            .inspect_err(|e| {
+                error!(
+                    "[MysqlServiceImpl::find_kis_api_token] Failed to execute query: {:#}",
+                    e
                 );
             })?;
 

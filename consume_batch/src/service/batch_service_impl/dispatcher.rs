@@ -30,6 +30,7 @@ where
         public_data_service: &Arc<D>,
         indexing_service: &Arc<I>,
         smtp_service: &Arc<S>,
+        redis_service: &Arc<R>,
     ) -> Result<()> {
         let start_time: DateTime<Utc> = Utc::now();
         let batch_name: &str = schedule_item.batch_name();
@@ -132,7 +133,8 @@ where
             "sync_stock_price" => {
                 Self::sync_stock_price(
                     schedule_item,
-                    mysql_service
+                    mysql_service,
+                    redis_service
                 )
                 .await
                 .inspect_err(|e| {
@@ -145,7 +147,8 @@ where
             "sync_crypto_price" => {
                 Self::sync_crypto_price(
                     schedule_item,
-                    mysql_service
+                    mysql_service,
+                    redis_service
                 )
                 .await
                 .inspect_err(|e| {

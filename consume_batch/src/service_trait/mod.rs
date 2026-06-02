@@ -1,5 +1,4 @@
 pub mod batch_service;
-pub mod redis_service;
 pub mod cli_service;
 pub mod consume_service;
 pub mod elastic_service;
@@ -7,4 +6,5 @@ pub mod indexing_service;
 pub mod mysql_service;
 pub mod producer_service;
 pub mod public_data_service;
+pub mod redis_service;
 pub mod smtp_service;

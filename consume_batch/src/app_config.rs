@@ -40,7 +40,7 @@ pub struct AppConfig {
     pub kis_app_secret: String,
     pub kis_api_base_url: String,
     pub redis_url: String,
-    pub redis_kis_access_token: String
+    pub redis_kis_access_token: String,
 }
 
 /// Global static instance of AppConfig
@@ -99,7 +99,7 @@ impl AppConfig {
             redis_url: env::var("REDIS_URL")
                 .map_err(|_| "REDIS_URL not found in environment".to_string())?,
             redis_kis_access_token: env::var("REDIS_KIS_ACCESS_TOKEN")
-                .map_err(|_| "REDIS_KIS_ACCESS_TOKEN not found in environment".to_string())?
+                .map_err(|_| "REDIS_KIS_ACCESS_TOKEN not found in environment".to_string())?,
         };
 
         APP_CONFIG

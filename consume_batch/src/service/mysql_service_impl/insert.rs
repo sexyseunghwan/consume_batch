@@ -1,5 +1,7 @@
 use crate::common::*;
-use crate::entity::{dim_calendar, spent_detail_indexing, user_current_asset_snapshot};
+use crate::entity::{
+    dim_calendar, kis_api_token, spent_detail_indexing, user_current_asset_snapshot,
+};
 use crate::models::SpentDetailWithRelations;
 use crate::repository::mysql_repository::MysqlRepository;
 use sea_orm::sea_query::OnConflict;
@@ -159,6 +161,81 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
             error!(
                 "[MysqlServiceImpl::modify_spent_detail_indexing] Commit failed (spent_idxs={:?}): {:#}",
                 spent_idxs, e
+            );
+        })?;
+
+        Ok(())
+    }
+
+    pub(super) async fn modify_kis_api_token(
+        &self,
+        access_token: String,
+        token_expired_at: DateTime<Utc>,
+    ) -> anyhow::Result<()> {
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+        let now: chrono::NaiveDateTime = Utc::now().naive_utc();
+
+        let txn: DatabaseTransaction = db.begin().await.inspect_err(|e| {
+            error!(
+                "[MysqlServiceImpl::modify_kis_api_token] Failed to begin transaction: {:#}",
+                e
+            );
+        })?;
+
+        let delete_result: Result<sea_orm::DeleteResult, DbErr> =
+            kis_api_token::Entity::delete_many()
+                .exec(&txn)
+                .await
+                .inspect_err(|e| {
+                    error!(
+                        "[MysqlServiceImpl::modify_kis_api_token] Delete failed: {:#}",
+                        e
+                    );
+                });
+
+        if let Err(e) = delete_result {
+            txn.rollback().await.inspect_err(|e| {
+                error!(
+                    "[MysqlServiceImpl::modify_kis_api_token] Rollback failed: {:#}",
+                    e
+                );
+            })?;
+            return Err(e.into());
+        }
+
+        let new_row: kis_api_token::ActiveModel = kis_api_token::ActiveModel {
+            access_token: Set(access_token),
+            token_expired_at: Set(token_expired_at.naive_utc()),
+            created_at: Set(now),
+            updated_at: Set(None),
+            created_by: Set("batch".to_string()),
+            updated_by: Set(None),
+        };
+
+        let insert_result: Result<_, DbErr> = kis_api_token::Entity::insert(new_row)
+            .exec(&txn)
+            .await
+            .inspect_err(|e| {
+                error!(
+                    "[MysqlServiceImpl::modify_kis_api_token] Insert failed: {:#}",
+                    e
+                );
+            });
+
+        if let Err(e) = insert_result {
+            txn.rollback().await.inspect_err(|e| {
+                error!(
+                    "[MysqlServiceImpl::modify_kis_api_token] Rollback failed: {:#}",
+                    e
+                );
+            })?;
+            return Err(e.into());
+        }
+
+        txn.commit().await.inspect_err(|e| {
+            error!(
+                "[MysqlServiceImpl::modify_kis_api_token] Commit failed: {:#}",
+                e
             );
         })?;
 

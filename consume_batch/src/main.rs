@@ -58,10 +58,10 @@ mod entity;
 
 mod service;
 use service::{
-    batch_service_impl::*, redis_service_impl::*, cli_service_impl::CliServiceImpl,
-    consume_service_impl::*, elastic_service_impl::*, indexing_service_impl::IndexingServiceImpl,
-    mysql_service_impl::*, producer_service_impl::*,
-    public_data_service_impl::PublicDataServiceImpl, smtp_service_impl::SmtpServiceImpl,
+    batch_service_impl::*, cli_service_impl::CliServiceImpl, consume_service_impl::*,
+    elastic_service_impl::*, indexing_service_impl::IndexingServiceImpl, mysql_service_impl::*,
+    producer_service_impl::*, public_data_service_impl::PublicDataServiceImpl,
+    redis_service_impl::*, smtp_service_impl::SmtpServiceImpl,
 };
 
 mod service_trait;
@@ -175,7 +175,7 @@ async fn main() -> anyhow::Result<()> {
             cfg.smtp_pw().clone().unwrap_or_default(),
         )
     };
-    
+
     // Create indexing service — shares the same service Arc refs as BatchServiceImpl
     let indexing_service: IndexingSvc = IndexingServiceImpl::new(
         Arc::clone(&mysql_query_service),
@@ -183,7 +183,7 @@ async fn main() -> anyhow::Result<()> {
         Arc::clone(&elastic_query_service),
         Arc::clone(&consume_service),
     );
-    
+
     // Create batch service with all dependencies
     let batch_service: BatchSvc = BatchServiceImpl::new(
         mysql_query_service,
@@ -196,7 +196,7 @@ async fn main() -> anyhow::Result<()> {
         redis_service,
     )
     .inspect_err(|e| error!("[main] batch_service: {:#}", e))?;
-    
+
     // Create CLI service: shares the batch service via Arc for on-demand execution
     let cli_service: CliSvc = CliServiceImpl::new(
         Arc::new(batch_service.clone()),

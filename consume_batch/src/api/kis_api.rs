@@ -1,3 +1,4 @@
+use chrono::NaiveDateTime;
 use reqwest::Client;
 use rust_decimal::Decimal;
 
@@ -5,6 +6,9 @@ use crate::api::dto::kis_dto::CurrentStockPriceDto;
 use crate::api::model::kis_model::{KisPriceResponse, KisTokenResponse};
 use crate::app_config::AppConfig;
 use crate::common::*;
+use crate::models::KisApiToken;
+use crate::service_trait::mysql_service::MysqlService;
+use crate::service_trait::redis_service::RedisService;
 
 static HTTP_CLIENT: once_lazy<Client> = once_lazy::new(reqwest::Client::new);
 
@@ -30,16 +34,141 @@ pub async fn fetch_kis_access_token() -> anyhow::Result<KisTokenResponse> {
         .json(&body)
         .send()
         .await
-        .inspect_err(|e| error!("[kis_api::fetch_kis_access_token] HTTP request failed: {:#}", e))?
+        .inspect_err(|e| {
+            error!(
+                "[kis_api::fetch_kis_access_token] HTTP request failed: {:#}",
+                e
+            )
+        })?
         .json::<KisTokenResponse>()
         .await
-        .inspect_err(|e| error!("[kis_api::fetch_kis_access_token] Failed to parse token response: {:#}", e))?;
+        .inspect_err(|e| {
+            error!(
+                "[kis_api::fetch_kis_access_token] Failed to parse token response: {:#}",
+                e
+            )
+        })?;
 
     Ok(resp)
 }
 
+fn parse_token_expired_at(s: &str) -> anyhow::Result<DateTime<Utc>> {
+    let ndt: NaiveDateTime =
+        NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S").map_err(|e| {
+            anyhow!(
+                "[kis_api::parse_token_expired_at] Failed to parse '{}': {}",
+                s,
+                e
+            )
+        })?;
+    Ok(DateTime::<Utc>::from_naive_utc_and_offset(ndt, Utc))
+}
 
+/// Returns a valid KIS access token, refreshing from the API when necessary.
+///
+/// Resolution order:
+/// 1. Redis cache (key = `AppConfig::redis_kis_access_token`)
+/// 2. `KIS_API_TOKEN` DB row that has not yet expired
+/// 3. New OAuth2 grant via `fetch_kis_access_token()` — result is saved to both DB and Redis
+///
+/// Redis read/write failures are logged and silently skipped so that DB and API
+/// paths always continue.
+pub async fn find_or_refresh_kis_access_token<R, M>(
+    redis_service: &Arc<R>,
+    mysql_service: &Arc<M>,
+) -> anyhow::Result<String>
+where
+    R: RedisService,
+    M: MysqlService,
+{
+    let cfg: &AppConfig = AppConfig::get_global()?;
+    let redis_key: &str = cfg.redis_kis_access_token();
+    let now: DateTime<Utc> = Utc::now();
 
+    // 1. Redis cache hit
+    match redis_service.find_string(redis_key).await {
+        Ok(Some(token)) => {
+            info!("[kis_api::find_or_refresh_kis_access_token] Redis cache hit.");
+            return Ok(token);
+        }
+        Ok(None) => {}
+        Err(e) => {
+            warn!(
+                "[kis_api::find_or_refresh_kis_access_token] Redis read failed, continuing: {:#}",
+                e
+            );
+        }
+    }
+
+    // 2. DB lookup
+    let db_token: Option<KisApiToken> = match mysql_service.find_kis_api_token().await {
+        Ok(opt) => opt,
+        Err(e) => {
+            warn!(
+                "[kis_api::find_or_refresh_kis_access_token] DB read failed, will fetch new token: {:#}",
+                e
+            );
+            None
+        }
+    };
+
+    // 3. Valid DB token — cache it in Redis and return
+    if let Some(row) = db_token {
+        if *row.token_expired_at() > now {
+            let ttl: u64 = (*row.token_expired_at() - now).num_seconds().max(1) as u64;
+            if let Err(e) = redis_service
+                .input_string(redis_key, row.access_token(), Some(ttl))
+                .await
+            {
+                warn!(
+                    "[kis_api::find_or_refresh_kis_access_token] Redis write failed: {:#}",
+                    e
+                );
+            }
+            info!(
+                "[kis_api::find_or_refresh_kis_access_token] Token from DB (valid, TTL={}s).",
+                ttl
+            );
+            return Ok(row.access_token().clone());
+        }
+        info!("[kis_api::find_or_refresh_kis_access_token] DB token expired, fetching new one.");
+    } else {
+        info!("[kis_api::find_or_refresh_kis_access_token] No DB token, fetching new one.");
+    }
+
+    // 4. Fetch new token from KIS API
+    let resp: KisTokenResponse = fetch_kis_access_token().await?;
+    let expired_at: DateTime<Utc> = parse_token_expired_at(&resp.access_token_token_expired)?;
+    let ttl: u64 = (expired_at - now).num_seconds().max(1) as u64;
+
+    // 5. Persist to DB
+    if let Err(e) = mysql_service
+        .modify_kis_api_token(resp.access_token.clone(), expired_at)
+        .await
+    {
+        error!(
+            "[kis_api::find_or_refresh_kis_access_token] DB update failed: {:#}",
+            e
+        );
+    }
+
+    // 6. Cache in Redis
+    if let Err(e) = redis_service
+        .input_string(redis_key, &resp.access_token, Some(ttl))
+        .await
+    {
+        error!(
+            "[kis_api::find_or_refresh_kis_access_token] Redis write failed: {:#}",
+            e
+        );
+    }
+
+    info!(
+        "[kis_api::find_or_refresh_kis_access_token] New token fetched and stored (TTL={}s).",
+        ttl
+    );
+    Ok(resp.access_token)
+}
 
 /// Fetch current domestic stock price from KIS.
 ///
@@ -50,14 +179,26 @@ pub async fn fetch_kis_access_token() -> anyhow::Result<KisTokenResponse> {
 /// let dto = fetch_current_stock_price("000660").await?;
 /// println!("SK하이닉스 현재가: {}", dto.current_price());
 /// ```
-pub async fn fetch_current_stock_price(stock_code: &str) -> anyhow::Result<CurrentStockPriceDto> {
+pub async fn fetch_current_stock_price<R, M>(
+    stock_code: &str,
+    redis_service: &Arc<R>,
+    mysql_service: &Arc<M>,
+) -> anyhow::Result<CurrentStockPriceDto>
+where
+    R: RedisService,
+    M: MysqlService,
+{
     let cfg: &AppConfig = AppConfig::get_global()?;
 
     let app_key: &str = cfg.kis_app_key();
     let app_secret: &str = cfg.kis_app_secret();
     let base_url: &str = cfg.kis_api_base_url();
 
-    //let access_token: String = fetch_kis_access_token().await?;
+    let access_token: String = find_or_refresh_kis_access_token(redis_service, mysql_service)
+        .await
+        .inspect_err(|e| {
+            error!("[kis_api::fetch_current_stock_price] {:#}", e);
+        })?;
 
     let url: String = format!(
         "{}/uapi/domestic-stock/v1/quotations/inquire-price\
@@ -68,8 +209,7 @@ pub async fn fetch_current_stock_price(stock_code: &str) -> anyhow::Result<Curre
     let resp: KisPriceResponse = HTTP_CLIENT
         .get(&url)
         .header("content-type", "application/json; charset=utf-8")
-        .header("authorization", format!("Bearer {}", "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJ0b2tlbiIsImF1ZCI6ImYwZjQ5Mzk4LWJjNWItNDg1MS04ZWM2LWI5N2ZiZTJhOWRkNCIsInByZHRfY2QiOiIiLCJpc3MiOiJ1bm9ndyIsImV4cCI6MTc4MDQ0NTgyMiwiaWF0IjoxNzgwMzU5NDIyLCJqdGkiOiJQU1FWMGladVpJSzBkUFUwUnl2ckZBN1dYQUl0ZFBIUVNmMEYifQ.YltXyJU2ak3ZdqYlOBK9qrKfw4vmiHsxFn2l2b0IGkKuqcqCoaTWfg-_mbglupOdvPtCmraiDqECVJDZd0LYIA"))
-        //.header("authorization", format!("Bearer {}", access_token))
+        .header("authorization", format!("Bearer {}", access_token))
         .header("appkey", app_key)
         .header("appsecret", app_secret)
         .header("tr_id", "FHKST01010100")

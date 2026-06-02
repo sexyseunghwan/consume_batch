@@ -20,7 +20,7 @@ use rust_decimal::Decimal;
 use crate::common::*;
 use crate::entity::dim_calendar;
 use crate::models::{
-    AssetAmount, Crypto, CurrencyExchangeRateSnapshot, SendEmailAggGroup, SpentDetail,
+    AssetAmount, Crypto, CurrencyExchangeRateSnapshot, KisApiToken, SendEmailAggGroup, SpentDetail,
     SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, StockType,
 };
 use crate::repository::mysql_repository::MysqlRepository;
@@ -219,6 +219,19 @@ where
         user_seqs: &[i64],
     ) -> anyhow::Result<Vec<AssetAmount>> {
         self.find_saving_asset_amount_batch(currency_code, user_seqs)
+            .await
+    }
+
+    async fn find_kis_api_token(&self) -> anyhow::Result<Option<KisApiToken>> {
+        self.find_kis_api_token().await
+    }
+
+    async fn modify_kis_api_token(
+        &self,
+        access_token: String,
+        token_expired_at: DateTime<Utc>,
+    ) -> anyhow::Result<()> {
+        self.modify_kis_api_token(access_token, token_expired_at)
             .await
     }
 }

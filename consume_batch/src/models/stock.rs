@@ -10,6 +10,7 @@ pub struct Stock {
     pub stock_name: String,
     pub api_symbol: String,
     pub stock_price: Option<Decimal>,
+    pub currency_code: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: Option<DateTime<Utc>>,
     pub created_by: String,

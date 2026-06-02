@@ -4,7 +4,7 @@ use rust_decimal::Decimal;
 use crate::common::*;
 use crate::entity::dim_calendar;
 use crate::models::{
-    AssetAmount, Crypto, CurrencyExchangeRateSnapshot, SendEmailAggGroup, SpentDetail,
+    AssetAmount, Crypto, CurrencyExchangeRateSnapshot, KisApiToken, SendEmailAggGroup, SpentDetail,
     SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, StockType,
 };
 
@@ -398,18 +398,18 @@ pub trait MysqlService {
     ///
     /// Requested query:
     /// ```sql
-    /// SELECT
-    ///   stock_seq,
-    ///   market_seq,
-    ///   stock_name,
-    ///   api_symbol,
-    ///   stock_price,
-    ///   created_at,
-    ///   updated_at,
-    ///   created_by,
-    ///   updated_by
-    /// FROM STOCK
-    /// ORDER BY stock_seq ASC
+    //  SELECT
+    //    stock_seq,
+    //    market_seq,
+    //    stock_name,
+    //    api_symbol,
+    //    stock_price,
+    //    created_at,
+    //    updated_at,
+    //    created_by,
+    //    updated_by
+    //  FROM STOCK
+    //  ORDER BY stock_seq ASC
     /// LIMIT :limit OFFSET :offset;
     /// ```
     async fn find_stock_batch(&self, offset: u64, limit: u64) -> anyhow::Result<Vec<Stock>>;
@@ -594,4 +594,19 @@ pub trait MysqlService {
         currency_code: &str,
         user_seqs: &[i64],
     ) -> anyhow::Result<Vec<AssetAmount>>;
+
+    /// Fetches the current KIS API token row from `KIS_API_TOKEN`.
+    ///
+    /// Returns `None` if the table is empty.
+    async fn find_kis_api_token(&self) -> anyhow::Result<Option<KisApiToken>>;
+
+    /// Replaces the KIS API token (delete-all + insert-new) inside a transaction.
+    ///
+    /// Since `access_token` is the primary key and changes on each OAuth2 grant,
+    /// all existing rows are deleted before the new row is inserted.
+    async fn modify_kis_api_token(
+        &self,
+        access_token: String,
+        token_expired_at: DateTime<Utc>,
+    ) -> anyhow::Result<()>;
 }

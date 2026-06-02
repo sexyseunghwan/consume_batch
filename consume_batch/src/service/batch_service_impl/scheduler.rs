@@ -87,6 +87,7 @@ where
             let indexing: Arc<I> = Arc::clone(&self.indexing_service);
             let smtp: Arc<S> = Arc::clone(&self.smtp_service);
             let item: BatchScheduleItem = immediate_item.clone();
+            let redis: Arc<R> = Arc::clone(&self.redis_service);
 
             batch_log!(
                 info,
@@ -105,6 +106,7 @@ where
                     &public_data,
                     &indexing,
                     &smtp,
+                    &redis,
                 )
                 .await
                 {
@@ -137,6 +139,7 @@ where
         let indexing_service: Arc<I> = Arc::clone(&self.indexing_service);
         let smtp_service: Arc<S> = Arc::clone(&self.smtp_service);
         let schedule_item_move: BatchScheduleItem = schedule_item.clone();
+        let redis_service: Arc<R> = Arc::clone(&self.redis_service);
 
         batch_log!(
             info,
@@ -153,6 +156,7 @@ where
             let indexing: Arc<I> = Arc::clone(&indexing_service);
             let smtp: Arc<S> = Arc::clone(&smtp_service);
             let schedule_item: BatchScheduleItem = schedule_item_move.clone();
+            let redis: Arc<R> = Arc::clone(&redis_service);
 
             Box::pin(async move {
                 batch_log!(info, "[{}] Cron job triggered", schedule_item.index_name());
@@ -164,6 +168,7 @@ where
                     &public_data,
                     &indexing,
                     &smtp,
+                    &redis,
                 )
                 .await
                 {
