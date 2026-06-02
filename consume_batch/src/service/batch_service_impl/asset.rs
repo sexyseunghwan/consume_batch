@@ -70,31 +70,24 @@ where
         let mut price_map: HashMap<i64, Decimal> = HashMap::new();
 
         for (seq, symbol, currency_code) in &items {
-            if currency_code == "USD" {
-                match twelve_data_api::fetch_stock_price(symbol).await {
-                    Ok(price) => {
-                        price_map.insert(*seq, price);
-                    }
-                    Err(e) => {
-                        error!(
-                            "[BatchServiceImpl::{}] Failed to fetch price for {} (seq={}): {:#}",
-                            label, symbol, seq, e
-                        );
-                        fail_count += 1;
-                    }
-                }
+            let price_result: anyhow::Result<Decimal> = if currency_code == "USD" {
+                twelve_data_api::fetch_stock_price(symbol).await
             } else {
-                match kis_api::fetch_current_stock_price(symbol, redis_service, mysql_service).await {
-                    Ok(cureent_stock_price) => {
-                        price_map.insert(*seq, *cureent_stock_price.current_price());
-                    }
-                    Err(e) => {
-                        error!(
-                            "[BatchServiceImpl::{}] Failed to fetch price for {} (seq={}): {:#}",
-                            label, symbol, seq, e
-                        );
-                        fail_count += 1;
-                    } 
+                kis_api::fetch_current_stock_price(symbol, redis_service, mysql_service)
+                    .await
+                    .map(|dto| *dto.current_price())
+            };
+
+            match price_result {
+                Ok(price) => {
+                    price_map.insert(*seq, price);
+                }
+                Err(e) => {
+                    error!(
+                        "[BatchServiceImpl::{}] Failed to fetch price for {} (seq={}): {:#}",
+                        label, symbol, seq, e
+                    );
+                    fail_count += 1;
                 }
             }
         }
