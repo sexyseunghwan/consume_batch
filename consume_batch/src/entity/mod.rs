@@ -18,6 +18,7 @@ pub mod send_email_agg_group;
 pub mod spent_detail;
 pub mod spent_detail_indexing;
 pub mod spent_group_info;
+pub mod kis_api_token;
 pub mod stock;
 pub mod stock_asset;
 pub mod stock_type;

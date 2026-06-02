@@ -3,6 +3,9 @@ use crate::common::*;
 #[derive(Debug, Deserialize)]
 pub struct KisTokenResponse {
     pub access_token: String,
+    pub access_token_token_expired: String,
+    pub token_type: String,
+    pub expires_in: u64,
 }
 
 #[derive(Debug, Deserialize)]

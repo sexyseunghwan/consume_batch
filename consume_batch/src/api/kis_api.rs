@@ -9,7 +9,7 @@ use crate::common::*;
 static HTTP_CLIENT: once_lazy<Client> = once_lazy::new(reqwest::Client::new);
 
 /// Fetch OAuth2 access token from KIS (`/oauth2/tokenP`).
-pub async fn fetch_kis_access_token() -> anyhow::Result<String> {
+pub async fn fetch_kis_access_token() -> anyhow::Result<KisTokenResponse> {
     let cfg: &AppConfig = AppConfig::get_global()?;
 
     let app_key: &str = cfg.kis_app_key();
@@ -30,18 +30,16 @@ pub async fn fetch_kis_access_token() -> anyhow::Result<String> {
         .json(&body)
         .send()
         .await
-        .inspect_err(|e| error!("[fetch_kis_access_token] HTTP request failed: {:#}", e))?
+        .inspect_err(|e| error!("[kis_api::fetch_kis_access_token] HTTP request failed: {:#}", e))?
         .json::<KisTokenResponse>()
         .await
-        .inspect_err(|e| {
-            error!(
-                "[fetch_kis_access_token] Failed to parse token response: {:#}",
-                e
-            )
-        })?;
+        .inspect_err(|e| error!("[kis_api::fetch_kis_access_token] Failed to parse token response: {:#}", e))?;
 
-    Ok(resp.access_token)
+    Ok(resp)
 }
+
+
+
 
 /// Fetch current domestic stock price from KIS.
 ///
@@ -59,7 +57,7 @@ pub async fn fetch_current_stock_price(stock_code: &str) -> anyhow::Result<Curre
     let app_secret: &str = cfg.kis_app_secret();
     let base_url: &str = cfg.kis_api_base_url();
 
-    let access_token: String = fetch_kis_access_token().await?;
+    //let access_token: String = fetch_kis_access_token().await?;
 
     let url: String = format!(
         "{}/uapi/domestic-stock/v1/quotations/inquire-price\
@@ -70,7 +68,8 @@ pub async fn fetch_current_stock_price(stock_code: &str) -> anyhow::Result<Curre
     let resp: KisPriceResponse = HTTP_CLIENT
         .get(&url)
         .header("content-type", "application/json; charset=utf-8")
-        .header("authorization", format!("Bearer {}", access_token))
+        .header("authorization", format!("Bearer {}", "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJ0b2tlbiIsImF1ZCI6ImYwZjQ5Mzk4LWJjNWItNDg1MS04ZWM2LWI5N2ZiZTJhOWRkNCIsInByZHRfY2QiOiIiLCJpc3MiOiJ1bm9ndyIsImV4cCI6MTc4MDQ0NTgyMiwiaWF0IjoxNzgwMzU5NDIyLCJqdGkiOiJQU1FWMGladVpJSzBkUFUwUnl2ckZBN1dYQUl0ZFBIUVNmMEYifQ.YltXyJU2ak3ZdqYlOBK9qrKfw4vmiHsxFn2l2b0IGkKuqcqCoaTWfg-_mbglupOdvPtCmraiDqECVJDZd0LYIA"))
+        //.header("authorization", format!("Bearer {}", access_token))
         .header("appkey", app_key)
         .header("appsecret", app_secret)
         .header("tr_id", "FHKST01010100")
@@ -78,7 +77,7 @@ pub async fn fetch_current_stock_price(stock_code: &str) -> anyhow::Result<Curre
         .await
         .inspect_err(|e| {
             error!(
-                "[fetch_current_stock_price] HTTP failed for {}: {:#}",
+                "[kis_api::fetch_current_stock_price] HTTP failed for {}: {:#}",
                 stock_code, e
             )
         })?
@@ -86,7 +85,7 @@ pub async fn fetch_current_stock_price(stock_code: &str) -> anyhow::Result<Curre
         .await
         .inspect_err(|e| {
             error!(
-                "[fetch_current_stock_price] JSON parse failed for {}: {:#}",
+                "[kis_api::fetch_current_stock_price] JSON parse failed for {}: {:#}",
                 stock_code, e
             )
         })?;
@@ -107,7 +106,7 @@ pub async fn fetch_current_stock_price(stock_code: &str) -> anyhow::Result<Curre
             .parse::<Decimal>()
             .inspect_err(|e| {
                 error!(
-                    "[fetch_current_stock_price] Failed to parse {} '{}' for {}: {:#}",
+                    "[kis_api::fetch_current_stock_price] Failed to parse {} '{}' for {}: {:#}",
                     field, raw, stock_code, e
                 )
             })
@@ -123,7 +122,7 @@ pub async fn fetch_current_stock_price(stock_code: &str) -> anyhow::Result<Curre
             .parse::<f64>()
             .inspect_err(|e| {
                 error!(
-                    "[fetch_current_stock_price] Failed to parse prdy_ctrt '{}' for {}: {:#}",
+                    "[kis_api::fetch_current_stock_price] Failed to parse prdy_ctrt '{}' for {}: {:#}",
                     o.prdy_ctrt, stock_code, e
                 )
             })
@@ -135,7 +134,7 @@ pub async fn fetch_current_stock_price(stock_code: &str) -> anyhow::Result<Curre
             .parse::<u64>()
             .inspect_err(|e| {
                 error!(
-                    "[fetch_current_stock_price] Failed to parse acml_vol '{}' for {}: {:#}",
+                    "[kis_api::fetch_current_stock_price] Failed to parse acml_vol '{}' for {}: {:#}",
                     o.acml_vol, stock_code, e
                 )
             })

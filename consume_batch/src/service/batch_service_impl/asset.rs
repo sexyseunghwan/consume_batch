@@ -3,6 +3,7 @@
 use rust_decimal::Decimal;
 use sea_orm::ActiveValue;
 
+use crate::api::kis_api::fetch_current_stock_price;
 use crate::entity::user_current_asset_snapshot;
 use crate::models::{
     AssetAmount, Crypto, CurrencyExchangeRateSnapshot, Stock, StockType, batch_schedule::*,
@@ -339,9 +340,12 @@ where
                 // no nested iteration across asset types.
                 let now: sea_orm::prelude::DateTime = Utc::now().naive_utc();
                 let zero: Decimal = Decimal::ZERO;
-                
-                
 
+                let test: crate::api::dto::kis_dto::CurrentStockPriceDto = fetch_current_stock_price("000660").await?; 
+                println!("======================================================================");
+                println!("test: {:?}", test);   
+                println!("======================================================================");
+                
                 // 잠깐 주석처리해둠.
                 // let batch_snapshots: Vec<user_current_asset_snapshot::ActiveModel> = user_seqs
                 //     .iter()

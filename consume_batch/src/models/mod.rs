@@ -64,6 +64,9 @@ pub use crypto::*;
 pub mod stock_type;
 pub use stock_type::*;
 
+pub mod kis_api_token;
+pub use kis_api_token::*;
+
 pub mod stock;
 pub use stock::*;
 
