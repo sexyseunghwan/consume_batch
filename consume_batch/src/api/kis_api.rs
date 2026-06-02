@@ -2,8 +2,8 @@ use chrono::NaiveDateTime;
 use reqwest::Client;
 use rust_decimal::Decimal;
 
-use crate::api::dto::kis_dto::CurrentStockPriceDto;
-use crate::api::model::kis_model::{KisPriceResponse, KisTokenResponse};
+use crate::api::dto::kis_dto::{CurrentOverseasStockPriceDto, CurrentStockPriceDto};
+use crate::api::model::kis_model::{KisOverseasPriceResponse, KisPriceResponse, KisTokenResponse};
 use crate::app_config::AppConfig;
 use crate::common::*;
 use crate::models::KisApiToken;
@@ -276,6 +276,111 @@ where
                 error!(
                     "[kis_api::fetch_current_stock_price] Failed to parse acml_vol '{}' for {}: {:#}",
                     o.acml_vol, stock_code, e
+                )
+            })
+            .map_err(anyhow::Error::from)?,
+    ))
+}
+
+/// Fetch current overseas stock price from KIS.
+///
+/// `exchange_code` — 거래소 코드 (e.g. `"NAS"` NASDAQ, `"NYS"` NYSE, `"AMS"` AMEX)
+/// `symbol`        — 종목코드 (e.g. `"AAPL"`, `"TSLA"`)
+pub async fn fetch_current_overseas_stock_price<R, M>(
+    exchange_code: &str,
+    symbol: &str,
+    redis_service: &Arc<R>,
+    mysql_service: &Arc<M>,
+) -> anyhow::Result<CurrentOverseasStockPriceDto>
+where
+    R: RedisService,
+    M: MysqlService,
+{
+    let cfg: &AppConfig = AppConfig::get_global()?;
+    let app_key: &str = cfg.kis_app_key();
+    let app_secret: &str = cfg.kis_app_secret();
+    let base_url: &str = cfg.kis_api_base_url();
+
+    let access_token: String =
+        find_or_refresh_kis_access_token(redis_service, mysql_service).await?;
+
+    let url: String = format!(
+        "{}/uapi/overseas-price/v1/quotations/price?AUTH=&EXCD={}&SYMB={}",
+        base_url, exchange_code, symbol
+    );
+
+    let resp: KisOverseasPriceResponse = HTTP_CLIENT
+        .get(&url)
+        .header("content-type", "application/json; charset=utf-8")
+        .header("authorization", format!("Bearer {}", access_token))
+        .header("appkey", app_key)
+        .header("appsecret", app_secret)
+        .header("tr_id", "HHDFS00000300")
+        .send()
+        .await
+        .inspect_err(|e| {
+            error!(
+                "[kis_api::fetch_current_overseas_stock_price] HTTP failed for {}/{}: {:#}",
+                exchange_code, symbol, e
+            )
+        })?
+        .json::<KisOverseasPriceResponse>()
+        .await
+        .inspect_err(|e| {
+            error!(
+                "[kis_api::fetch_current_overseas_stock_price] JSON parse failed for {}/{}: {:#}",
+                exchange_code, symbol, e
+            )
+        })?;
+
+    if resp.rt_cd != "0" {
+        return Err(anyhow!(
+            "[kis_api::fetch_current_overseas_stock_price] KIS API error for {}/{}: [{}] {}",
+            exchange_code,
+            symbol,
+            resp.msg_cd,
+            resp.msg1
+        ));
+    }
+
+    let o = resp.output;
+
+    let parse_decimal = |raw: &str, field: &str| -> anyhow::Result<Decimal> {
+        raw.trim()
+            .parse::<Decimal>()
+            .inspect_err(|e| {
+                error!(
+                    "[kis_api::fetch_current_overseas_stock_price] Failed to parse {} '{}' for {}/{}: {:#}",
+                    field, raw, exchange_code, symbol, e
+                )
+            })
+            .map_err(anyhow::Error::from)
+    };
+
+    Ok(CurrentOverseasStockPriceDto::new(
+        exchange_code.to_string(),
+        symbol.to_string(),
+        parse_decimal(&o.last, "last")?,
+        parse_decimal(&o.base, "base")?,
+        parse_decimal(&o.diff, "diff")?,
+        o.rate
+            .trim()
+            .trim_start_matches('+')
+            .parse::<f64>()
+            .inspect_err(|e| {
+                error!(
+                    "[kis_api::fetch_current_overseas_stock_price] Failed to parse rate '{}' for {}/{}: {:#}",
+                    o.rate, exchange_code, symbol, e
+                )
+            })
+            .map_err(anyhow::Error::from)?,
+        o.tvol
+            .trim()
+            .parse::<u64>()
+            .inspect_err(|e| {
+                error!(
+                    "[kis_api::fetch_current_overseas_stock_price] Failed to parse tvol '{}' for {}/{}: {:#}",
+                    o.tvol, exchange_code, symbol, e
                 )
             })
             .map_err(anyhow::Error::from)?,

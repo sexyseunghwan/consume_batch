@@ -8,6 +8,7 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub market_seq: i64,
     pub market: String,
+    pub market_alias: String,
     pub currency_code: String,
     pub created_at: DateTime,
     pub updated_at: Option<DateTime>,

@@ -27,3 +27,20 @@ pub struct KisPriceResponse {
     pub msg1: String,
     pub output: KisPriceOutput,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct KisOverseasPriceOutput {
+    pub last: String, // 현재가
+    pub base: String, // 전일 종가
+    pub diff: String, // 전일 대비
+    pub rate: String, // 등락율 (%)
+    pub tvol: String, // 당일 거래량
+}
+
+#[derive(Debug, Deserialize)]
+pub struct KisOverseasPriceResponse {
+    pub rt_cd: String, // "0" = 정상
+    pub msg_cd: String,
+    pub msg1: String,
+    pub output: KisOverseasPriceOutput,
+}

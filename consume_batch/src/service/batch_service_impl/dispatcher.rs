@@ -119,7 +119,6 @@ where
             }
             "sync_currency_exchange_rates" => {
                 Self::sync_currency_exchange_rates(
-                    schedule_item,
                     mysql_service
                 )
                 .await

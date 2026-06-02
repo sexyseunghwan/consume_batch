@@ -36,7 +36,7 @@ async fn sync_asset_price<F, G, M, R>(
     redis_service: &Arc<R>,
 ) -> anyhow::Result<()>
 where
-    F: AsyncFn(u64, u64) -> anyhow::Result<Vec<(i64, String, String)>>,
+    F: AsyncFn(u64, u64) -> anyhow::Result<Vec<(i64, String, String, String)>>,
     G: AsyncFn(HashMap<i64, Decimal>) -> anyhow::Result<()>,
     M: MysqlService,
     R: RedisService,
@@ -52,7 +52,7 @@ where
     );
 
     loop {
-        let items: Vec<(i64, String, String)> =
+        let items: Vec<(i64, String, String, String)> =
             fetch_fn(offset, batch_size).await.inspect_err(|e| {
                 error!(
                     "[BatchServiceImpl::{}] Failed to fetch batch (offset={}): {:#}",
@@ -67,9 +67,13 @@ where
         total_count += items.len();
         let mut price_map: HashMap<i64, Decimal> = HashMap::new();
 
-        for (seq, symbol, currency_code) in &items {
+        for (seq, symbol, currency_code, market_alias) in &items {
+
             let price_result: anyhow::Result<Decimal> = if currency_code == "USD" {
-                twelve_data_api::fetch_stock_price(symbol).await
+                //twelve_data_api::fetch_stock_price(symbol).await
+                kis_api::fetch_current_overseas_stock_price("NAS", symbol, redis_service, mysql_service)
+                    .await
+                    .map(|dto| *dto.current_price())
             } else {
                 kis_api::fetch_current_stock_price(symbol, redis_service, mysql_service)
                     .await
@@ -125,7 +129,6 @@ where
 {
     // Fetches active exchange-rate snapshots from MySQL and refreshes them from the external API.
     pub(super) async fn sync_currency_exchange_rates(
-        _schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
     ) -> anyhow::Result<()> {
         batch_log!(
@@ -219,6 +222,7 @@ where
                                 *s.stock_seq(),
                                 s.api_symbol().clone(),
                                 s.currency_code().clone(),
+                                s.market_alias().clone()
                             )
                         })
                         .collect()
@@ -252,6 +256,7 @@ where
                                 *c.crypto_seq(),
                                 c.api_symbol().clone(),
                                 c.currency_code().clone(),
+                                String::from("")
                             )
                         })
                         .collect()
@@ -263,7 +268,7 @@ where
         )
         .await
     }
-
+    
     // Aggregates each user's current asset totals and stores snapshot rows.
     pub(super) async fn sync_current_asset_total(
         schedule_item: &BatchScheduleItem,

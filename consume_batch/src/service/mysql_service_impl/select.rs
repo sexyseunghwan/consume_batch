@@ -223,6 +223,7 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
             .column(stock::Column::ApiSymbol)
             .column(stock::Column::StockPrice)
             .column(stock_type::Column::CurrencyCode)
+            .column(stock_type::Column::MarketAlias)
             .column(stock::Column::CreatedAt)
             .column(stock::Column::UpdatedAt)
             .column(stock::Column::CreatedBy)

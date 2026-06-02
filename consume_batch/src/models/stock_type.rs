@@ -5,6 +5,7 @@ use crate::common::*;
 pub struct StockType {
     pub market_seq: i64,
     pub market: String,
+    pub market_alias: String,
     pub currency_code: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: Option<DateTime<Utc>>,
