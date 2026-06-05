@@ -67,6 +67,7 @@ where
         total_count += items.len();
         let mut price_map: HashMap<i64, Decimal> = HashMap::new();
 
+        /* 이 부분이 중요함 API CALL 을 한번에 너무 많이 하면 DENY 되기 때문에 sleep을 걸어줘야 한다. */
         for item in &items {
             match price_fn(item).await {
                 Ok(price) => {
