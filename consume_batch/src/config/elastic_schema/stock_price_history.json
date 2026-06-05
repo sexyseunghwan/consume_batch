@@ -1,0 +1,30 @@
+{
+  "settings": {
+    "index": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    }
+  },
+  "mappings": {
+    "properties": {
+      "stock_seq": {
+        "type": "long"
+      },
+      "symbol": {
+        "type": "keyword"
+      },
+      "currency_code": {
+        "type": "keyword"
+      },
+      "stock_name": {
+        "type": "keyword"
+      },
+      "price": {
+        "type": "double"
+      },
+      "recorded_at": {
+        "type": "date"
+      }
+    }
+  }
+}

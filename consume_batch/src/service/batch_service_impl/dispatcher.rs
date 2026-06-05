@@ -133,7 +133,8 @@ where
                 Self::sync_stock_price(
                     schedule_item,
                     mysql_service,
-                    redis_service
+                    redis_service,
+                    elastic_service
                 )
                 .await
                 .inspect_err(|e| {
@@ -147,7 +148,7 @@ where
                 Self::sync_crypto_price(
                     schedule_item,
                     mysql_service,
-                    redis_service
+                    elastic_service
                 )
                 .await
                 .inspect_err(|e| {

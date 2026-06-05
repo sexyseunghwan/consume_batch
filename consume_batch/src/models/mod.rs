@@ -76,3 +76,15 @@ pub use asset_amount::*;
 pub mod cash_asset;
 
 pub mod crypto_asset;
+
+pub mod crypto_price_history;
+pub use crypto_price_history::*;
+
+pub mod stock_price_history;
+pub use stock_price_history::*;
+
+pub mod price_fetch_item;
+pub use price_fetch_item::*;
+
+pub mod fetched_price;
+pub use fetched_price::*;

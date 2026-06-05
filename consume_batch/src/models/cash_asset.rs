@@ -8,7 +8,7 @@ use crate::common::*;
 pub struct CashAsset {
     pub cash_seq: i64,
     pub cash_name: String,
-    pub cash: Option<Decimal>,
+    pub cash: Decimal,
     pub user_seq: i64,
     pub currency_code: String,
     pub created_at: DateTime<Utc>,
