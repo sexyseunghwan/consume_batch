@@ -70,8 +70,7 @@ where
         for (seq, symbol, currency_code, market_alias) in &items {
 
             let price_result: anyhow::Result<Decimal> = if currency_code == "USD" {
-                //twelve_data_api::fetch_stock_price(symbol).await
-                kis_api::fetch_current_overseas_stock_price("NAS", symbol, redis_service, mysql_service)
+                kis_api::fetch_current_overseas_stock_price(market_alias, symbol, redis_service, mysql_service)
                     .await
                     .map(|dto| *dto.current_price())
             } else {
@@ -375,8 +374,7 @@ where
                 // no nested iteration across asset types.
                 let now: sea_orm::prelude::DateTime = Utc::now().naive_utc();
                 let zero: Decimal = Decimal::ZERO;
-
-                // 잠깐 주석처리해둠.
+                
                 let batch_snapshots: Vec<user_current_asset_snapshot::ActiveModel> = user_seqs
                     .iter()
                     .map(|&uid| user_current_asset_snapshot::ActiveModel {

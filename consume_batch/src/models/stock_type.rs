@@ -1,6 +1,6 @@
 use crate::common::*;
 
-#[derive(Debug, Clone, Serialize, Deserialize, FromQueryResult, Getters, new)]
+#[derive(Debug, Clone, Serialize, Deserialize, FromQueryResult, Getters)]
 #[getset(get = "pub")]
 pub struct StockType {
     pub market_seq: i64,
