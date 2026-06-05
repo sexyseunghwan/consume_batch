@@ -80,6 +80,7 @@ where
                     fail_count += 1;
                 }
             }
+            tokio::time::sleep(Duration::from_millis(200)).await;
         }
 
         if !price_map.is_empty() {
