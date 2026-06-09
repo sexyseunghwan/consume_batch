@@ -1,4 +1,4 @@
-use chrono::NaiveDateTime;
+use chrono::{FixedOffset, NaiveDateTime, TimeZone};
 use reqwest::Client;
 use rust_decimal::Decimal;
 
@@ -61,7 +61,13 @@ fn parse_token_expired_at(s: &str) -> anyhow::Result<DateTime<Utc>> {
                 e
             )
         })?;
-    Ok(DateTime::<Utc>::from_naive_utc_and_offset(ndt, Utc))
+    let kst: FixedOffset = FixedOffset::east_opt(9 * 3600)
+        .ok_or_else(|| anyhow!("[kis_api::parse_token_expired_at] Invalid KST offset"))?;
+    let kst_dt: DateTime<FixedOffset> = kst
+        .from_local_datetime(&ndt)
+        .single()
+        .ok_or_else(|| anyhow!("[kis_api::parse_token_expired_at] Ambiguous or invalid KST datetime: {}", s))?;
+    Ok(kst_dt.with_timezone(&Utc))
 }
 
 /// Returns a valid KIS access token, refreshing from the API when necessary.
