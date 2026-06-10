@@ -372,8 +372,8 @@ impl KafkaRepositoryImpl {
         source_group: &str,
         target_group: &str,
     ) -> anyhow::Result<()> {
-        let source_group_id = format!("{}-{}-{}", self.base_group_id, topic, source_group);
-        let target_group_id = format!("{}-{}-{}", self.base_group_id, topic, target_group);
+        let source_group_id: String = format!("{}-{}-{}", self.base_group_id, topic, source_group);
+        let target_group_id: String = format!("{}-{}-{}", self.base_group_id, topic, target_group);
 
         info!(
             "[KafkaRepositoryImpl::copy_consumer_group_offsets] Starting safe offset copy: '{}' → '{}' (topic: '{}')",
@@ -383,7 +383,7 @@ impl KafkaRepositoryImpl {
         // ──────────────────────────────────────────────────────────────
         // [1단계] target 그룹 활성 상태 확인
         // ──────────────────────────────────────────────────────────────
-        let is_active = self.is_consumer_group_active(&target_group_id).await?;
+        let is_active: bool = self.is_consumer_group_active(&target_group_id).await?;
 
         if is_active {
             info!(

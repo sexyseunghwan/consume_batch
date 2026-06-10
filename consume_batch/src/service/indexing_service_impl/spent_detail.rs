@@ -4,7 +4,7 @@ use crate::enums::IndexingType;
 use crate::global_state::*;
 use crate::models::{
     SpentDetailFromKafka, SpentDetailIndexing, SpentDetailWithRelations,
-    batch_schedule::BatchScheduleItem,
+    batch_schedule::BatchScheduleItem, ConsumerGroupLag
 };
 use crate::service_trait::{
     consume_service::ConsumeService, elastic_service::ElasticService, mysql_service::MysqlService,
@@ -16,7 +16,6 @@ use super::IndexingServiceImpl;
 fn merge_events_to_action_ids(
     messages: Vec<SpentDetailFromKafka>,
 ) -> anyhow::Result<(Vec<i64>, Vec<i64>)> {
-    use std::collections::hash_map::Entry;
 
     let mut latest: HashMap<i64, SpentDetailFromKafka> = HashMap::new();
 
@@ -63,6 +62,7 @@ where
         let mut total_indexed: u64 = 0;
 
         loop {
+            
             let rows: Vec<SpentDetailIndexing> = self
                 .mysql_service
                 .find_spent_detail_indexing_for_index(offset, batch_size as u64)
@@ -103,7 +103,7 @@ where
                 total_indexed
             );
         }
-
+        
         Ok(total_indexed)
     }
 
@@ -253,7 +253,8 @@ where
         let mut consecutive_errors: u32 = 0;
 
         loop {
-            let lag_info = self
+            
+            let lag_info: ConsumerGroupLag = self
                 .consume_service
                 .find_consumer_group_lag_by_partition(
                     relation_topic,
@@ -316,7 +317,7 @@ where
                             e
                         );
                     })?;
-
+                
                 self.elastic_service
                     .modify_write_alias(&write_alias, index_name)
                     .await
@@ -350,7 +351,7 @@ where
                 .input_spent_detail_incremental_data(
                     relation_topic,
                     consumer_group,
-                    &write_alias,
+                    index_name,
                     batch_size,
                 )
                 .await
@@ -422,7 +423,7 @@ where
                     e
                 );
             })?;
-
+        
         batch_log!(
             info,
             "[IndexingServiceImpl::input_spent_detail_full] Created new index: {}",
@@ -442,6 +443,7 @@ where
                 );
             }
         }
+
 
         let full_indexed: u64 = match self
             .input_spent_detail_full_data(schedule_item, &new_index_name)

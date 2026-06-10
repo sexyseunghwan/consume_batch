@@ -297,17 +297,20 @@ where
                 );
             })?;
 
+
         // Calculate per-partition lag
         let mut partition_lags: Vec<PartitionLag> = Vec::new();
         let mut total_lag: i64 = 0;
 
         // Get all unique partition IDs from both groups
         let mut all_partitions: HashSet<i32> = ref_offsets.keys().copied().collect(); // partition 번호의 집합 -> 0,1,2..
-        all_partitions.extend(catchup_offsets.keys().copied());
         /*
             extend() 는 기존 Set에 새로운 값들을 추가하는 것. (HashSet 은 중복을 허용하지 않기 때문.)
             {0, 1, 2}.extend(0, 1, 3) -> {0, 1, 2, 3}
         */
+        all_partitions.extend(catchup_offsets.keys().copied());
+        
+        
         // Sort partition IDs for consistent ordering -> Hash Set 은 순서가 없으므로 정렬을 해서 벡터로 변환하고 싶은것.
         let mut sorted_partitions: Vec<i32> = all_partitions.into_iter().collect();
         sorted_partitions.sort();
