@@ -86,7 +86,7 @@ impl KafkaRepositoryImpl {
                     group_id_clone, e
                 )
             })?;
-
+            
             /*
                 토픽의 메타데이터 반환
                 - topic 이름
@@ -141,7 +141,7 @@ impl KafkaRepositoryImpl {
             if committed_tpl.count() == 0 {
                 return Ok(HashMap::new());
             }
-
+            
             let mut offsets: HashMap<i32, i64> = HashMap::new();
             for elem in committed_tpl.elements() {
                 let offset: i64 = match elem.offset() {

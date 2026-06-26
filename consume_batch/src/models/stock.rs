@@ -17,4 +17,5 @@ pub struct Stock {
     pub updated_at: Option<DateTime<Utc>>,
     pub created_by: String,
     pub updated_by: Option<String>,
+    pub stock_alias: String
 }

@@ -43,6 +43,7 @@ History     :   2025-01-01 Seunghwan Shin       # [v.1.0.0] first create.
                                                             5) Add build_period_summary_html: two-period comparison table with colour-coded change column.
                                                             6) Add prev_date_range to both monthly and weekly report flows for comparison queries.
                                                             7) Generalise build_report_html with {{REPORT_TITLE}}, {{COMPARISON}}, {{PERIOD_SUMMARY}} placeholders.
+                2026-06-26 Seunghwan Shin       # [v.3.4.1] Add stock_alias column to the `STOCK` table.
 */
 
 mod common;

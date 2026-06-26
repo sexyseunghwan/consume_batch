@@ -228,6 +228,7 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
             .column(stock::Column::UpdatedAt)
             .column(stock::Column::CreatedBy)
             .column(stock::Column::UpdatedBy)
+            .column(stock::Column::StockAlias)
             .order_by_asc(stock::Column::StockSeq)
             .offset(offset)
             .limit(limit)

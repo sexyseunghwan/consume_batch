@@ -16,6 +16,7 @@ pub struct Model {
     pub updated_at: Option<DateTime>,
     pub created_by: String,
     pub updated_by: Option<String>,
+    pub stock_alias: String
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

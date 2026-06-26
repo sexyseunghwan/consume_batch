@@ -285,7 +285,7 @@ where
                     reference_group, e
                 );
             })?;
-
+        
         let catchup_offsets: HashMap<i32, i64> = self
             .kafka_conn
             .find_committed_offsets_by_partition(topic, catchup_group)
