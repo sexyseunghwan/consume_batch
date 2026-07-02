@@ -22,7 +22,9 @@ where
     S: SmtpService + Send + Sync + 'static,
     R: RedisService + Send + Sync + 'static,
 {
-    // 여기가 진짜 실행할 함수들의 모음이 존재함...
+    /*
+        여기가 진짜 실행할 함수들의 모음이 존재함...
+    */ 
     pub(super) async fn execute_batch_by_name(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
@@ -129,35 +131,35 @@ where
                     );
                 })?
             }
-            "sync_stock_price" => {
-                Self::sync_stock_price(
-                    schedule_item,
-                    mysql_service,
-                    redis_service,
-                    elastic_service
-                )
-                .await
-                .inspect_err(|e| {
-                    error!(
-                        "[BatchServiceImpl::input_batch_by_schedule] sync_stock_price: {:#}",
-                        e
-                    );
-                })?
-            }
-            "sync_crypto_price" => {
-                Self::sync_crypto_price(
-                    schedule_item,
-                    mysql_service,
-                    elastic_service
-                )
-                .await
-                .inspect_err(|e| {
-                    error!(
-                        "[BatchServiceImpl::input_batch_by_schedule] sync_crypto_price: {:#}",
-                        e
-                    );
-                })?
-            }
+            // "sync_stock_price" => {
+            //     Self::sync_stock_price(
+            //         schedule_item,
+            //         mysql_service,
+            //         redis_service,
+            //         elastic_service
+            //     )
+            //     .await
+            //     .inspect_err(|e| {
+            //         error!(
+            //             "[BatchServiceImpl::input_batch_by_schedule] sync_stock_price: {:#}",
+            //             e
+            //         );
+            //     })?
+            // }
+            // "sync_crypto_price" => {
+            //     Self::sync_crypto_price(
+            //         schedule_item,
+            //         mysql_service,
+            //         elastic_service
+            //     )
+            //     .await
+            //     .inspect_err(|e| {
+            //         error!(
+            //             "[BatchServiceImpl::input_batch_by_schedule] sync_crypto_price: {:#}",
+            //             e
+            //         );
+            //     })?
+            // }
             "sync_current_asset_total" => {
                 Self::sync_current_asset_total(
                     schedule_item,

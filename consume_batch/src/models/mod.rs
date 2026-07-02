@@ -69,6 +69,7 @@ pub use stock::*;
 pub mod stock_asset;
 
 pub mod user_current_asset_snapshot;
+pub use user_current_asset_snapshot::*;
 
 pub mod asset_amount;
 pub use asset_amount::*;

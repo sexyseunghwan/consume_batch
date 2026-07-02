@@ -1,11 +1,10 @@
 //! Asset price sync batch jobs.
 
 use rust_decimal::Decimal;
-use sea_orm::ActiveValue;
 
 //use crate::api::kis_api::fetch_current_stock_price;
 use crate::entity::user_current_asset_snapshot;
-use crate::models::{AssetAmount, CryptoPriceHistory, CurrencyExchangeRateSnapshot, FetchedPrice, PriceFetchItem, StockPriceHistory, StockType, batch_schedule::*};
+use crate::models::{AssetAmount, CryptoPriceHistory, CurrencyExchangeRateSnapshot, FetchedPrice, PriceFetchItem, StockPriceHistory, StockType, UserCurrentAssetSnapshot, batch_schedule::*};
 use crate::service_trait::{
     consume_service::ConsumeService, elastic_service::ElasticService,
     indexing_service::IndexingService, mysql_service::MysqlService,
@@ -447,35 +446,32 @@ where
 
                 // Single pass over user_seqs: O(1) HashMap lookups per user,
                 // no nested iteration across asset types.
-                let now: sea_orm::prelude::DateTime = Utc::now().naive_utc();
+                let now: DateTime<Utc> = Utc::now();
                 let zero: Decimal = Decimal::ZERO;
-                
-                let batch_snapshots: Vec<user_current_asset_snapshot::ActiveModel> = user_seqs
+
+                let snapshots: Vec<UserCurrentAssetSnapshot> = user_seqs
                     .iter()
-                    .map(|&uid| user_current_asset_snapshot::ActiveModel {
-                        summary_seq: ActiveValue::NotSet,
-                        user_seq: ActiveValue::Set(uid),
-                        currency_code: ActiveValue::Set(currency.to_owned()),
-                        aggregated_at: ActiveValue::Set(now),
-                        stock_amount: ActiveValue::Set(
+                    .map(|&uid| {
+                        UserCurrentAssetSnapshot::new(
+                            0,
+                            uid,
+                            currency.to_owned(),
+                            now,
+                            cash_map.get(&uid).copied().unwrap_or(zero),
                             stock_map.get(&uid).copied().unwrap_or(zero),
-                        ),
-                        crypto_amount: ActiveValue::Set(
                             crypto_map.get(&uid).copied().unwrap_or(zero),
-                        ),
-                        cash_amount: ActiveValue::Set(cash_map.get(&uid).copied().unwrap_or(zero)),
-                        deposit_amount: ActiveValue::Set(
                             deposit_map.get(&uid).copied().unwrap_or(zero),
-                        ),
-                        saving_amount: ActiveValue::Set(
                             saving_map.get(&uid).copied().unwrap_or(zero),
-                        ),
-                        created_at: ActiveValue::Set(now),
-                        updated_at: ActiveValue::NotSet,
-                        created_by: ActiveValue::Set("SYSTEM".to_owned()),
-                        updated_by: ActiveValue::NotSet,
+                            now,
+                            None,
+                            "SYSTEM".to_owned(),
+                            None,
+                        )
                     })
                     .collect();
+
+                let batch_snapshots: Vec<user_current_asset_snapshot::ActiveModel> =
+                    snapshots.into_iter().map(Into::into).collect();
 
                 mysql_service
                     .input_user_current_asset_snapshot_bulk(batch_snapshots)

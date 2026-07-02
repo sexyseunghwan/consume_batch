@@ -44,6 +44,7 @@ History     :   2025-01-01 Seunghwan Shin       # [v.1.0.0] first create.
                                                             6) Add prev_date_range to both monthly and weekly report flows for comparison queries.
                                                             7) Generalise build_report_html with {{REPORT_TITLE}}, {{COMPARISON}}, {{PERIOD_SUMMARY}} placeholders.
                 2026-06-26 Seunghwan Shin       # [v.3.4.1] Add stock_alias column to the `STOCK` table.
+                2026-07-00 Seunghwan Shin       # [v.3.5.0] 
 */
 
 mod common;
