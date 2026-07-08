@@ -4,7 +4,10 @@ use rust_decimal::Decimal;
 
 //use crate::api::kis_api::fetch_current_stock_price;
 use crate::entity::user_current_asset_snapshot;
-use crate::models::{AssetAmount, CryptoPriceHistory, CurrencyExchangeRateSnapshot, FetchedPrice, PriceFetchItem, StockPriceHistory, Market, UserCurrentAssetSnapshot, batch_schedule::*};
+use crate::models::{
+    AssetAmount, CurrencyExchangeRateSnapshot, Market, PriceFetchItem, UserCurrentAssetSnapshot,
+    batch_schedule::*,
+};
 use crate::service_trait::{
     consume_service::ConsumeService, elastic_service::ElasticService,
     indexing_service::IndexingService, mysql_service::MysqlService,
@@ -26,14 +29,13 @@ fn to_amount_map(amounts: Vec<AssetAmount>) -> HashMap<i64, Decimal> {
 }
 
 // Synchronizes prices for assets that can be fetched by API symbol.
-// Returns successfully fetched FetchedPrice entries.
 async fn sync_asset_price<F, G, P>(
     batch_size: u64,
     label: &str,
     fetch_fn: F,
     update_fn: G,
     price_fn: P,
-) -> anyhow::Result<Vec<FetchedPrice>>
+) -> anyhow::Result<()>
 where
     F: AsyncFn(u64, u64) -> anyhow::Result<Vec<PriceFetchItem>>,
     G: AsyncFn(HashMap<i64, Decimal>) -> anyhow::Result<()>,
@@ -43,7 +45,6 @@ where
     let mut total_count: usize = 0;
     let mut success_count: usize = 0;
     let mut fail_count: usize = 0;
-    let mut collected: Vec<FetchedPrice> = Vec::new();
 
     info!(
         "[BatchServiceImpl::{}] Starting price sync (batch_size={}).",
@@ -51,13 +52,12 @@ where
     );
 
     loop {
-        let items: Vec<PriceFetchItem> =
-            fetch_fn(offset, batch_size).await.inspect_err(|e| {
-                error!(
-                    "[BatchServiceImpl::{}] Failed to fetch batch (offset={}): {:#}",
-                    label, offset, e
-                );
-            })?;
+        let items: Vec<PriceFetchItem> = fetch_fn(offset, batch_size).await.inspect_err(|e| {
+            error!(
+                "[BatchServiceImpl::{}] Failed to fetch batch (offset={}): {:#}",
+                label, offset, e
+            );
+        })?;
 
         if items.is_empty() {
             break;
@@ -86,18 +86,6 @@ where
         if !price_map.is_empty() {
             let batch_success: usize = price_map.len();
 
-            for item in &items {
-                if let Some(&price) = price_map.get(&item.seq) {
-                    collected.push(FetchedPrice {
-                        seq: item.seq,
-                        symbol: item.symbol.clone(),
-                        currency_code: item.currency_code.clone(),
-                        name: item.name.clone(),
-                        price,
-                    });
-                }
-            }
-
             update_fn(price_map).await.inspect_err(|e| {
                 error!(
                     "[BatchServiceImpl::{}] Bulk update failed (offset={}): {:#}",
@@ -115,7 +103,7 @@ where
         label, total_count, success_count, fail_count
     );
 
-    Ok(collected)
+    Ok(())
 }
 
 impl<M, E, C, P, D, I, S, R> BatchServiceImpl<M, E, C, P, D, I, S, R>
@@ -130,9 +118,7 @@ where
     R: RedisService + Send + Sync + 'static,
 {
     // Fetches active exchange-rate snapshots from MySQL and refreshes them from the external API.
-    pub(super) async fn sync_currency_exchange_rates(
-        mysql_service: &Arc<M>,
-    ) -> anyhow::Result<()> {
+    pub(super) async fn sync_currency_exchange_rates(mysql_service: &Arc<M>) -> anyhow::Result<()> {
         batch_log!(
             info,
             "[BatchServiceImpl::sync_currency_exchange_rates] Starting currency price sync."
@@ -156,7 +142,7 @@ where
         }
 
         let mut snapshot_map: HashMap<i64, f64> = HashMap::new();
-        
+
         for snapshot in currency_snapshots {
             let base: &str = snapshot.base_currency_code();
             let target: &str = snapshot.target_currency_code();
@@ -183,7 +169,7 @@ where
             );
             return Ok(());
         }
-        
+
         mysql_service
             .modify_currency_exchange_rate_snapshot_bulk(&snapshot_map)
             .await
@@ -193,8 +179,6 @@ where
                     e
                 );
             })?;
-        
-        
 
         batch_log!(
             info,
@@ -205,7 +189,7 @@ where
         Ok(())
     }
 
-    // Synchronizes stock prices in paged batches and records price history to Elasticsearch.
+    // Synchronizes stock prices in paged batches.
     pub(super) async fn sync_stock_price(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
@@ -217,45 +201,52 @@ where
         let mysql_for_price: Arc<M> = Arc::clone(mysql_service);
         let redis_for_price: Arc<R> = Arc::clone(redis_service);
 
-        let collected: Vec<FetchedPrice> = sync_asset_price(
+        sync_asset_price(
             batch_size,
             "sync_stock_price",
             async move |offset, limit| {
-                mysql_for_fetch.find_stock_batch(offset, limit).await.map(|v| {
-                    v.into_iter()
-                        .map(|s| PriceFetchItem {
-                            seq: *s.stock_seq(),
-                            symbol: s.api_symbol().clone(),
-                            currency_code: s.currency_code().clone(),
-                            market_alias: s.market_alias().clone(),
-                            name: s.stock_name().clone(),
-                        })
-                        .collect()
-                })
+                mysql_for_fetch
+                    .find_stock_batch(offset, limit)
+                    .await
+                    .map(|v| {
+                        v.into_iter()
+                            .map(|s| PriceFetchItem {
+                                seq: *s.stock_seq(),
+                                symbol: s.api_symbol().clone(),
+                                currency_code: s.currency_code().clone(),
+                                market_alias: s.market_alias().clone(),
+                            })
+                            .collect()
+                    })
             },
             async move |price_map| mysql_for_update.modify_stock_price_bulk(&price_map).await,
             async move |item: &PriceFetchItem| {
                 if item.currency_code == "USD" {
-                    kis_api::fetch_current_overseas_stock_price(&item.market_alias, &item.symbol, &redis_for_price, &mysql_for_price)
-                        .await
-                        .map(|dto| *dto.current_price())
+                    kis_api::fetch_current_overseas_stock_price(
+                        &item.market_alias,
+                        &item.symbol,
+                        &redis_for_price,
+                        &mysql_for_price,
+                    )
+                    .await
+                    .map(|dto| *dto.current_price())
                 } else {
-                    kis_api::fetch_current_stock_price(&item.symbol, &redis_for_price, &mysql_for_price)
-                        .await
-                        .map(|dto| *dto.current_price())
+                    kis_api::fetch_current_stock_price(
+                        &item.symbol,
+                        &redis_for_price,
+                        &mysql_for_price,
+                    )
+                    .await
+                    .map(|dto| *dto.current_price())
                 }
             },
         )
         .await?;
 
-        if collected.is_empty() {
-            return Ok(());
-        }
-
         Ok(())
     }
-    
-    // Synchronizes crypto prices in paged batches and records price history to Elasticsearch.
+
+    // Synchronizes crypto prices in paged batches.
     pub(super) async fn sync_crypto_price(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
@@ -264,36 +255,32 @@ where
         let mysql_for_fetch: Arc<M> = Arc::clone(mysql_service);
         let mysql_for_update: Arc<M> = Arc::clone(mysql_service);
 
-        let collected: Vec<FetchedPrice> = sync_asset_price(
+        sync_asset_price(
             batch_size,
             "sync_crypto_price",
             async move |offset, limit| {
-                mysql_for_fetch.find_crypto_batch(offset, limit).await.map(|v| {
-                    v.into_iter()
-                        .map(|c| PriceFetchItem {
-                            seq: *c.crypto_seq(),
-                            symbol: c.api_symbol().clone(),
-                            currency_code: c.currency_code().clone(),
-                            market_alias: String::new(),
-                            name: c.crypto_name().clone(),
-                        })
-                        .collect()
-                })
+                mysql_for_fetch
+                    .find_crypto_batch(offset, limit)
+                    .await
+                    .map(|v| {
+                        v.into_iter()
+                            .map(|c| PriceFetchItem {
+                                seq: *c.crypto_seq(),
+                                symbol: c.api_symbol().clone(),
+                                currency_code: c.currency_code().clone(),
+                                market_alias: String::new(),
+                            })
+                            .collect()
+                    })
             },
             async move |price_map| mysql_for_update.modify_crypto_price_bulk(&price_map).await,
-            async |item: &PriceFetchItem| {
-                twelve_data_api::fetch_symbol_price(&item.symbol).await
-            },
+            async |item: &PriceFetchItem| twelve_data_api::fetch_symbol_price(&item.symbol).await,
         )
         .await?;
 
-        if collected.is_empty() {
-            return Ok(());
-        }
-        
         Ok(())
     }
-    
+
     // Aggregates each user's current asset totals and stores snapshot rows.
     pub(super) async fn sync_current_asset_total(
         schedule_item: &BatchScheduleItem,
@@ -449,10 +436,6 @@ where
     //     elastic_service: &Arc<E>,
     // ) -> anyhow::Result<()> {
 
-
-
-
     //     Ok(())
     // }
-
 }

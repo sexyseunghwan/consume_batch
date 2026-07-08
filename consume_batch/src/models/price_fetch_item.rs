@@ -3,5 +3,4 @@ pub struct PriceFetchItem {
     pub symbol: String,
     pub currency_code: String,
     pub market_alias: String,
-    pub name: String,
 }
