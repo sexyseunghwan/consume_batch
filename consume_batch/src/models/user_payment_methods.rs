@@ -6,8 +6,8 @@ use crate::common::*;
 #[getset(get = "pub")]
 pub struct UserPaymentMethods {
     pub payment_method_id: i64,
-    pub payment_type_cd: String,
-    pub payment_category_cd: String,
+    pub payment_type_code: String,
+    pub payment_category_code: String,
     pub card_id: String,
     pub card_alias: String,
     pub is_active: bool,
@@ -17,5 +17,5 @@ pub struct UserPaymentMethods {
     pub updated_by: Option<String>,
     pub is_default: bool,
     pub user_seq: i64,
-    pub card_company_nm: Option<String>,
+    pub card_company_name: Option<String>,
 }

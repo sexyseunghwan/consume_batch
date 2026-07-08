@@ -8,7 +8,7 @@ pub struct EarnedDetail {
     pub earned_idx: i64,
     pub earned_name: String,
     pub earned_money: i64,
-    pub earned_money_dollor: Decimal,
+    pub earned_money_dollar: Decimal,
     pub earned_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub updated_at: Option<DateTime<Utc>>,

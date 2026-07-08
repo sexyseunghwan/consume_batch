@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 use crate::common::*;
 
-use crate::dtos::GroupSeqAggsRangeQuery;
-use crate::models::{AggResultSet, ConsumingIndexProdtType, DocumentWithId};
+use crate::dtos::GroupAggregationRangeQuery;
+use crate::models::{AggResultSet, ConsumeKeywordType, DocumentWithId};
 
 #[async_trait]
 pub trait ElasticService {
@@ -241,16 +241,16 @@ pub trait ElasticService {
     /// Predicts the consume keyword type for a given product name.
     async fn find_consume_type_judgement(
         &self,
-        prodt_name: &str,
-    ) -> Result<ConsumingIndexProdtType, anyhow::Error>;
+        product_name: &str,
+    ) -> Result<ConsumeKeywordType, anyhow::Error>;
 
     /// Predicts consume keyword types for multiple product names in one batch.
     ///
-    /// The returned vector preserves the order of `prodt_names`.
+    /// The returned vector preserves the order of `product_names`.
     async fn find_consume_type_judgements(
         &self,
-        prodt_names: &[String],
-    ) -> Result<Vec<ConsumingIndexProdtType>, anyhow::Error>;
+        product_names: &[String],
+    ) -> Result<Vec<ConsumeKeywordType>, anyhow::Error>;
 
     /// Converts a raw Elasticsearch response into typed search results.
     async fn find_query_result_vec<T: DeserializeOwned>(
@@ -283,8 +283,8 @@ pub trait ElasticService {
     /// - Elasticsearch query execution fails
     /// - Aggregation value is missing or cannot be parsed
     /// - Hit documents cannot be deserialized into `T`
-    async fn find_info_filter_groupseq_orderby_aggs_range<T: Send + Sync + DeserializeOwned>(
+    async fn find_grouped_docs_with_range_agg<T: Send + Sync + DeserializeOwned>(
         &self,
-        query: GroupSeqAggsRangeQuery<'_>,
+        query: GroupAggregationRangeQuery<'_>,
     ) -> Result<AggResultSet<T>, anyhow::Error>;
 }

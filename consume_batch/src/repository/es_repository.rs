@@ -87,7 +87,7 @@ pub trait EsRepository {
     /// Executes multiple search queries against an Elasticsearch index in one request.
     ///
     /// The returned vector preserves the order of `es_queries`.
-    async fn finds_by_query(
+    async fn find_all_by_queries(
         &self,
         es_queries: &[Value],
         index_name: &str,
@@ -227,7 +227,7 @@ pub trait EsRepository {
     /// # Returns
     ///
     /// Returns `Ok(())` on successful refresh.
-    async fn modify_index_refresh(&self, index_name: &str) -> Result<(), anyhow::Error>;
+    async fn refresh_index(&self, index_name: &str) -> Result<(), anyhow::Error>;
 
     /// Atomically swaps an alias from old index to new index.
     ///
@@ -329,7 +329,7 @@ impl EsRepositoryImpl {
             .collect();
 
         // Load authentication credentials
-        let es_id: String = app_config.es_id().to_string();
+        let es_id: String = app_config.es_username().to_string();
         let es_pw: String = app_config.es_pw().to_string();
 
         // Build cluster URLs with http:// prefix
@@ -388,7 +388,7 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
-    async fn finds_by_query(
+    async fn find_all_by_queries(
         &self,
         es_queries: &[Value],
         index_name: &str,
@@ -414,7 +414,7 @@ impl EsRepository for EsRepositoryImpl {
         if !response.status_code().is_success() {
             let error_body: String = response.text().await?;
             return Err(anyhow!(
-                "[EsRepositoryImpl::finds_by_query] response status is failed: {:?}",
+                "[EsRepositoryImpl::find_all_by_queries] response status is failed: {:?}",
                 error_body
             ));
         }
@@ -424,12 +424,12 @@ impl EsRepository for EsRepositoryImpl {
             .get("responses")
             .and_then(Value::as_array)
             .ok_or_else(|| {
-                anyhow!("[EsRepositoryImpl::finds_by_query] Missing 'responses' array")
+                anyhow!("[EsRepositoryImpl::find_all_by_queries] Missing 'responses' array")
             })?;
 
         if responses.len() != es_queries.len() {
             return Err(anyhow!(
-                "[EsRepositoryImpl::finds_by_query] Response count mismatch. expected={}, actual={}",
+                "[EsRepositoryImpl::find_all_by_queries] Response count mismatch. expected={}, actual={}",
                 es_queries.len(),
                 responses.len()
             ));
@@ -441,7 +441,7 @@ impl EsRepository for EsRepositoryImpl {
             .map(|(idx, search_response)| {
                 if let Some(error) = search_response.get("error") {
                     return Err(anyhow!(
-                        "[EsRepositoryImpl::finds_by_query] Query {} failed: {:?}",
+                        "[EsRepositoryImpl::find_all_by_queries] Query {} failed: {:?}",
                         idx,
                         error
                     ));
@@ -774,7 +774,7 @@ impl EsRepository for EsRepositoryImpl {
         }
     }
 
-    async fn modify_index_refresh(&self, index_name: &str) -> anyhow::Result<()> {
+    async fn refresh_index(&self, index_name: &str) -> anyhow::Result<()> {
         let response: Response = self
             .es_client
             .indices()
@@ -784,14 +784,14 @@ impl EsRepository for EsRepositoryImpl {
 
         if response.status_code().is_success() {
             info!(
-                "[EsRepositoryImpl::modify_index_refresh] Successfully refreshed index: {}",
+                "[EsRepositoryImpl::refresh_index] Successfully refreshed index: {}",
                 index_name
             );
             Ok(())
         } else {
             let error_body: String = response.text().await?;
             Err(anyhow!(
-                "[EsRepositoryImpl::modify_index_refresh] Failed to refresh index {}: {}",
+                "[EsRepositoryImpl::refresh_index] Failed to refresh index {}: {}",
                 index_name,
                 error_body
             ))

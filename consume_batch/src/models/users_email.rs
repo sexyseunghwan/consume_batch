@@ -6,7 +6,7 @@ use crate::common::*;
 pub struct UsersEmail {
     pub email_id: String,
     pub user_seq: i64,
-    pub is_recv: bool,
+    pub is_receiving_emails: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: Option<DateTime<Utc>>,
     pub created_by: String,

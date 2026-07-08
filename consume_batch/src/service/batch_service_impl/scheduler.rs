@@ -71,7 +71,7 @@ where
         let immediate_schedules: Vec<&BatchScheduleItem> = self
             .find_enabled_schedules()
             .into_iter()
-            .filter(|item| *item.immediate_apply())
+            .filter(|item| *item.run_immediately())
             .collect();
 
         batch_log!(

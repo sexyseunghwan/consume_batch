@@ -29,7 +29,7 @@ where
             index_alias
         );
 
-        let old_indexies: Vec<String> = self
+        let old_indices: Vec<String> = self
             .elastic_service
             .find_index_name_by_alias(index_alias)
             .await
@@ -130,7 +130,7 @@ where
             })?;
 
         self.elastic_service
-            .delete_indices(&old_indexies)
+            .delete_indices(&old_indices)
             .await
             .inspect_err(|e| {
                 error!(

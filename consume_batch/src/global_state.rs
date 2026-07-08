@@ -5,7 +5,7 @@
 //!
 //! # Design
 //!
-//! Each variable is wrapped in [`once_lazy`]`<`[`RwLock`]`<T>>` to allow:
+//! Each variable is wrapped in [`LazyStatic`]`<`[`RwLock`]`<T>>` to allow:
 //! - **Lazy initialization** — allocated only on first access
 //! - **Multiple concurrent readers** — via `RwLock::read()`
 //! - **Exclusive writer** — via `RwLock::write()`
@@ -14,27 +14,27 @@
 //!
 //! ```rust
 //! // Read
-//! let val = get_spent_detail_indexing().await;
+//! let is_active = is_spent_detail_indexing_active().await;
 //!
 //! // Write
-//! set_spent_detail_indexing(42).await;
+//! set_spent_detail_indexing_active(false).await;
 //! ```
 
 use crate::common::*;
 
-/// Tracks the number of `spent_detail` documents indexed in the current batch run.
+/// Whether a `spent_detail` full/incremental indexing job is currently running.
 ///
-/// Initialized to `0` at startup and updated after each indexing cycle.
-pub static SPENT_DETAIL_INDEXING: once_lazy<RwLock<bool>> = once_lazy::new(|| RwLock::new(true));
+/// Initialized to `true` at startup.
+pub static IS_SPENT_DETAIL_INDEXING_ACTIVE: LazyStatic<RwLock<bool>> = LazyStatic::new(|| RwLock::new(true));
 
 #[allow(dead_code)]
-pub static SPENT_DETAIL_INDEXING_CATCHUP: once_lazy<RwLock<bool>> =
-    once_lazy::new(|| RwLock::new(true));
+pub static IS_SPENT_DETAIL_CATCHUP_RUNNING: LazyStatic<RwLock<bool>> =
+    LazyStatic::new(|| RwLock::new(true));
 
-pub async fn get_spent_detail_indexing() -> bool {
-    *SPENT_DETAIL_INDEXING.read().await
+pub async fn is_spent_detail_indexing_active() -> bool {
+    *IS_SPENT_DETAIL_INDEXING_ACTIVE.read().await
 }
 
-pub async fn set_spent_detail_indexing(value: bool) {
-    *SPENT_DETAIL_INDEXING.write().await = value;
+pub async fn set_spent_detail_indexing_active(value: bool) {
+    *IS_SPENT_DETAIL_INDEXING_ACTIVE.write().await = value;
 }

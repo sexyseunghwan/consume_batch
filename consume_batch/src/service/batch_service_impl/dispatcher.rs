@@ -131,35 +131,33 @@ where
                     );
                 })?
             }
-            // "sync_stock_price" => {
-            //     Self::sync_stock_price(
-            //         schedule_item,
-            //         mysql_service,
-            //         redis_service,
-            //         elastic_service
-            //     )
-            //     .await
-            //     .inspect_err(|e| {
-            //         error!(
-            //             "[BatchServiceImpl::input_batch_by_schedule] sync_stock_price: {:#}",
-            //             e
-            //         );
-            //     })?
-            // }
-            // "sync_crypto_price" => {
-            //     Self::sync_crypto_price(
-            //         schedule_item,
-            //         mysql_service,
-            //         elastic_service
-            //     )
-            //     .await
-            //     .inspect_err(|e| {
-            //         error!(
-            //             "[BatchServiceImpl::input_batch_by_schedule] sync_crypto_price: {:#}",
-            //             e
-            //         );
-            //     })?
-            // }
+            "sync_stock_price" => {
+                Self::sync_stock_price(
+                    schedule_item,
+                    mysql_service,
+                    redis_service
+                )
+                .await
+                .inspect_err(|e| {
+                    error!(
+                        "[BatchServiceImpl::input_batch_by_schedule] sync_stock_price: {:#}",
+                        e
+                    );
+                })?
+            }
+            "sync_crypto_price" => {
+                Self::sync_crypto_price(
+                    schedule_item,
+                    mysql_service
+                )
+                .await
+                .inspect_err(|e| {
+                    error!(
+                        "[BatchServiceImpl::input_batch_by_schedule] sync_crypto_price: {:#}",
+                        e
+                    );
+                })?
+            }
             "sync_current_asset_total" => {
                 Self::sync_current_asset_total(
                     schedule_item,

@@ -101,7 +101,7 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
             })?;
 
         self.elastic_conn
-            .modify_index_refresh(index_name)
+            .refresh_index(index_name)
             .await
             .inspect_err(|e| {
                 error!(

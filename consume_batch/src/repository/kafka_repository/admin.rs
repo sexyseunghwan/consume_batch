@@ -47,7 +47,7 @@ impl KafkaRepositoryImpl {
     ///
     /// Kafka Admin API cannot forcibly remove group members;
     /// actual deactivation requires stopping the consumer application.
-    pub(super) async fn modify_consumer_group_deactivate(
+    pub(super) async fn warn_if_consumer_group_active(
         &self,
         group_id: &str,
     ) -> anyhow::Result<()> {
@@ -55,13 +55,13 @@ impl KafkaRepositoryImpl {
 
         if is_active {
             warn!(
-                "[KafkaRepositoryImpl::modify_consumer_group_deactivate] Group '{}' has active consumers. \
+                "[KafkaRepositoryImpl::warn_if_consumer_group_active] Group '{}' has active consumers. \
                  For safest operation, please stop consumer application before copying offsets.",
                 group_id
             );
         } else {
             info!(
-                "[KafkaRepositoryImpl::modify_consumer_group_deactivate] Group '{}' has no active consumers. Safe to proceed.",
+                "[KafkaRepositoryImpl::warn_if_consumer_group_active] Group '{}' has no active consumers. Safe to proceed.",
                 group_id
             );
         }
@@ -165,12 +165,12 @@ impl KafkaRepositoryImpl {
         // ──────────────────────────────────────────────────────────────
         // [3단계] source 그룹 committed offset 조회
         // ──────────────────────────────────────────────────────────────
-        let mut tpl: TopicPartitionList = TopicPartitionList::new();
+        let mut topic_partition_list: TopicPartitionList = TopicPartitionList::new();
         for pid in &partition_ids {
-            tpl.add_partition(topic, *pid);
+            topic_partition_list.add_partition(topic, *pid);
         }
 
-        source_consumer.assign(&tpl).map_err(|e| {
+        source_consumer.assign(&topic_partition_list).map_err(|e| {
             anyhow!(
                 "[KafkaRepositoryImpl::modify_offsets_internal] Failed to assign partitions: {:?}",
                 e
@@ -186,8 +186,8 @@ impl KafkaRepositoryImpl {
                 )
             })?;
 
-        for elem in committed_tpl.elements() {
-            let offset_str = match elem.offset() {
+        for partition_offset in committed_tpl.elements() {
+            let offset_str = match partition_offset.offset() {
                 Offset::Offset(o) => format!("{}", o),
                 Offset::Invalid => "Invalid".to_string(),
                 Offset::Beginning => "Beginning".to_string(),
@@ -197,7 +197,7 @@ impl KafkaRepositoryImpl {
             info!(
                 "[KafkaRepositoryImpl::modify_offsets_internal] Source group '{}' partition {} offset: {}",
                 source_group_id,
-                elem.partition(),
+                partition_offset.partition(),
                 offset_str
             );
         }
@@ -249,15 +249,15 @@ impl KafkaRepositoryImpl {
                 )
             })?;
 
-        for elem in committed_tpl.elements() {
-            let offset_str = match elem.offset() {
+        for partition_offset in committed_tpl.elements() {
+            let offset_str = match partition_offset.offset() {
                 Offset::Offset(o) => format!("{}", o),
                 _ => "N/A".to_string(),
             };
             info!(
                 "[KafkaRepositoryImpl::modify_offsets_internal] Copied to target group '{}' partition {} offset: {}",
                 target_group_id,
-                elem.partition(),
+                partition_offset.partition(),
                 offset_str
             );
         }
@@ -304,7 +304,7 @@ impl KafkaRepositoryImpl {
         // [3단계] 각 파티션의 high watermark offset 조회
         // high watermark를 delete_records에 넘기면 모든 레코드 삭제
         // ──────────────────────────────────────────────────────────────
-        let mut tpl: TopicPartitionList = TopicPartitionList::new();
+        let mut topic_partition_list: TopicPartitionList = TopicPartitionList::new();
 
         for pid in &partition_ids {
             let (_low, high) = temp_consumer
@@ -321,7 +321,7 @@ impl KafkaRepositoryImpl {
                     "[KafkaRepositoryImpl::purge_topic_records] Partition {}: deleting records up to offset {}",
                     pid, high
                 );
-                tpl.add_partition_offset(topic, *pid, Offset::Offset(high))
+                topic_partition_list.add_partition_offset(topic, *pid, Offset::Offset(high))
                     .map_err(|e| {
                         anyhow!(
                             "[KafkaRepositoryImpl::purge_topic_records] Failed to set partition offset: {:?}",
@@ -331,7 +331,7 @@ impl KafkaRepositoryImpl {
             }
         }
 
-        if tpl.count() == 0 {
+        if topic_partition_list.count() == 0 {
             info!(
                 "[KafkaRepositoryImpl::purge_topic_records] Topic {} is already empty",
                 topic
@@ -343,7 +343,7 @@ impl KafkaRepositoryImpl {
         // [4단계] delete_records 호출 — 실제 데이터 삭제
         // ──────────────────────────────────────────────────────────────
         admin_client
-            .delete_records(&tpl, &AdminOptions::new())
+            .delete_records(&topic_partition_list, &AdminOptions::new())
             .await
             .map_err(|e| {
                 anyhow!(
@@ -400,7 +400,7 @@ impl KafkaRepositoryImpl {
         // ──────────────────────────────────────────────────────────────
         // [2단계] target 그룹 비활성화
         // ──────────────────────────────────────────────────────────────
-        self.modify_consumer_group_deactivate(&target_group_id)
+        self.warn_if_consumer_group_active(&target_group_id)
             .await?;
 
         info!(

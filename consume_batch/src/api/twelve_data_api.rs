@@ -4,7 +4,7 @@ use reqwest::Client;
 use crate::app_config::AppConfig;
 use crate::common::*;
 
-static HTTP_CLIENT: once_lazy<Client> = once_lazy::new(reqwest::Client::new);
+static HTTP_CLIENT: LazyStatic<Client> = LazyStatic::new(reqwest::Client::new);
 
 /// Twelve Data `/price` success payload.
 #[derive(Debug, Deserialize)]
@@ -36,7 +36,7 @@ enum TwelveDataPriceResponse {
 /// Untagged union for `/exchange_rate` response shapes.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
-enum TwelveDataApiResponse {
+enum TwelveDataRateResponse {
     Rate(TwelveDataRatePayload),
     Error(TwelveDataErrorPayload),
 }
@@ -46,13 +46,13 @@ pub async fn fetch_exchange_rate(base: &str, target: &str) -> anyhow::Result<f64
 
     let url: String = format!(
         "{}/exchange_rate?symbol={}/{}&apikey={}",
-        app_config.twelve_data_api(),
+        app_config.twelve_data_api_url(),
         base,
         target,
         app_config.twelve_data_api_key()
     );
 
-    let response: TwelveDataApiResponse = HTTP_CLIENT
+    let response: TwelveDataRateResponse = HTTP_CLIENT
         .get(&url)
         .send()
         .await
@@ -62,7 +62,7 @@ pub async fn fetch_exchange_rate(base: &str, target: &str) -> anyhow::Result<f64
                 base, target, e
             );
         })?
-        .json::<TwelveDataApiResponse>()
+        .json::<TwelveDataRateResponse>()
         .await
         .inspect_err(|e| {
             error!(
@@ -72,8 +72,8 @@ pub async fn fetch_exchange_rate(base: &str, target: &str) -> anyhow::Result<f64
         })?;
 
     match response {
-        TwelveDataApiResponse::Rate(payload) => Ok(payload.rate),
-        TwelveDataApiResponse::Error(err) => Err(anyhow!(
+        TwelveDataRateResponse::Rate(payload) => Ok(payload.rate),
+        TwelveDataRateResponse::Error(err) => Err(anyhow!(
             "Twelve Data API error (code={}) for {}/{}: {}",
             err.code,
             base,
@@ -83,12 +83,12 @@ pub async fn fetch_exchange_rate(base: &str, target: &str) -> anyhow::Result<f64
     }
 }
 
-pub async fn fetch_crypto_price(symbol: &str) -> anyhow::Result<Decimal> {
+pub async fn fetch_symbol_price(symbol: &str) -> anyhow::Result<Decimal> {
     let app_config: &AppConfig = AppConfig::get_global()?;
 
     let url: String = format!(
         "{}/price?symbol={}&apikey={}",
-        app_config.twelve_data_api(),
+        app_config.twelve_data_api_url(),
         symbol,
         app_config.twelve_data_api_key()
     );
@@ -99,7 +99,7 @@ pub async fn fetch_crypto_price(symbol: &str) -> anyhow::Result<Decimal> {
         .await
         .inspect_err(|e| {
             error!(
-                "[fetch_crypto_price] HTTP request failed for {}: {:#}",
+                "[fetch_symbol_price] HTTP request failed for {}: {:#}",
                 symbol, e
             );
         })?
@@ -107,7 +107,7 @@ pub async fn fetch_crypto_price(symbol: &str) -> anyhow::Result<Decimal> {
         .await
         .inspect_err(|e| {
             error!(
-                "[fetch_crypto_price] Failed to parse response for {}: {:#}",
+                "[fetch_symbol_price] Failed to parse response for {}: {:#}",
                 symbol, e
             );
         })?;

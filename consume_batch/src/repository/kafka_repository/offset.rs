@@ -115,13 +115,13 @@ impl KafkaRepositoryImpl {
                     )
                 })?;
 
-            let mut tpl: TopicPartitionList = TopicPartitionList::new();
+            let mut topic_partition_list: TopicPartitionList = TopicPartitionList::new();
             for partition in topic_metadata.partitions() {
-                tpl.add_partition(&topic_owned, partition.id());
+                topic_partition_list.add_partition(&topic_owned, partition.id());
             }
             
             // 이 consumer는 특정 topic의 특정 partition들을 대상으로 동작해라 뜻 -> 단순히 조회가 목적이기 때문에 구독을 하진 않는다.
-            consumer.assign(&tpl).map_err(|e| {
+            consumer.assign(&topic_partition_list).map_err(|e| {
                 anyhow!(
                     "[KafkaRepositoryImpl::fetch_committed_offsets_by_partition] Failed to assign partitions: {:?}",
                     e
@@ -143,12 +143,12 @@ impl KafkaRepositoryImpl {
             }
             
             let mut offsets: HashMap<i32, i64> = HashMap::new();
-            for elem in committed_tpl.elements() {
-                let offset: i64 = match elem.offset() {
+            for partition_offset in committed_tpl.elements() {
+                let offset: i64 = match partition_offset.offset() {
                     Offset::Offset(o) => o,
                     _ => 0,
                 };
-                offsets.insert(elem.partition(), offset);
+                offsets.insert(partition_offset.partition(), offset);
             }
 
             anyhow::Ok(offsets)

@@ -69,8 +69,7 @@ pub fn find_toml_from_file<T: DeserializeOwned>(file_path: &str) -> Result<T, an
 
     # Examples
     ```rust
-    let alert_index = AlertIndex::new("test_index".to_string(), 100, "2023-01-01".to_string());
-    let json_value = convert_json_from_struct(&alert_index)?;
+    let json_value = to_json_from_struct(&some_struct)?;
     ```
 "#]
 pub fn to_json_from_struct<T: Serialize>(input_struct: &T) -> Result<Value, anyhow::Error> {

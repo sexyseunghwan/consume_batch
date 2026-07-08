@@ -81,9 +81,11 @@ pub struct BatchScheduleItem {
     /// `"0 */5 * * * * *"` - Run every 5 minutes
     cron_schedule: String,
 
-    relation_topic: String,
+    #[serde(rename = "relation_topic")]
+    kafka_full_topic: String,
 
-    relation_topic_sub: String,
+    #[serde(rename = "relation_topic_sub")]
+    kafka_incremental_topic: String,
 
     consumer_group: String,
 
@@ -97,7 +99,8 @@ pub struct BatchScheduleItem {
     /// - `false`: Run once immediately at startup, then skip scheduling
     cron_schedule_apply: bool,
 
-    immediate_apply: bool,
+    #[serde(rename = "immediate_apply")]
+    run_immediately: bool,
 
     mapping_schema: String,
     // /// Traffic weight for Blue/Green deployment (0.0 ~ 1.0)

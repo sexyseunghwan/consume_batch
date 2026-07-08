@@ -44,12 +44,12 @@ impl CliClientController {
         let mut writer: tokio::io::WriteHalf<UnixStream> = write_half;
 
         loop {
-            if let Err(e) = Self::find_until_prompt(&mut reader).await {
+            if let Err(e) = Self::read_until_prompt(&mut reader).await {
                 eprintln!("[ERROR] Failed to read from server: {}", e);
                 break;
             }
 
-            let user_input: String = match Self::find_user_input().await {
+            let user_input: String = match Self::read_user_input().await {
                 Some(input) => input,
                 None => break,
             };
@@ -60,13 +60,13 @@ impl CliClientController {
             }
 
             if Self::is_exit_command(&user_input) {
-                let _ = Self::find_until_prompt(&mut reader).await;
+                let _ = Self::read_until_prompt(&mut reader).await;
                 break;
             }
         }
     }
 
-    async fn find_until_prompt(
+    async fn read_until_prompt(
         reader: &mut tokio::io::BufReader<tokio::io::ReadHalf<UnixStream>>,
     ) -> std::io::Result<()> {
         let mut buffer: String = String::new();
@@ -99,7 +99,7 @@ impl CliClientController {
         Ok(())
     }
 
-    async fn find_user_input() -> Option<String> {
+    async fn read_user_input() -> Option<String> {
         tokio::task::spawn_blocking(|| {
             let mut line: String = String::new();
             match std::io::stdin().read_line(&mut line) {

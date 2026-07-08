@@ -4,8 +4,8 @@ use crate::enums::RangeOperator;
 /// Query options for group-sequence range searches with sum aggregation.
 ///
 /// Bundles the Elasticsearch index, range filter, sort, aggregation, and group
-/// filter values used by `find_info_filter_groupseq_orderby_aggs_range`.
-pub struct GroupSeqAggsRangeQuery<'a> {
+/// filter values used by `find_grouped_docs_with_range_agg`.
+pub struct GroupAggregationRangeQuery<'a> {
     /// Elasticsearch index or alias to query.
     pub index_name: &'a str,
     /// Date or numeric field used in the range filter.
@@ -15,15 +15,15 @@ pub struct GroupSeqAggsRangeQuery<'a> {
     /// Upper bound value for the range filter.
     pub end_date: DateTime<Utc>,
     /// Elasticsearch range operator for `start_date`.
-    pub start_op: RangeOperator,
+    pub start_operator: RangeOperator,
     /// Elasticsearch range operator for `end_date`.
-    pub end_op: RangeOperator,
+    pub end_operator: RangeOperator,
     /// Field used to sort matched documents.
     pub order_by_field: &'a str,
     /// Whether to sort ascending.
-    pub asc_yn: bool,
+    pub ascending: bool,
     /// Numeric field to sum in the aggregation.
-    pub aggs_field: &'a str,
+    pub aggregation_field: &'a str,
     /// Aggregate group sequence used in the term filter.
     pub group_seq: i64,
 

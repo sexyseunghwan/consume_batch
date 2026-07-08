@@ -23,7 +23,7 @@ pub trait ProducerService {
     /// # Example
     /// ```
     /// let spent_detail = SpentDetail { ... };
-    /// producer.produce_object_to_topic("dev_spent_detail", &spent_detail, None).await?;
+    /// producer.input_object_to_topic("dev_spent_detail", &spent_detail, None).await?;
     /// ```
     async fn input_object_to_topic<T>(
         &self,
@@ -50,10 +50,10 @@ pub trait ProducerService {
     /// let spent_details = vec![spent1, spent2, spent3];
     ///
     /// // Without key
-    /// producer.produce_objects_to_topic::<_, fn(&SpentDetail) -> String>("dev_spent_detail", &spent_details, None).await?;
+    /// producer.input_objects_to_topic::<_, fn(&SpentDetail) -> String>("dev_spent_detail", &spent_details, None).await?;
     ///
     /// // With key function
-    /// producer.produce_objects_to_topic(
+    /// producer.input_objects_to_topic(
     ///     "dev_spent_detail",
     ///     &spent_details,
     ///     Some(|obj: &SpentDetail| format!("user:{}", obj.user_seq))

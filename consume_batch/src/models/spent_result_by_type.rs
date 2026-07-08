@@ -5,5 +5,5 @@ use crate::common::*;
 pub struct SpentResultByType {
     pub spent_type: String,
     pub spent_cost: i64,
-    pub spent_per: f64,
+    pub spent_percentage: f64,
 }

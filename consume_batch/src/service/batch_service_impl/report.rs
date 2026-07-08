@@ -3,7 +3,7 @@ use crate::{batch_log, common::*};
 
 use crate::app_config::AppConfig;
 
-use crate::dtos::{GroupSeqAggsRangeQuery, ReportDateRange};
+use crate::dtos::{GroupAggregationRangeQuery, ReportDateRange};
 
 use crate::models::{
     AggResultSet, DocumentWithId, SendEmailAggGroup, SpentDetailIndexing, SpentResultByType,
@@ -115,7 +115,7 @@ fn build_category_rows(detail_by_type: &[SpentResultByType]) -> String {
             escape_html(item.spent_type())
         };
         let spent_cost: String = format_money(*item.spent_cost());
-        let spent_per: String = format!("{:.1}%", item.spent_per());
+        let spent_percentage: String = format!("{:.1}%", item.spent_percentage());
 
         html.push_str(&format!(
             "<tr>\
@@ -123,14 +123,14 @@ fn build_category_rows(detail_by_type: &[SpentResultByType]) -> String {
                <td style=\"padding:8px 12px;border-bottom:1px solid #eee;text-align:right;\">{} 원</td>\
                <td style=\"padding:8px 12px;border-bottom:1px solid #eee;text-align:right;\">{}</td>\
              </tr>",
-            spent_type, spent_cost, spent_per,
+            spent_type, spent_cost, spent_percentage,
         ));
     }
     html
 }
 
-fn build_period_summary_html(cur_total: i64, prev_total: i64) -> String {
-    let cur_str: String = format!("{} 원", format_money(cur_total));
+fn build_period_summary_html(current_total: i64, prev_total: i64) -> String {
+    let current_str: String = format!("{} 원", format_money(current_total));
     let prev_str: String = if prev_total == 0 {
         "-".to_string()
     } else {
@@ -140,7 +140,7 @@ fn build_period_summary_html(cur_total: i64, prev_total: i64) -> String {
     let (color, change_str) = if prev_total == 0 {
         ("#888888", "-".to_string())
     } else {
-        let diff: i64 = cur_total - prev_total;
+        let diff: i64 = current_total - prev_total;
         let diff_pct: f64 = ((diff as f64 / prev_total as f64) * 1000.0).round() / 10.0;
         if diff > 0 {
             (
@@ -168,7 +168,7 @@ fn build_period_summary_html(cur_total: i64, prev_total: i64) -> String {
            </thead>\
            <tbody>\
              <tr>\
-               <td style=\"padding:8px 12px;text-align:right;\">{cur_str}</td>\
+               <td style=\"padding:8px 12px;text-align:right;\">{current_str}</td>\
                <td style=\"padding:8px 12px;text-align:right;\">{prev_str}</td>\
                <td style=\"padding:8px 12px;text-align:right;color:{color};font-weight:bold;\">{change_str}</td>\
              </tr>\
@@ -301,10 +301,10 @@ where
                 let spent_type: String = key.to_string();
                 let spent_cost: i64 = *value;
 
-                let spent_per: f64 = (spent_cost as f64 / total_cost) * 100.0;
-                let spent_per_rounded: f64 = (spent_per * 10.0).round() / 10.0; /* Round to the second decimal place */
+                let spent_percentage: f64 = (spent_cost as f64 / total_cost) * 100.0;
+                let spent_percentage_rounded: f64 = (spent_percentage * 10.0).round() / 10.0; /* Round to the second decimal place */
 
-                SpentResultByType::new(spent_type, spent_cost, spent_per_rounded)
+                SpentResultByType::new(spent_type, spent_cost, spent_percentage_rounded)
             })
             .collect();
 
@@ -316,7 +316,7 @@ where
     ) -> anyhow::Result<Vec<SpentResultByType>> {
         let spent_inner_details: &Vec<DocumentWithId<SpentDetailIndexing>> =
             spent_details.source_list();
-        let total_cost: f64 = *spent_details.agg_result();
+        let total_cost: f64 = *spent_details.aggregated_total();
 
         let mut cost_map: HashMap<String, i64> =
             spent_inner_details
@@ -355,34 +355,34 @@ where
         // 소비 정보 디테일 + 집계
         let cur_agg_infos: AggResultSet<SpentDetailIndexing> = context
             .elastic_service
-            .find_info_filter_groupseq_orderby_aggs_range(GroupSeqAggsRangeQuery {
+            .find_grouped_docs_with_range_agg(GroupAggregationRangeQuery {
                 index_name: &context.index_name,
                 range_field: "spent_at",
                 start_date: context.date_range.start_date,
                 end_date: context.date_range.end_date,
-                start_op: RangeOperator::GreaterThanOrEqual,
-                end_op: RangeOperator::LessThanOrEqual,
+                start_operator: RangeOperator::GreaterThanOrEqual,
+                end_operator: RangeOperator::LessThanOrEqual,
                 order_by_field: "spent_at",
-                asc_yn: true,
-                aggs_field: "spent_money",
+                ascending: true,
+                aggregation_field: "spent_money",
                 group_seq: agg_group_seq,
                 query_size: 10000,
             })
             .await?;
 
         // 비교 기간 집계
-        let versus_agg_infos: AggResultSet<SpentDetailIndexing> = context
+        let prev_agg_infos: AggResultSet<SpentDetailIndexing> = context
             .elastic_service
-            .find_info_filter_groupseq_orderby_aggs_range(GroupSeqAggsRangeQuery {
+            .find_grouped_docs_with_range_agg(GroupAggregationRangeQuery {
                 index_name: &context.index_name,
                 range_field: "spent_at",
                 start_date: context.prev_date_range.start_date,
                 end_date: context.prev_date_range.end_date,
-                start_op: RangeOperator::GreaterThanOrEqual,
-                end_op: RangeOperator::LessThanOrEqual,
+                start_operator: RangeOperator::GreaterThanOrEqual,
+                end_operator: RangeOperator::LessThanOrEqual,
                 order_by_field: "spent_at",
-                asc_yn: true,
-                aggs_field: "spent_money",
+                ascending: true,
+                aggregation_field: "spent_money",
                 group_seq: agg_group_seq,
                 query_size: 0,
             })
@@ -396,8 +396,8 @@ where
 
         let rows_html: String = build_html_rows(cur_agg_infos.source_list());
         let category_rows_html: String = build_category_rows(&detail_by_type);
-        let total: i64 = cur_agg_infos.agg_result().round() as i64;
-        let prev_total: i64 = versus_agg_infos.agg_result().round() as i64;
+        let total: i64 = cur_agg_infos.aggregated_total().round() as i64;
+        let prev_total: i64 = prev_agg_infos.aggregated_total().round() as i64;
         let period_summary_html: String = build_period_summary_html(total, prev_total);
 
         let html: String = build_report_html(

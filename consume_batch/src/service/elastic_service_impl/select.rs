@@ -1,27 +1,27 @@
 use crate::app_config::AppConfig;
 use crate::common::*;
-use crate::dtos::GroupSeqAggsRangeQuery;
-use crate::models::{AggResultSet, ConsumingIndexProdtType, DocumentWithId, score_manager::*};
+use crate::dtos::GroupAggregationRangeQuery;
+use crate::models::{AggResultSet, ConsumeKeywordType, DocumentWithId, score_manager::*};
 use crate::repository::es_repository::EsRepository;
 
 use super::ElasticServiceImpl;
 
 impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
     fn find_consume_type(
-        prodt_name: &str,
-        results: Vec<DocumentWithId<ConsumingIndexProdtType>>,
-    ) -> anyhow::Result<ConsumingIndexProdtType> {
+        product_name: &str,
+        results: Vec<DocumentWithId<ConsumeKeywordType>>,
+    ) -> anyhow::Result<ConsumeKeywordType> {
         if results.is_empty() {
-            return Ok(ConsumingIndexProdtType::new(
+            return Ok(ConsumeKeywordType::new(
                 20,
                 String::from("etc"),
-                prodt_name.to_string(),
+                product_name.to_string(),
                 0,
             ));
         }
 
-        let mut manager: ScoreManager<ConsumingIndexProdtType> =
-            ScoreManager::<ConsumingIndexProdtType>::new();
+        let mut manager: ScoreManager<ConsumeKeywordType> =
+            ScoreManager::<ConsumeKeywordType>::new();
 
         for consume_type in results {
             let keyword_weight: f64 = *consume_type.source().keyword_weight() as f64;
@@ -29,12 +29,12 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
             let score_i64: i64 = score as i64;
             let keyword: &str = consume_type.source.consume_keyword();
 
-            let word_dist: usize = levenshtein(keyword, prodt_name);
+            let word_dist: usize = levenshtein(keyword, product_name);
             let word_dist_i64: i64 = word_dist.try_into()?;
-            manager.input(word_dist_i64 + score_i64, consume_type.source);
+            manager.insert(word_dist_i64 + score_i64, consume_type.source);
         }
 
-        let score_data_keyword: ScoredData<ConsumingIndexProdtType> =
+        let score_data_keyword: ScoredData<ConsumeKeywordType> =
             manager.find_lowest().ok_or_else(|| {
                 anyhow!(
                     "[ElasticServiceImpl::find_consume_type] The mapped data for variable 'score_data_keyword' does not exist."
@@ -104,20 +104,20 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
     #[allow(dead_code)]
     pub(super) async fn find_consume_type_judgement(
         &self,
-        prodt_name: &str,
-    ) -> Result<ConsumingIndexProdtType, anyhow::Error> {
+        product_name: &str,
+    ) -> Result<ConsumeKeywordType, anyhow::Error> {
         let app_config: &AppConfig = AppConfig::get_global().inspect_err(|e| {
             error!(
                 "[ElasticServiceImpl::find_consume_type_judgement] app_config: {:#}",
                 e
             );
         })?;
-        let es_spent_type: &str = app_config.es_spent_type().as_str();
+        let es_spent_type: &str = app_config.es_spent_type_index_name().as_str();
 
         let es_query: Value = json!({
             "query": {
                 "match": {
-                    "consume_keyword": prodt_name
+                    "consume_keyword": product_name
                 }
             }
         });
@@ -133,7 +133,7 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
                 )
             })?;
 
-        let results: Vec<DocumentWithId<ConsumingIndexProdtType>> = self
+        let results: Vec<DocumentWithId<ConsumeKeywordType>> = self
             .find_query_result_vec(&response_body)
             .await
             .map_err(|e| {
@@ -143,14 +143,14 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
                 )
             })?;
 
-        Self::find_consume_type(prodt_name, results)
+        Self::find_consume_type(product_name, results)
     }
 
     pub(super) async fn find_consume_type_judgements(
         &self,
-        prodt_names: &[String],
-    ) -> Result<Vec<ConsumingIndexProdtType>, anyhow::Error> {
-        if prodt_names.is_empty() {
+        product_names: &[String],
+    ) -> Result<Vec<ConsumeKeywordType>, anyhow::Error> {
+        if product_names.is_empty() {
             return Ok(Vec::new());
         }
 
@@ -160,15 +160,15 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
                 e
             );
         })?;
-        let es_spent_type_index: &str = app_config.es_spent_type().as_str();
+        let es_spent_type_index: &str = app_config.es_spent_type_index_name().as_str();
 
-        let es_queries: Vec<Value> = prodt_names
+        let es_queries: Vec<Value> = product_names
             .iter()
-            .map(|prodt_name| {
+            .map(|product_name| {
                 json!({
                     "query": {
                         "match": {
-                            "consume_keyword": prodt_name
+                            "consume_keyword": product_name
                         }
                     }
                 })
@@ -177,7 +177,7 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
 
         let response_bodies: Vec<Value> = self
             .elastic_conn
-            .finds_by_query(&es_queries, es_spent_type_index)
+            .find_all_by_queries(&es_queries, es_spent_type_index)
             .await
             .map_err(|e| {
                 anyhow!(
@@ -186,11 +186,11 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
                 )
             })?;
 
-        let mut consume_types: Vec<ConsumingIndexProdtType> =
+        let mut consume_types: Vec<ConsumeKeywordType> =
             Vec::with_capacity(response_bodies.len());
 
-        for (prodt_name, response_body) in prodt_names.iter().zip(response_bodies.iter()) {
-            let results: Vec<DocumentWithId<ConsumingIndexProdtType>> = self
+        for (product_name, response_body) in product_names.iter().zip(response_bodies.iter()) {
+            let results: Vec<DocumentWithId<ConsumeKeywordType>> = self
                 .find_query_result_vec(response_body)
                 .await
                 .map_err(|e| {
@@ -200,19 +200,19 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
                     )
                 })?;
 
-            consume_types.push(Self::find_consume_type(prodt_name, results)?);
+            consume_types.push(Self::find_consume_type(product_name, results)?);
         }
 
         Ok(consume_types)
     }
 
-    pub(super) async fn find_info_filter_groupseq_orderby_aggs_range<
+    pub(super) async fn find_grouped_docs_with_range_agg<
         T: Send + Sync + DeserializeOwned,
     >(
         &self,
-        query_options: GroupSeqAggsRangeQuery<'_>,
+        query_options: GroupAggregationRangeQuery<'_>,
     ) -> Result<AggResultSet<T>, anyhow::Error> {
-        let order_by_asc: &str = if query_options.asc_yn { "asc" } else { "desc" };
+        let order_by_asc: &str = if query_options.ascending { "asc" } else { "desc" };
 
         let query: Value = json!({
             "size": query_options.query_size,
@@ -222,8 +222,8 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
                         {
                             "range": {
                                 query_options.range_field: {
-                                    query_options.start_op.to_str(): query_options.start_date.to_rfc3339(),
-                                    query_options.end_op.to_str(): query_options.end_date.to_rfc3339()
+                                    query_options.start_operator.to_str(): query_options.start_date.to_rfc3339(),
+                                    query_options.end_operator.to_str(): query_options.end_date.to_rfc3339()
                                 }
                             }
                         },
@@ -238,7 +238,7 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
             "aggs": {
                 "aggs_result": {
                     "sum": {
-                        "field": query_options.aggs_field
+                        "field": query_options.aggregation_field
                     }
                 }
             },
@@ -257,7 +257,7 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
             Some(agg_result) => *agg_result,
             None => {
                 return Err(anyhow!(
-                    "[Error][find_info_filter_groupseq_orderby_aggs_range()] 'agg_result' error"
+                    "[Error][find_grouped_docs_with_range_agg()] 'agg_result' error"
                 ));
             }
         };

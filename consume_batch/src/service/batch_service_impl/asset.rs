@@ -4,7 +4,7 @@ use rust_decimal::Decimal;
 
 //use crate::api::kis_api::fetch_current_stock_price;
 use crate::entity::user_current_asset_snapshot;
-use crate::models::{AssetAmount, CryptoPriceHistory, CurrencyExchangeRateSnapshot, FetchedPrice, PriceFetchItem, StockPriceHistory, StockType, UserCurrentAssetSnapshot, batch_schedule::*};
+use crate::models::{AssetAmount, CryptoPriceHistory, CurrencyExchangeRateSnapshot, FetchedPrice, PriceFetchItem, StockPriceHistory, Market, UserCurrentAssetSnapshot, batch_schedule::*};
 use crate::service_trait::{
     consume_service::ConsumeService, elastic_service::ElasticService,
     indexing_service::IndexingService, mysql_service::MysqlService,
@@ -21,7 +21,7 @@ use super::BatchServiceImpl;
 fn to_amount_map(amounts: Vec<AssetAmount>) -> HashMap<i64, Decimal> {
     amounts
         .into_iter()
-        .filter_map(|a| a.asset_sum.map(|sum| (a.user_seq, sum)))
+        .filter_map(|row| row.asset_sum.map(|sum| (row.user_seq, sum)))
         .collect()
 }
 
@@ -156,7 +156,7 @@ where
         }
 
         let mut snapshot_map: HashMap<i64, f64> = HashMap::new();
-
+        
         for snapshot in currency_snapshots {
             let base: &str = snapshot.base_currency_code();
             let target: &str = snapshot.target_currency_code();
@@ -164,7 +164,7 @@ where
 
             let exchange_rate: f64 = match twelve_data_api::fetch_exchange_rate(base, target).await
             {
-                Ok(r) => r,
+                Ok(rate) => rate,
                 Err(e) => {
                     error!(
                         "[BatchServiceImpl::sync_currency_exchange_rates] Error at `exchange_rate`: {:#}",
@@ -183,7 +183,7 @@ where
             );
             return Ok(());
         }
-
+        
         mysql_service
             .modify_currency_exchange_rate_snapshot_bulk(&snapshot_map)
             .await
@@ -193,6 +193,8 @@ where
                     e
                 );
             })?;
+        
+        
 
         batch_log!(
             info,
@@ -208,19 +210,18 @@ where
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
         redis_service: &Arc<R>,
-        elastic_service: &Arc<E>,
     ) -> anyhow::Result<()> {
         let batch_size: u64 = *schedule_item.batch_size() as u64;
-        let ms1: Arc<M> = Arc::clone(mysql_service);
-        let ms2: Arc<M> = Arc::clone(mysql_service);
-        let ms3: Arc<M> = Arc::clone(mysql_service);
-        let rs1: Arc<R> = Arc::clone(redis_service);
+        let mysql_for_fetch: Arc<M> = Arc::clone(mysql_service);
+        let mysql_for_update: Arc<M> = Arc::clone(mysql_service);
+        let mysql_for_price: Arc<M> = Arc::clone(mysql_service);
+        let redis_for_price: Arc<R> = Arc::clone(redis_service);
 
         let collected: Vec<FetchedPrice> = sync_asset_price(
             batch_size,
             "sync_stock_price",
             async move |offset, limit| {
-                ms1.find_stock_batch(offset, limit).await.map(|v| {
+                mysql_for_fetch.find_stock_batch(offset, limit).await.map(|v| {
                     v.into_iter()
                         .map(|s| PriceFetchItem {
                             seq: *s.stock_seq(),
@@ -232,14 +233,14 @@ where
                         .collect()
                 })
             },
-            async move |price_map| ms2.modify_stock_price_bulk(&price_map).await,
+            async move |price_map| mysql_for_update.modify_stock_price_bulk(&price_map).await,
             async move |item: &PriceFetchItem| {
                 if item.currency_code == "USD" {
-                    kis_api::fetch_current_overseas_stock_price(&item.market_alias, &item.symbol, &rs1, &ms3)
+                    kis_api::fetch_current_overseas_stock_price(&item.market_alias, &item.symbol, &redis_for_price, &mysql_for_price)
                         .await
                         .map(|dto| *dto.current_price())
                 } else {
-                    kis_api::fetch_current_stock_price(&item.symbol, &rs1, &ms3)
+                    kis_api::fetch_current_stock_price(&item.symbol, &redis_for_price, &mysql_for_price)
                         .await
                         .map(|dto| *dto.current_price())
                 }
@@ -251,30 +252,6 @@ where
             return Ok(());
         }
 
-        let now: DateTime<Utc> = Utc::now();
-        let index_name: String = format!("{}_{}", schedule_item.index_name(), now.format("%Y%m%d"));
-
-        let docs: Vec<StockPriceHistory> = collected
-            .into_iter()
-            .map(|fp| StockPriceHistory::new(fp.seq, fp.symbol, fp.currency_code, fp.name, fp.price, now))
-            .collect();
-
-        let doc_count: usize = docs.len();
-        elastic_service
-            .input_bulk(&index_name, docs, None)
-            .await
-            .inspect_err(|e| {
-                error!(
-                    "[BatchServiceImpl::sync_stock_price] ES bulk index failed (index={}): {:#}",
-                    index_name, e
-                );
-            })?;
-
-        info!(
-            "[BatchServiceImpl::sync_stock_price] Indexed {} stock price history docs to ES (index={}).",
-            doc_count, index_name
-        );
-
         Ok(())
     }
     
@@ -282,17 +259,16 @@ where
     pub(super) async fn sync_crypto_price(
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
-        elastic_service: &Arc<E>,
     ) -> anyhow::Result<()> {
         let batch_size: u64 = *schedule_item.batch_size() as u64;
-        let ms1: Arc<M> = Arc::clone(mysql_service);
-        let ms2: Arc<M> = Arc::clone(mysql_service);
+        let mysql_for_fetch: Arc<M> = Arc::clone(mysql_service);
+        let mysql_for_update: Arc<M> = Arc::clone(mysql_service);
 
         let collected: Vec<FetchedPrice> = sync_asset_price(
             batch_size,
             "sync_crypto_price",
             async move |offset, limit| {
-                ms1.find_crypto_batch(offset, limit).await.map(|v| {
+                mysql_for_fetch.find_crypto_batch(offset, limit).await.map(|v| {
                     v.into_iter()
                         .map(|c| PriceFetchItem {
                             seq: *c.crypto_seq(),
@@ -304,9 +280,9 @@ where
                         .collect()
                 })
             },
-            async move |price_map| ms2.modify_crypto_price_bulk(&price_map).await,
+            async move |price_map| mysql_for_update.modify_crypto_price_bulk(&price_map).await,
             async |item: &PriceFetchItem| {
-                twelve_data_api::fetch_crypto_price(&item.symbol).await
+                twelve_data_api::fetch_symbol_price(&item.symbol).await
             },
         )
         .await?;
@@ -314,30 +290,6 @@ where
         if collected.is_empty() {
             return Ok(());
         }
-
-        let now: DateTime<Utc> = Utc::now();
-        let index_name: String = format!("{}_{}", schedule_item.index_name(), now.format("%Y%m%d"));
-
-        let docs: Vec<CryptoPriceHistory> = collected
-            .into_iter()
-            .map(|fp| CryptoPriceHistory::new(fp.seq, fp.symbol, fp.currency_code, fp.name, fp.price, now))
-            .collect();
-
-        let doc_count: usize = docs.len();
-        elastic_service
-            .input_bulk(&index_name, docs, None)
-            .await
-            .inspect_err(|e| {
-                error!(
-                    "[BatchServiceImpl::sync_crypto_price] ES bulk index failed (index={}): {:#}",
-                    index_name, e
-                );
-            })?;
-
-        info!(
-            "[BatchServiceImpl::sync_crypto_price] Indexed {} crypto price history docs to ES (index={}).",
-            doc_count, index_name
-        );
         
         Ok(())
     }
@@ -347,12 +299,12 @@ where
         schedule_item: &BatchScheduleItem,
         mysql_service: &Arc<M>,
     ) -> anyhow::Result<()> {
-        let stock_types: Vec<StockType> = mysql_service.find_stock_types().await?;
+        let markets: Vec<Market> = mysql_service.find_markets().await?;
 
         let batch_size: u64 = *schedule_item.batch_size() as u64;
 
-        for s_type in stock_types {
-            let currency: &str = s_type.currency_code();
+        for market in markets {
+            let currency: &str = market.currency_code();
             let mut offset: u64 = 0;
 
             loop {

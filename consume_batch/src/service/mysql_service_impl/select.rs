@@ -7,7 +7,7 @@ use crate::entity::{
 };
 use crate::models::{
     AssetAmount, Crypto, CurrencyExchangeRateSnapshot, KisApiToken, SendEmailAggGroup, SpentDetail,
-    SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, StockType,
+    SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, Market,
 };
 use crate::repository::mysql_repository::MysqlRepository;
 use sea_orm::sea_query::{Expr, Func, SimpleExpr};
@@ -190,7 +190,7 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
     ) -> anyhow::Result<Vec<CurrencyExchangeRateSnapshot>> {
         let db: &DatabaseConnection = self.db_conn.get_connection();
 
-        let result: Vec<CurrencyExchangeRateSnapshot> =
+        let results: Vec<CurrencyExchangeRateSnapshot> =
             currency_exchange_rate_snapshot::Entity::find()
                 .select()
                 .filter(currency_exchange_rate_snapshot::Column::IsActive.eq(true))
@@ -204,7 +204,7 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
                     );
                 })?;
 
-        Ok(result)
+        Ok(results)
     }
 
     pub(super) async fn find_stock_batch(
@@ -270,22 +270,22 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
         Ok(results)
     }
 
-    pub(super) async fn find_stock_types(&self) -> anyhow::Result<Vec<StockType>> {
+    pub(super) async fn find_markets(&self) -> anyhow::Result<Vec<Market>> {
         let db: &DatabaseConnection = self.db_conn.get_connection();
 
-        let result: Vec<StockType> = stock_type::Entity::find()
+        let results: Vec<Market> = stock_type::Entity::find()
             .select()
-            .into_model::<StockType>()
+            .into_model::<Market>()
             .all(db)
             .await
             .inspect_err(|e| {
                 error!(
-                    "[MysqlServiceImpl::find_stock_types] Failed to execute query: {:#}",
+                    "[MysqlServiceImpl::find_markets] Failed to execute query: {:#}",
                     e
                 );
             })?;
 
-        Ok(result)
+        Ok(results)
     }
 
     pub(super) async fn find_user_seq_batch(
@@ -411,7 +411,7 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
 
         let db: &DatabaseConnection = self.db_conn.get_connection();
 
-        let result: Vec<AssetAmount> = cash_asset::Entity::find()
+        let results: Vec<AssetAmount> = cash_asset::Entity::find()
             // .join(
             //     JoinType::InnerJoin,
             //     cash_asset::Relation::CurrencyCode.def(),
@@ -436,7 +436,7 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
                 );
             })?;
 
-        Ok(result)
+        Ok(results)
     }
 
     pub(super) async fn find_deposit_asset_amount_batch(
@@ -450,7 +450,7 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
 
         let db: &DatabaseConnection = self.db_conn.get_connection();
 
-        let result: Vec<AssetAmount> = deposit_asset::Entity::find()
+        let results: Vec<AssetAmount> = deposit_asset::Entity::find()
             .select_only()
             .column(deposit_asset::Column::UserSeq)
             .column_as(
@@ -471,7 +471,7 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
                 );
             })?;
 
-        Ok(result)
+        Ok(results)
     }
 
     pub(super) async fn find_saving_asset_amount_batch(
@@ -485,7 +485,7 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
 
         let db: &DatabaseConnection = self.db_conn.get_connection();
 
-        let result: Vec<AssetAmount> = saving_asset::Entity::find()
+        let results: Vec<AssetAmount> = saving_asset::Entity::find()
             .select_only()
             .column(saving_asset::Column::UserSeq)
             .column_as(
@@ -508,7 +508,7 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
                 );
             })?;
 
-        Ok(result)
+        Ok(results)
     }
 
     pub(super) async fn find_kis_api_token(&self) -> anyhow::Result<Option<KisApiToken>> {

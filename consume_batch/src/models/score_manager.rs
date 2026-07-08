@@ -40,7 +40,7 @@ impl<T: std::fmt::Debug> ScoreManager<T> {
     }
 
     /* Insert Score and Data */
-    pub fn input(&mut self, score: i64, data: T) {
+    pub fn insert(&mut self, score: i64, data: T) {
         /* Insert Data */
         self.data_map
             .entry(score)

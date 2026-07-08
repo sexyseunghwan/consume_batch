@@ -58,8 +58,8 @@ pub trait ConsumeService: Send + Sync {
     ///
     /// ```rust,no_run
     /// // Two independent consumers for the same topic
-    /// let full_msgs = service.consume_messages_with_group("orders", 100, "full-index").await?;
-    /// let incr_msgs = service.consume_messages_with_group("orders", 100, "incremental").await?;
+    /// let full_msgs = service.find_messages_by_group("orders", 100, "full-index").await?;
+    /// let incr_msgs = service.find_messages_by_group("orders", 100, "incremental").await?;
     /// ```
     async fn find_messages_by_group(
         &self,
@@ -83,7 +83,7 @@ pub trait ConsumeService: Send + Sync {
         T: DeserializeOwned;
 
     /// Copies committed offsets from one consumer group to another.
-    async fn modify_consumer_group_offsets(
+    async fn copy_consumer_group_offsets(
         &self,
         topic: &str,
         source_group: &str,
@@ -99,7 +99,7 @@ pub trait ConsumeService: Send + Sync {
     /// # Deprecated
     ///
     /// This method sums all partition offsets and compares totals, which can be misleading.
-    /// Use `get_consumer_group_lag_by_partition` instead for accurate per-partition lag tracking.
+    /// Use `find_consumer_group_lag_by_partition` instead for accurate per-partition lag tracking.
     async fn find_consumer_group_lag(
         &self,
         topic: &str,
@@ -128,7 +128,7 @@ pub trait ConsumeService: Send + Sync {
     ///
     /// ```rust,no_run
     /// let lag_info = service
-    ///     .get_consumer_group_lag_by_partition("orders_topic", "primary-group", "backup-group")
+    ///     .find_consumer_group_lag_by_partition("orders_topic", "primary-group", "backup-group")
     ///     .await?;
     ///
     /// for partition_lag in &lag_info.partition_lags {

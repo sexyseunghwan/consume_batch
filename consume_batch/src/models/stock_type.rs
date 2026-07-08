@@ -2,7 +2,7 @@ use crate::common::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromQueryResult, Getters)]
 #[getset(get = "pub")]
-pub struct StockType {
+pub struct Market {
     pub market_seq: i64,
     pub market: String,
     pub market_alias: String,

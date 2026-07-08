@@ -6,7 +6,8 @@ use crate::enums::IndexingType;
 pub struct SpentDetailFromKafka {
     pub spent_idx: i64,
     pub indexing_type: String,
-    pub reg_at: DateTime<Utc>,
+    #[serde(rename = "reg_at")]
+    pub registered_at: DateTime<Utc>,
 }
 
 impl SpentDetailFromKafka {

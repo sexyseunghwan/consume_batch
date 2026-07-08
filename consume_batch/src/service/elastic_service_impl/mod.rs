@@ -16,8 +16,8 @@ mod select;
 mod update;
 
 use crate::common::*;
-use crate::dtos::GroupSeqAggsRangeQuery;
-use crate::models::{AggResultSet, ConsumingIndexProdtType, DocumentWithId};
+use crate::dtos::GroupAggregationRangeQuery;
+use crate::models::{AggResultSet, ConsumeKeywordType, DocumentWithId};
 use crate::repository::es_repository::EsRepository;
 use crate::service_trait::elastic_service::ElasticService;
 
@@ -116,23 +116,23 @@ where
 
     async fn find_consume_type_judgement(
         &self,
-        prodt_name: &str,
-    ) -> Result<ConsumingIndexProdtType, anyhow::Error> {
-        self.find_consume_type_judgement(prodt_name).await
+        product_name: &str,
+    ) -> Result<ConsumeKeywordType, anyhow::Error> {
+        self.find_consume_type_judgement(product_name).await
     }
 
     async fn find_consume_type_judgements(
         &self,
-        prodt_names: &[String],
-    ) -> Result<Vec<ConsumingIndexProdtType>, anyhow::Error> {
-        self.find_consume_type_judgements(prodt_names).await
+        product_names: &[String],
+    ) -> Result<Vec<ConsumeKeywordType>, anyhow::Error> {
+        self.find_consume_type_judgements(product_names).await
     }
 
-    async fn find_info_filter_groupseq_orderby_aggs_range<T: Send + Sync + DeserializeOwned>(
+    async fn find_grouped_docs_with_range_agg<T: Send + Sync + DeserializeOwned>(
         &self,
-        query_options: GroupSeqAggsRangeQuery<'_>,
+        query_options: GroupAggregationRangeQuery<'_>,
     ) -> Result<AggResultSet<T>, anyhow::Error> {
-        self.find_info_filter_groupseq_orderby_aggs_range(query_options)
+        self.find_grouped_docs_with_range_agg(query_options)
             .await
     }
 }

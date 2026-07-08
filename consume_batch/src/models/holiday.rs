@@ -39,7 +39,8 @@ pub struct HolidayItems {
 #[derive(Deserialize)]
 pub struct HolidayItem {
     /// 날짜 (YYYYMMDD 정수, 예: 20260216)
-    pub locdate: u32,
+    #[serde(rename = "locdate")]
+    pub date_yyyymmdd: u32,
     /// 법정 공휴일 여부 ("Y" / "N")
     #[serde(rename = "isHoliday")]
     pub is_holiday: String,

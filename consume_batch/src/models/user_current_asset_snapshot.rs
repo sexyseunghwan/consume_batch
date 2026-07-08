@@ -8,7 +8,7 @@ use crate::entity::user_current_asset_snapshot as entity;
 #[derive(Debug, Clone, Serialize, Deserialize, FromQueryResult, Getters, new)]
 #[getset(get = "pub")]
 pub struct UserCurrentAssetSnapshot {
-    pub summary_seq: i64,
+    pub snapshot_seq: i64,
     pub user_seq: i64,
     pub currency_code: String,
     pub aggregated_at: DateTime<Utc>,

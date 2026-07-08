@@ -224,17 +224,17 @@ where
         Ok(results)
     }
 
-    async fn modify_consumer_group_offsets(
+    async fn copy_consumer_group_offsets(
         &self,
         topic: &str,
         source_group: &str,
         target_group: &str,
     ) -> anyhow::Result<()> {
         self.kafka_conn
-            .modify_consumer_group_offsets(topic, source_group, target_group)
+            .copy_consumer_group_offsets(topic, source_group, target_group)
             .await
             .inspect_err(|e| {
-                error!("[ConsumeServiceImpl::modify_consumer_group_offsets] Failed to copy consumer group offsets from source to target. {:#}", e);
+                error!("[ConsumeServiceImpl::copy_consumer_group_offsets] Failed to copy consumer group offsets from source to target. {:#}", e);
             })
     }
 

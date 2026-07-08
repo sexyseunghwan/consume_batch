@@ -24,7 +24,8 @@ pub struct KisPriceOutput {
 pub struct KisPriceResponse {
     pub rt_cd: String, // "0" = 정상
     pub msg_cd: String,
-    pub msg1: String,
+    #[serde(rename = "msg1")]
+    pub message: String,
     pub output: KisPriceOutput,
 }
 
@@ -41,6 +42,7 @@ pub struct KisOverseasPriceOutput {
 pub struct KisOverseasPriceResponse {
     pub rt_cd: String, // "0" = 정상
     pub msg_cd: String,
-    pub msg1: String,
+    #[serde(rename = "msg1")]
+    pub message: String,
     pub output: KisOverseasPriceOutput,
 }

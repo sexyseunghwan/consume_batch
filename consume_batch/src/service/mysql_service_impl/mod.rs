@@ -21,7 +21,7 @@ use crate::common::*;
 use crate::entity::dim_calendar;
 use crate::models::{
     AssetAmount, Crypto, CurrencyExchangeRateSnapshot, KisApiToken, SendEmailAggGroup, SpentDetail,
-    SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, StockType,
+    SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, Market,
 };
 use crate::repository::mysql_repository::MysqlRepository;
 use crate::service_trait::mysql_service::MysqlService;
@@ -162,8 +162,8 @@ where
         self.modify_crypto_price_bulk(price_map).await
     }
 
-    async fn find_stock_types(&self) -> anyhow::Result<Vec<StockType>> {
-        self.find_stock_types().await
+    async fn find_markets(&self) -> anyhow::Result<Vec<Market>> {
+        self.find_markets().await
     }
 
     async fn find_stock_asset_amount_batch(

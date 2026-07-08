@@ -85,7 +85,7 @@ pub trait KafkaRepository: Send + Sync {
     /// # Safety
     ///
     /// Deactivates target group first to prevent committed offset race conditions.
-    async fn modify_consumer_group_offsets(
+    async fn copy_consumer_group_offsets(
         &self,
         topic: &str,
         source_group: &str,
@@ -227,7 +227,7 @@ impl KafkaRepository for KafkaRepositoryImpl {
         self.purge_topic_records(topic).await
     }
 
-    async fn modify_consumer_group_offsets(
+    async fn copy_consumer_group_offsets(
         &self,
         topic: &str,
         source_group: &str,

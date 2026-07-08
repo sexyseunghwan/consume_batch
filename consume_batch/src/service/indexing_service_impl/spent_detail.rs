@@ -25,7 +25,7 @@ fn merge_events_to_action_ids(
                 e.insert(msg);
             }
             Entry::Occupied(mut e) => {
-                if msg.reg_at > e.get().reg_at {
+                if msg.registered_at > e.get().registered_at {
                     e.insert(msg);
                 }
             }
@@ -228,7 +228,7 @@ where
         schedule_item: &BatchScheduleItem,
         index_name: &str,
     ) -> anyhow::Result<u64> {
-        let relation_topic: &str = schedule_item.relation_topic_sub();
+        let relation_topic: &str = schedule_item.kafka_incremental_topic();
         let batch_size: usize = *schedule_item.batch_size();
         let consumer_group: &str = schedule_item.consumer_group();
         let consumer_group_sub: &str = schedule_item.consumer_group_sub();
@@ -297,7 +297,7 @@ where
                     "[IndexingServiceImpl::input_spent_detail_catch_up] Almost caught up (lag={}). Pausing incremental indexing.",
                     lag
                 );
-                set_spent_detail_indexing(false).await;
+                set_spent_detail_indexing_active(false).await;
                 indexing_paused = true;
             }
 
@@ -343,7 +343,7 @@ where
                     "[IndexingServiceImpl::input_spent_detail_catch_up] Alias swap complete. Resuming incremental indexing."
                 );
 
-                set_spent_detail_indexing(true).await;
+                set_spent_detail_indexing_active(true).await;
                 break;
             }
 
@@ -398,9 +398,9 @@ where
         schedule_item: &BatchScheduleItem,
     ) -> anyhow::Result<()> {
         let index_alias: &str = schedule_item.index_name();
-        let incre_topic_name: &str = schedule_item.relation_topic_sub();
-        let incre_source_group: &str = schedule_item.consumer_group_sub();
-        let incre_target_group: &str = schedule_item.consumer_group();
+        let incremental_topic_name: &str = schedule_item.kafka_incremental_topic();
+        let incremental_source_group: &str = schedule_item.consumer_group_sub();
+        let incremental_target_group: &str = schedule_item.consumer_group();
 
         batch_log!(
             info,
@@ -408,7 +408,7 @@ where
             index_alias
         );
 
-        let old_indxies: Vec<String> = self
+        let old_indices: Vec<String> = self
             .elastic_service
             .find_index_name_by_alias(index_alias)
             .await?;
@@ -432,7 +432,7 @@ where
 
         match self
             .consume_service
-            .modify_consumer_group_offsets(incre_topic_name, incre_source_group, incre_target_group)
+            .copy_consumer_group_offsets(incremental_topic_name, incremental_source_group, incremental_target_group)
             .await
         {
             Ok(_) => (),
@@ -522,7 +522,7 @@ where
         }
 
         self.elastic_service
-            .delete_indices(&old_indxies)
+            .delete_indices(&old_indices)
             .await
             .inspect_err(|e| error!("[IndexingServiceImpl::input_spent_detail_full] {:#}", e))?;
 
@@ -535,7 +535,7 @@ where
     ) -> anyhow::Result<()> {
         let index_alias: &str = schedule_item.index_name();
         let write_index_alias: String = format!("write_{}", index_alias);
-        let relation_topic: &str = schedule_item.relation_topic();
+        let relation_topic: &str = schedule_item.kafka_full_topic();
         let batch_size: usize = *schedule_item.batch_size();
         let consumer_group: &str = schedule_item.consumer_group(); // incremental_spent_detail_group_dev
 
@@ -550,7 +550,7 @@ where
         let mut consecutive_errors: u32 = 0;
 
         loop {
-            let indexing_check: bool = get_spent_detail_indexing().await;
+            let indexing_check: bool = is_spent_detail_indexing_active().await;
 
             if !indexing_check {
                 tokio::time::sleep(Duration::from_secs(5)).await;

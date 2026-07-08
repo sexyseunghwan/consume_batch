@@ -83,11 +83,11 @@ impl PublicDataService for PublicDataServiceImpl {
                     if item.is_holiday != "Y" {
                         continue;
                     }
-                    let locdate = item.locdate;
-                    let y = (locdate / 10000) as i32;
-                    let m = (locdate % 10000) / 100;
-                    let d = locdate % 100;
-                    if let Some(date) = NaiveDate::from_ymd_opt(y, m, d) {
+                    let date_yyyymmdd = item.date_yyyymmdd;
+                    let year = (date_yyyymmdd / 10000) as i32;
+                    let month = (date_yyyymmdd % 10000) / 100;
+                    let day = date_yyyymmdd % 100;
+                    if let Some(date) = NaiveDate::from_ymd_opt(year, month, day) {
                         holidays.insert(date);
                     }
                 }

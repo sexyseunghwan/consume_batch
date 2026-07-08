@@ -8,7 +8,7 @@ pub struct AppConfig {
     /// Elasticsearch URL
     pub es_db_url: String,
     /// Elasticsearch username
-    pub es_id: String,
+    pub es_username: String,
     /// Elasticsearch password
     pub es_pw: String,
 
@@ -27,25 +27,25 @@ pub struct AppConfig {
 
     #[allow(dead_code)]
     pub es_spent_detail: String,
-    pub es_spent_type: String,
+    pub es_spent_type_index_name: String,
     pub socket_path: String,
     pub public_data_api_key: Option<String>,
     pub smtp_host: Option<String>,
     pub smtp_id: Option<String>,
     pub smtp_pw: Option<String>,
     pub monthly_report_template: String,
-    pub twelve_data_api: String,
+    pub twelve_data_api_url: String,
     pub twelve_data_api_key: String,
     pub kis_app_key: String,
     pub kis_app_secret: String,
     pub kis_api_base_url: String,
     pub redis_url: String,
-    pub redis_kis_access_token: String,
+    pub redis_kis_access_token_key: String,
 }
 
 /// Global static instance of AppConfig
 /// This is initialized once and can be safely accessed from multiple threads
-static APP_CONFIG: normalOnceCell<AppConfig> = normalOnceCell::new();
+static APP_CONFIG: OnceCellStatic<AppConfig> = OnceCellStatic::new();
 
 impl AppConfig {
     pub fn initialize() -> Result<(), String> {
@@ -54,7 +54,7 @@ impl AppConfig {
         let config: AppConfig = AppConfig {
             es_db_url: env::var("ES_DB_URL")
                 .map_err(|_| "ES_DB_URL not found in environment".to_string())?,
-            es_id: env::var("ES_ID").map_err(|_| "ES_ID not found in environment".to_string())?,
+            es_username: env::var("ES_ID").map_err(|_| "ES_ID not found in environment".to_string())?,
             es_pw: env::var("ES_PW").map_err(|_| "ES_PW not found in environment".to_string())?,
             kafka_host: env::var("KAFKA_HOST")
                 .map_err(|_| "KAFKA_HOST not found in environment".to_string())?,
@@ -76,7 +76,7 @@ impl AppConfig {
                 .map_err(|_| "BATCH_SCHEDULE not found in environment".to_string())?,
             es_spent_detail: env::var("ES_SPENT_DETAIL")
                 .map_err(|_| "ES_SPENT_DETAIL not found in environment".to_string())?,
-            es_spent_type: env::var("ES_SPENT_TYPE")
+            es_spent_type_index_name: env::var("ES_SPENT_TYPE")
                 .map_err(|_| "ES_SPENT_TYPE not found in environment".to_string())?,
             socket_path: env::var("SOCKET_PATH")
                 .unwrap_or_else(|_| "./socket/consume_batch.sock".to_string()),
@@ -86,7 +86,7 @@ impl AppConfig {
             smtp_pw: env::var("SMTP_PW").ok(),
             monthly_report_template: env::var("MONTHLY_REPORT_TEMPLATE")
                 .unwrap_or_else(|_| "./datas/scripts/monthly_report.html".to_string()),
-            twelve_data_api: env::var("TWELVE_DATA_API")
+            twelve_data_api_url: env::var("TWELVE_DATA_API")
                 .map_err(|_| "TWELVE_DATA_API not found in environment".to_string())?,
             twelve_data_api_key: env::var("TWELVE_DATA_API_KEY")
                 .map_err(|_| "TWELVE_DATA_API_KEY not found in environment".to_string())?,
@@ -98,7 +98,7 @@ impl AppConfig {
                 .map_err(|_| "KIS_API_BASE_URL not found in environment".to_string())?,
             redis_url: env::var("REDIS_URL")
                 .map_err(|_| "REDIS_URL not found in environment".to_string())?,
-            redis_kis_access_token: env::var("REDIS_KIS_ACCESS_TOKEN")
+            redis_kis_access_token_key: env::var("REDIS_KIS_ACCESS_TOKEN")
                 .map_err(|_| "REDIS_KIS_ACCESS_TOKEN not found in environment".to_string())?,
         };
 

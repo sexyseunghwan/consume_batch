@@ -342,7 +342,7 @@ impl Environment {
 /// println!("Kafka hosts: {:?}", ENV.kafka.brokers());
 /// println!("Batch size: {}", ENV.batch.batch_size());
 /// ```
-pub static ENV: once_lazy<Environment> = once_lazy::new(|| {
+pub static ENV: LazyStatic<Environment> = LazyStatic::new(|| {
     Environment::initialize()
         .unwrap_or_else(|e| panic!("Failed to load environment configuration: {}", e))
 });
@@ -350,5 +350,5 @@ pub static ENV: once_lazy<Environment> = once_lazy::new(|| {
 /// Constant for batch schedule path (for backwards compatibility).
 ///
 /// Prefer using `ENV.paths.batch_schedule()` instead.
-pub static BATCH_SCHEDULE_PATH: once_lazy<String> =
-    once_lazy::new(|| ENV.paths.batch_schedule().clone());
+pub static BATCH_SCHEDULE_PATH: LazyStatic<String> =
+    LazyStatic::new(|| ENV.paths.batch_schedule().clone());

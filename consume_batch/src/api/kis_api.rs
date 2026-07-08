@@ -10,7 +10,7 @@ use crate::models::KisApiToken;
 use crate::service_trait::mysql_service::MysqlService;
 use crate::service_trait::redis_service::RedisService;
 
-static HTTP_CLIENT: once_lazy<Client> = once_lazy::new(reqwest::Client::new);
+static HTTP_CLIENT: LazyStatic<Client> = LazyStatic::new(reqwest::Client::new);
 
 /// Fetch OAuth2 access token from KIS (`/oauth2/tokenP`).
 pub async fn fetch_kis_access_token() -> anyhow::Result<KisTokenResponse> {
@@ -88,11 +88,11 @@ where
     M: MysqlService,
 {
     let cfg: &AppConfig = AppConfig::get_global()?;
-    let redis_key: &str = cfg.redis_kis_access_token();
+    let redis_key: &str = cfg.redis_kis_access_token_key();
     let now: DateTime<Utc> = Utc::now();
 
     // 1. Redis cache hit
-    match redis_service.find_string(redis_key).await {
+    match redis_service.find_value(redis_key).await {
         Ok(Some(token)) => {
             info!("[kis_api::find_or_refresh_kis_access_token] Redis cache hit.");
             return Ok(token);
@@ -119,11 +119,11 @@ where
     };
 
     // 3. Valid DB token — cache it in Redis and return
-    if let Some(row) = db_token {
-        if *row.token_expired_at() > now {
-            let ttl: u64 = (*row.token_expired_at() - now).num_seconds().max(1) as u64;
+    if let Some(token) = db_token {
+        if *token.token_expired_at() > now {
+            let ttl: u64 = (*token.token_expired_at() - now).num_seconds().max(1) as u64;
             if let Err(e) = redis_service
-                .input_string(redis_key, row.access_token(), Some(ttl))
+                .input_value(redis_key, token.access_token(), Some(ttl))
                 .await
             {
                 warn!(
@@ -135,7 +135,7 @@ where
                 "[kis_api::find_or_refresh_kis_access_token] Token from DB (valid, TTL={}s).",
                 ttl
             );
-            return Ok(row.access_token().clone());
+            return Ok(token.access_token().clone());
         }
         info!("[kis_api::find_or_refresh_kis_access_token] DB token expired, fetching new one.");
     } else {
@@ -160,7 +160,7 @@ where
 
     // 6. Cache in Redis
     if let Err(e) = redis_service
-        .input_string(redis_key, &resp.access_token, Some(ttl))
+        .input_value(redis_key, &resp.access_token, Some(ttl))
         .await
     {
         error!(
@@ -241,11 +241,11 @@ where
             "[kis_api::fetch_current_stock_price] KIS API error for {}: [{}] {}",
             stock_code,
             resp.msg_cd,
-            resp.msg1
+            resp.message
         ));
     }
 
-    let o = resp.output;
+    let price_output = resp.output;
 
     let parse_decimal = |raw: &str, field: &str| -> anyhow::Result<Decimal> {
         raw.trim()
@@ -261,27 +261,27 @@ where
 
     Ok(CurrentStockPriceDto::new(
         stock_code.to_string(),
-        parse_decimal(&o.stck_prpr, "stck_prpr")?,
-        parse_decimal(&o.stck_sdpr, "stck_sdpr")?,
-        o.prdy_ctrt
+        parse_decimal(&price_output.stck_prpr, "stck_prpr")?,
+        parse_decimal(&price_output.stck_sdpr, "stck_sdpr")?,
+        price_output.prdy_ctrt
             .trim()
             .parse::<f64>()
             .inspect_err(|e| {
                 error!(
                     "[kis_api::fetch_current_stock_price] Failed to parse prdy_ctrt '{}' for {}: {:#}",
-                    o.prdy_ctrt, stock_code, e
+                    price_output.prdy_ctrt, stock_code, e
                 )
             })
             .map_err(anyhow::Error::from)?,
-        parse_decimal(&o.stck_hgpr, "stck_hgpr")?,
-        parse_decimal(&o.stck_lwpr, "stck_lwpr")?,
-        o.acml_vol
+        parse_decimal(&price_output.stck_hgpr, "stck_hgpr")?,
+        parse_decimal(&price_output.stck_lwpr, "stck_lwpr")?,
+        price_output.acml_vol
             .trim()
             .parse::<u64>()
             .inspect_err(|e| {
                 error!(
                     "[kis_api::fetch_current_stock_price] Failed to parse acml_vol '{}' for {}: {:#}",
-                    o.acml_vol, stock_code, e
+                    price_output.acml_vol, stock_code, e
                 )
             })
             .map_err(anyhow::Error::from)?,
@@ -345,11 +345,11 @@ where
             exchange_code,
             symbol,
             resp.msg_cd,
-            resp.msg1
+            resp.message
         ));
     }
 
-    let o = resp.output;
+    let price_output = resp.output;
 
     let parse_decimal = |raw: &str, field: &str| -> anyhow::Result<Decimal> {
         raw.trim()
@@ -366,27 +366,27 @@ where
     Ok(CurrentOverseasStockPriceDto::new(
         exchange_code.to_string(),
         symbol.to_string(),
-        parse_decimal(&o.last, "last")?,
-        parse_decimal(&o.base, "base")?,
-        parse_decimal(&o.diff, "diff")?,
-        o.rate
+        parse_decimal(&price_output.last, "last")?,
+        parse_decimal(&price_output.base, "base")?,
+        parse_decimal(&price_output.diff, "diff")?,
+        price_output.rate
             .trim()
             .trim_start_matches('+')
             .parse::<f64>()
             .inspect_err(|e| {
                 error!(
                     "[kis_api::fetch_current_overseas_stock_price] Failed to parse rate '{}' for {}/{}: {:#}",
-                    o.rate, exchange_code, symbol, e
+                    price_output.rate, exchange_code, symbol, e
                 )
             })
             .map_err(anyhow::Error::from)?,
-        o.tvol
+        price_output.tvol
             .trim()
             .parse::<u64>()
             .inspect_err(|e| {
                 error!(
                     "[kis_api::fetch_current_overseas_stock_price] Failed to parse tvol '{}' for {}/{}: {:#}",
-                    o.tvol, exchange_code, symbol, e
+                    price_output.tvol, exchange_code, symbol, e
                 )
             })
             .map_err(anyhow::Error::from)?,

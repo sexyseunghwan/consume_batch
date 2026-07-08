@@ -5,7 +5,7 @@ use crate::common::*;
 use crate::entity::dim_calendar;
 use crate::models::{
     AssetAmount, Crypto, CurrencyExchangeRateSnapshot, KisApiToken, SendEmailAggGroup, SpentDetail,
-    SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, StockType,
+    SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, Market,
 };
 
 /// Data access contract for MySQL reads and writes.
@@ -477,7 +477,7 @@ pub trait MysqlService {
     /// SELECT *
     /// FROM STOCK_TYPE;
     /// ```
-    async fn find_stock_types(&self) -> anyhow::Result<Vec<StockType>>;
+    async fn find_markets(&self) -> anyhow::Result<Vec<Market>>;
 
     /// Fetches per-user total stock valuation for the provided currency and user list.
     ///

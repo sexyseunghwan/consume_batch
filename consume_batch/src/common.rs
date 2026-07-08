@@ -51,7 +51,7 @@ pub use toml;
 
 pub use crate::utils_module::logger_utils::*;
 
-pub use once_cell::sync::{Lazy as once_lazy, OnceCell as normalOnceCell};
+pub use once_cell::sync::{Lazy as LazyStatic, OnceCell as OnceCellStatic};
 
 pub use strsim::levenshtein;
 

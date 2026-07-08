@@ -8,7 +8,7 @@ pub struct SavingAsset {
     pub saving_seq: i64,
     pub saving_name: String,
     pub saving_amount: Decimal,
-    pub accum_saving_amount: Decimal,
+    pub accumulated_saving_amount: Decimal,
     pub interest_rate: Decimal,
     pub term_month: i32,
     pub saving_start_date: DateTime<Utc>,
