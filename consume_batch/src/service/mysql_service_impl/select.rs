@@ -3,11 +3,12 @@ use crate::entity::{
     agg_group, cash_asset, common_consume_keyword_type, common_consume_prodt_keyword, crypto,
     crypto_asset, currency_exchange_rate_snapshot, deposit_asset, kis_api_token, saving_asset,
     send_email_agg_group, spent_detail, spent_detail_indexing, stock, stock_asset, stock_type,
-    telegram_room, user_payment_methods, users,
+    telegram_room, user_payment_methods, users, currency_code
 };
+use crate::dtos::{AssetAmount, SpentDetailWithRelations, SpentTypeKeyword};
 use crate::models::{
-    AssetAmount, Crypto, CurrencyExchangeRateSnapshot, KisApiToken, SendEmailAggGroup, SpentDetail,
-    SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, Market,
+    Crypto, CurrencyCode, CurrencyExchangeRateSnapshot, KisApiToken, Market, SendEmailAggGroup,
+    SpentDetail, SpentDetailIndexing, Stock,
 };
 use crate::repository::mysql_repository::MysqlRepository;
 use sea_orm::sea_query::{Expr, Func, SimpleExpr};
@@ -194,6 +195,30 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
             currency_exchange_rate_snapshot::Entity::find()
                 .select()
                 .filter(currency_exchange_rate_snapshot::Column::IsActive.eq(true))
+                .into_model::<CurrencyExchangeRateSnapshot>()
+                .all(db)
+                .await
+                .inspect_err(|e| {
+                    error!(
+                        "[MysqlServiceImpl::find_currency_exchange_rate_snapshot] Failed to execute query: {:#}",
+                        e
+                    );
+                })?;
+
+        Ok(results)
+    }
+
+    pub(super) async fn find_exchange_rate_snapshot_by_target_currency(
+        &self,
+        target_currency: &str
+    ) -> anyhow::Result<Vec<CurrencyExchangeRateSnapshot>> {
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+
+        let results: Vec<CurrencyExchangeRateSnapshot> =
+            currency_exchange_rate_snapshot::Entity::find()
+                .select()
+                .filter(currency_exchange_rate_snapshot::Column::IsActive.eq(true))
+                .filter(currency_exchange_rate_snapshot::Column::TargetCurrencyCode.eq(target_currency))
                 .into_model::<CurrencyExchangeRateSnapshot>()
                 .all(db)
                 .await
@@ -527,4 +552,19 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
 
         Ok(result)
     }
+
+    pub(super) async fn find_all_currency_code(&self) -> anyhow::Result<Vec<CurrencyCode>> {
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+
+        let result: Vec<CurrencyCode> = currency_code::Entity::find()
+            .into_model::<CurrencyCode>()
+            .all(db)
+            .await
+            .inspect_err(|e| {
+                error!("[MysqlServiceImpl::find_all_currency_code] {:#}", e);
+            })?;
+        
+        Ok(result)
+    }
+
 }

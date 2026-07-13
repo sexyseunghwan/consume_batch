@@ -1,7 +1,9 @@
 use crate::app_config::AppConfig;
 use crate::common::*;
-use crate::dtos::GroupAggregationRangeQuery;
-use crate::models::{AggResultSet, ConsumeKeywordType, DocumentWithId, score_manager::*};
+use crate::dtos::{
+    AggResultSet, ConsumeKeywordTypeResult, DocumentWithId, GroupAggregationRangeQuery,
+};
+use crate::models::score_manager::*;
 use crate::repository::es_repository::EsRepository;
 
 use super::ElasticServiceImpl;
@@ -9,10 +11,10 @@ use super::ElasticServiceImpl;
 impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
     fn find_consume_type(
         product_name: &str,
-        results: Vec<DocumentWithId<ConsumeKeywordType>>,
-    ) -> anyhow::Result<ConsumeKeywordType> {
+        results: Vec<DocumentWithId<ConsumeKeywordTypeResult>>,
+    ) -> anyhow::Result<ConsumeKeywordTypeResult> {
         if results.is_empty() {
-            return Ok(ConsumeKeywordType::new(
+            return Ok(ConsumeKeywordTypeResult::new(
                 20,
                 String::from("etc"),
                 product_name.to_string(),
@@ -20,8 +22,8 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
             ));
         }
 
-        let mut manager: ScoreManager<ConsumeKeywordType> =
-            ScoreManager::<ConsumeKeywordType>::new();
+        let mut manager: ScoreManager<ConsumeKeywordTypeResult> =
+            ScoreManager::<ConsumeKeywordTypeResult>::new();
 
         for consume_type in results {
             let keyword_weight: f64 = *consume_type.source().keyword_weight() as f64;
@@ -34,7 +36,7 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
             manager.insert(word_dist_i64 + score_i64, consume_type.source);
         }
 
-        let score_data_keyword: ScoredData<ConsumeKeywordType> =
+        let score_data_keyword: ScoredData<ConsumeKeywordTypeResult> =
             manager.find_lowest().ok_or_else(|| {
                 anyhow!(
                     "[ElasticServiceImpl::find_consume_type] The mapped data for variable 'score_data_keyword' does not exist."
@@ -105,7 +107,7 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
     pub(super) async fn find_consume_type_judgement(
         &self,
         product_name: &str,
-    ) -> Result<ConsumeKeywordType, anyhow::Error> {
+    ) -> Result<ConsumeKeywordTypeResult, anyhow::Error> {
         let app_config: &AppConfig = AppConfig::get_global().inspect_err(|e| {
             error!(
                 "[ElasticServiceImpl::find_consume_type_judgement] app_config: {:#}",
@@ -133,7 +135,7 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
                 )
             })?;
 
-        let results: Vec<DocumentWithId<ConsumeKeywordType>> = self
+        let results: Vec<DocumentWithId<ConsumeKeywordTypeResult>> = self
             .find_query_result_vec(&response_body)
             .await
             .map_err(|e| {
@@ -149,7 +151,7 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
     pub(super) async fn find_consume_type_judgements(
         &self,
         product_names: &[String],
-    ) -> Result<Vec<ConsumeKeywordType>, anyhow::Error> {
+    ) -> Result<Vec<ConsumeKeywordTypeResult>, anyhow::Error> {
         if product_names.is_empty() {
             return Ok(Vec::new());
         }
@@ -186,11 +188,11 @@ impl<R: EsRepository + Sync + Send> ElasticServiceImpl<R> {
                 )
             })?;
 
-        let mut consume_types: Vec<ConsumeKeywordType> =
+        let mut consume_types: Vec<ConsumeKeywordTypeResult> =
             Vec::with_capacity(response_bodies.len());
 
         for (product_name, response_body) in product_names.iter().zip(response_bodies.iter()) {
-            let results: Vec<DocumentWithId<ConsumeKeywordType>> = self
+            let results: Vec<DocumentWithId<ConsumeKeywordTypeResult>> = self
                 .find_query_result_vec(response_body)
                 .await
                 .map_err(|e| {

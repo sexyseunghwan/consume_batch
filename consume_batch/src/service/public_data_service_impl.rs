@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 
 use crate::common::*;
-use crate::models::holiday::{HolidayApiResponse, HolidayBodyContent};
+use crate::dtos::holiday::{HolidayApiResponse, HolidayBodyContent};
 use crate::service_trait::public_data_service::PublicDataService;
 
 // ============================================================================

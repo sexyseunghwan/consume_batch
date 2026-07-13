@@ -1,6 +1,7 @@
 use crate::batch_log;
 use crate::common::*;
-use crate::models::{SpentTypeKeyword, batch_schedule::BatchScheduleItem};
+use crate::dtos::SpentTypeKeyword;
+use crate::models::batch_schedule::BatchScheduleItem;
 use crate::service_trait::{
     consume_service::ConsumeService, elastic_service::ElasticService, mysql_service::MysqlService,
     producer_service::ProducerService,

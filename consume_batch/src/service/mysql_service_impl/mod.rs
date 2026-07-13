@@ -19,9 +19,10 @@ use rust_decimal::Decimal;
 
 use crate::common::*;
 use crate::entity::dim_calendar;
+use crate::dtos::{AssetAmount, SpentDetailWithRelations, SpentTypeKeyword};
 use crate::models::{
-    AssetAmount, Crypto, CurrencyExchangeRateSnapshot, KisApiToken, SendEmailAggGroup, SpentDetail,
-    SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, Market,
+    Crypto, CurrencyExchangeRateSnapshot, KisApiToken, SendEmailAggGroup, SpentDetail,
+    SpentDetailIndexing, Stock, Market, CurrencyCode
 };
 use crate::repository::mysql_repository::MysqlRepository;
 use crate::service_trait::mysql_service::MysqlService;
@@ -132,6 +133,13 @@ where
         self.find_currency_exchange_rate_snapshot().await
     }
 
+    async fn find_exchange_rate_snapshot_by_target_currency(
+        &self,
+        target_currency: &str
+    ) -> anyhow::Result<Vec<CurrencyExchangeRateSnapshot>> {
+        self.find_exchange_rate_snapshot_by_target_currency(target_currency).await
+    }
+
     async fn modify_currency_exchange_rate_snapshot_bulk(
         &self,
         snapshot_map: &HashMap<i64, f64>,
@@ -195,6 +203,13 @@ where
         self.input_user_current_asset_snapshot_bulk(rows).await
     }
 
+    async fn input_user_asset_snapshot_summary_bulk(
+        &self,
+        rows: Vec<crate::entity::user_asset_snapshot_summary::ActiveModel>,
+    ) -> anyhow::Result<()> {
+        self.input_user_asset_snapshot_summary_bulk(rows).await
+    }
+
     async fn find_cash_asset_amount_batch(
         &self,
         currency_code: &str,
@@ -233,5 +248,9 @@ where
     ) -> anyhow::Result<()> {
         self.modify_kis_api_token(access_token, token_expired_at)
             .await
+    }
+
+    async fn find_all_currency_code(&self) -> anyhow::Result<Vec<CurrencyCode>> {
+        self.find_all_currency_code().await
     }
 }

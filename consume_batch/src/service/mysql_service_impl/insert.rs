@@ -1,8 +1,9 @@
 use crate::common::*;
 use crate::entity::{
-    dim_calendar, kis_api_token, spent_detail_indexing, user_current_asset_snapshot,
+    dim_calendar, kis_api_token, spent_detail_indexing, user_asset_snapshot_summary,
+    user_current_asset_snapshot,
 };
-use crate::models::SpentDetailWithRelations;
+use crate::dtos::SpentDetailWithRelations;
 use crate::repository::mysql_repository::MysqlRepository;
 use sea_orm::sea_query::OnConflict;
 
@@ -284,6 +285,56 @@ impl<R: MysqlRepository + Send + Sync> MysqlServiceImpl<R> {
         txn.commit().await.inspect_err(|e| {
             error!(
                 "[MysqlServiceImpl::input_user_current_asset_snapshot_bulk] \
+                 Commit failed: {:#}",
+                e
+            );
+        })?;
+
+        Ok(())
+    }
+
+    pub(super) async fn input_user_asset_snapshot_summary_bulk(
+        &self,
+        rows: Vec<user_asset_snapshot_summary::ActiveModel>,
+    ) -> anyhow::Result<()> {
+        if rows.is_empty() {
+            return Ok(());
+        }
+
+        let db: &DatabaseConnection = self.db_conn.get_connection();
+
+        let txn: DatabaseTransaction = db.begin().await.inspect_err(|e| {
+            error!(
+                "[MysqlServiceImpl::input_user_asset_snapshot_summary_bulk] \
+                 Failed to begin transaction: {:#}",
+                e
+            );
+        })?;
+
+        let result: std::result::Result<u64, DbErr> =
+            user_asset_snapshot_summary::Entity::insert_many(rows)
+                .exec_without_returning(&txn)
+                .await;
+
+        if let Err(e) = result {
+            error!(
+                "[MysqlServiceImpl::input_user_asset_snapshot_summary_bulk] \
+                 Bulk insert failed, rolling back: {:#}",
+                e
+            );
+            txn.rollback().await.inspect_err(|e| {
+                error!(
+                    "[MysqlServiceImpl::input_user_asset_snapshot_summary_bulk] \
+                     Rollback failed: {:#}",
+                    e
+                );
+            })?;
+            return Err(e.into());
+        }
+
+        txn.commit().await.inspect_err(|e| {
+            error!(
+                "[MysqlServiceImpl::input_user_asset_snapshot_summary_bulk] \
                  Commit failed: {:#}",
                 e
             );

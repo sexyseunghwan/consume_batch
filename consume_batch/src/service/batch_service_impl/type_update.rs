@@ -1,6 +1,7 @@
 //! Bulk re-classify `consume_keyword_type` columns in SPENT_DETAIL and SPENT_DETAIL_INDEXING.
 
-use crate::models::{ConsumeKeywordType, SpentDetail, SpentDetailIndexing, batch_schedule::*};
+use crate::dtos::ConsumeKeywordTypeResult;
+use crate::models::{SpentDetail, SpentDetailIndexing, batch_schedule::*};
 use crate::service_trait::{
     consume_service::ConsumeService, elastic_service::ElasticService,
     indexing_service::IndexingService, mysql_service::MysqlService,
@@ -120,7 +121,7 @@ where
                     { consume_keyword: "카카오",     consume_keyword_type: "인터넷 쇼핑", consume_keyword_type_id: 16, ... },
                 ]
             */
-            let spent_types: Vec<ConsumeKeywordType> = elastic_service
+            let spent_types: Vec<ConsumeKeywordTypeResult> = elastic_service
                 .find_consume_type_judgements(&spent_names)
                 .await
                 .inspect_err(|e| {
@@ -265,7 +266,7 @@ where
 
             let spent_names: Vec<String> = details.iter().map(|d| d.spent_name().clone()).collect();
 
-            let spent_types: Vec<ConsumeKeywordType> = elastic_service
+            let spent_types: Vec<ConsumeKeywordTypeResult> = elastic_service
                 .find_consume_type_judgements(&spent_names)
                 .await
                 .inspect_err(|e| {

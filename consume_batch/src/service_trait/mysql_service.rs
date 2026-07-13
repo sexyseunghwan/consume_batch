@@ -3,9 +3,10 @@ use rust_decimal::Decimal;
 
 use crate::common::*;
 use crate::entity::dim_calendar;
+use crate::dtos::{AssetAmount, SpentDetailWithRelations, SpentTypeKeyword};
 use crate::models::{
-    AssetAmount, Crypto, CurrencyExchangeRateSnapshot, KisApiToken, SendEmailAggGroup, SpentDetail,
-    SpentDetailIndexing, SpentDetailWithRelations, SpentTypeKeyword, Stock, Market,
+    Crypto, CurrencyExchangeRateSnapshot, KisApiToken, SendEmailAggGroup, SpentDetail,
+    SpentDetailIndexing, Stock, Market, CurrencyCode
 };
 
 /// Data access contract for MySQL reads and writes.
@@ -358,24 +359,25 @@ pub trait MysqlService {
     ///
     /// Requested query:
     /// ```sql
-    /// SELECT
-    ///   exchange_rate_snapshot_seq,
-    ///   base_currency_code,
-    ///   target_currency_code,
-    ///   base_amount,
-    ///   exchange_rate,
-    ///   is_active,
-    ///   created_at,
-    ///   updated_at,
-    ///   created_by,
-    ///   updated_by
-    /// FROM CURRENCY_EXCHANGE_RATE_SNAPSHOT
+    // SELECT
+    // *
+    // FROM CURRENCY_EXCHANGE_RATE_SNAPSHOT
     /// WHERE is_active = TRUE;
     /// ```
     async fn find_currency_exchange_rate_snapshot(
         &self,
     ) -> anyhow::Result<Vec<CurrencyExchangeRateSnapshot>>;
 
+
+    // SELECT
+    //  *
+    // FROM CURRENCY_EXCHANGE_RATE_SNAPSHOT
+    // WHERE target_currency_code = 'KRW'
+    async fn find_exchange_rate_snapshot_by_target_currency(
+        &self,
+        target_currency: &str
+    ) -> anyhow::Result<Vec<CurrencyExchangeRateSnapshot>>;
+    
     /// Bulk-updates exchange rate values for currency exchange rate snapshots.
     ///
     /// Requested query:
@@ -474,8 +476,8 @@ pub trait MysqlService {
     ///
     /// Requested query:
     /// ```sql
-    /// SELECT *
-    /// FROM STOCK_TYPE;
+    //  SELECT *
+    //  FROM STOCK_TYPE;
     /// ```
     async fn find_markets(&self) -> anyhow::Result<Vec<Market>>;
 
@@ -519,16 +521,16 @@ pub trait MysqlService {
     /// Requested query:
     /// ```sql
     /// SELECT
-    ///   ca.user_seq,
-    ///   SUM(c.crypto_price * ca.crypto_cnt) AS asset_sum
-    /// FROM CRYPTO_ASSET ca
-    /// INNER JOIN CRYPTO c
-    ///   ON ca.crypto_seq = c.crypto_seq
-    /// INNER JOIN CURRENCY_CODE cc
-    ///   ON cc.currency_code = c.currency_code
-    /// WHERE c.currency_code = :currency_code
-    ///   AND ca.user_seq IN (:user_seqs)
-    /// GROUP BY ca.user_seq;
+    //    ca.user_seq,
+    //    SUM(c.crypto_price * ca.crypto_cnt) AS asset_sum
+    //  FROM CRYPTO_ASSET ca
+    //  INNER JOIN CRYPTO c
+    //    ON ca.crypto_seq = c.crypto_seq
+    //  INNER JOIN CURRENCY_CODE cc
+    //    ON cc.currency_code = c.currency_code
+    //  WHERE c.currency_code = :currency_code
+    //    AND ca.user_seq IN (:user_seqs)
+    //  GROUP BY ca.user_seq;
     /// ```
     async fn find_crypto_asset_amount_batch(
         &self,
@@ -543,6 +545,15 @@ pub trait MysqlService {
     async fn input_user_current_asset_snapshot_bulk(
         &self,
         rows: Vec<crate::entity::user_current_asset_snapshot::ActiveModel>,
+    ) -> anyhow::Result<()>;
+
+    /// Bulk-inserts `USER_ASSET_SNAPSHOT_SUMMARY` rows.
+    ///
+    /// Each call persists one summary row per user for the current aggregation run.
+    /// Rows are inserted as new historical records (no upsert).
+    async fn input_user_asset_snapshot_summary_bulk(
+        &self,
+        rows: Vec<crate::entity::user_asset_snapshot_summary::ActiveModel>,
     ) -> anyhow::Result<()>;
 
     /// Fetches per-user total cash valuation for the provided currency and user list.
@@ -609,4 +620,7 @@ pub trait MysqlService {
         access_token: String,
         token_expired_at: DateTime<Utc>,
     ) -> anyhow::Result<()>;
+
+
+    async fn find_all_currency_code(&self) -> anyhow::Result<Vec<CurrencyCode>>;
 }

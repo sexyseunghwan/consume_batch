@@ -23,6 +23,7 @@ pub mod stock;
 pub mod stock_asset;
 pub mod stock_type;
 pub mod telegram_room;
+pub mod user_asset_snapshot_summary;
 pub mod user_current_asset_snapshot;
 pub mod user_payment_methods;
 pub mod users;

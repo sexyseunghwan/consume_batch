@@ -171,6 +171,19 @@ where
                     );
                 })?
             }
+            "sync_asset_total_summary" => {
+                Self::sync_asset_total_summary(
+                    schedule_item,
+                    mysql_service 
+                )
+                .await
+                .inspect_err(|e| {
+                    error!(
+                        "[BatchServiceImpl::input_batch_by_schedule] sync_current_asset_total: {:#}",
+                        e
+                    );
+                })?
+            }
             _ => {
                 batch_log!(
                     warn,

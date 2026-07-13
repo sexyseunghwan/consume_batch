@@ -3,12 +3,11 @@ use crate::{batch_log, common::*};
 
 use crate::app_config::AppConfig;
 
-use crate::dtos::{GroupAggregationRangeQuery, ReportDateRange};
-
-use crate::models::{
-    AggResultSet, DocumentWithId, SendEmailAggGroup, SpentDetailIndexing, SpentResultByType,
-    batch_schedule::*,
+use crate::dtos::{
+    AggResultSet, DocumentWithId, GroupAggregationRangeQuery, ReportDateRange, SpentResultByType,
 };
+
+use crate::models::{SendEmailAggGroup, SpentDetailIndexing, batch_schedule::*};
 
 use crate::service_trait::{
     consume_service::ConsumeService, elastic_service::ElasticService,

@@ -1,6 +1,6 @@
 use crate::common::*;
 
-use crate::models::document_with_id::*;
+use crate::dtos::document_with_id::*;
 
 #[doc = "Aggregation Results Structural Data"]
 #[derive(Debug, Serialize, Deserialize, Clone, Getters, Setters, new)]

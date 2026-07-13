@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use crate::common::*;
-use crate::models::ConsumerGroupLag;
+use crate::dtos::ConsumerGroupLag;
 
 /// Trait defining consume service operations.
 ///

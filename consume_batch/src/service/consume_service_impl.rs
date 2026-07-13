@@ -41,7 +41,7 @@
 //! ```
 
 use crate::common::*;
-use crate::models::{ConsumerGroupLag, PartitionLag};
+use crate::dtos::{ConsumerGroupLag, PartitionLag};
 use crate::repository::kafka_repository::*;
 use crate::service_trait::consume_service::*;
 

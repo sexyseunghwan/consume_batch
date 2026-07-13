@@ -1,8 +1,9 @@
 #![allow(dead_code)]
 use crate::common::*;
 
-use crate::dtos::GroupAggregationRangeQuery;
-use crate::models::{AggResultSet, ConsumeKeywordType, DocumentWithId};
+use crate::dtos::{
+    AggResultSet, ConsumeKeywordTypeResult, DocumentWithId, GroupAggregationRangeQuery,
+};
 
 #[async_trait]
 pub trait ElasticService {
@@ -242,7 +243,7 @@ pub trait ElasticService {
     async fn find_consume_type_judgement(
         &self,
         product_name: &str,
-    ) -> Result<ConsumeKeywordType, anyhow::Error>;
+    ) -> Result<ConsumeKeywordTypeResult, anyhow::Error>;
 
     /// Predicts consume keyword types for multiple product names in one batch.
     ///
@@ -250,7 +251,7 @@ pub trait ElasticService {
     async fn find_consume_type_judgements(
         &self,
         product_names: &[String],
-    ) -> Result<Vec<ConsumeKeywordType>, anyhow::Error>;
+    ) -> Result<Vec<ConsumeKeywordTypeResult>, anyhow::Error>;
 
     /// Converts a raw Elasticsearch response into typed search results.
     async fn find_query_result_vec<T: DeserializeOwned>(

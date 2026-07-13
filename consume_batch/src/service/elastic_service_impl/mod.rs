@@ -16,8 +16,9 @@ mod select;
 mod update;
 
 use crate::common::*;
-use crate::dtos::GroupAggregationRangeQuery;
-use crate::models::{AggResultSet, ConsumeKeywordType, DocumentWithId};
+use crate::dtos::{
+    AggResultSet, ConsumeKeywordTypeResult, DocumentWithId, GroupAggregationRangeQuery,
+};
 use crate::repository::es_repository::EsRepository;
 use crate::service_trait::elastic_service::ElasticService;
 
@@ -117,14 +118,14 @@ where
     async fn find_consume_type_judgement(
         &self,
         product_name: &str,
-    ) -> Result<ConsumeKeywordType, anyhow::Error> {
+    ) -> Result<ConsumeKeywordTypeResult, anyhow::Error> {
         self.find_consume_type_judgement(product_name).await
     }
 
     async fn find_consume_type_judgements(
         &self,
         product_names: &[String],
-    ) -> Result<Vec<ConsumeKeywordType>, anyhow::Error> {
+    ) -> Result<Vec<ConsumeKeywordTypeResult>, anyhow::Error> {
         self.find_consume_type_judgements(product_names).await
     }
 
